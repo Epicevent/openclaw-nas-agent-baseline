@@ -1,5 +1,16 @@
 # OpenClaw NAS Agent Baseline
 
+## Current Focus: Repairable OpenClaw State
+
+This repo now treats OpenClaw settings as repairable state, not as something that must be locked forever.
+
+- Container images pin the tool/runtime layer.
+- `scripts/backup-openclaw-state.sh` snapshots repairable per-user OpenClaw files.
+- `scripts/repair-openclaw-state.sh` restores a snapshot or reseeds workspace defaults.
+- NAS content and secrets stay outside this public repo.
+
+See [docs/OPENCLAW_RECOVERY.md](docs/OPENCLAW_RECOVERY.md).
+
 계정형 OpenClaw/NAS 환경에서 사용자가 리눅스 계정 하나만 받고 접속했을 때, 에이전트가 NAS 문서를 읽고 처리할 수 있도록 준비해야 하는 기본 설치 목록과 운영 스크립트 모음이다.
 
 이 repo의 기준 환경은 다음과 같다.
