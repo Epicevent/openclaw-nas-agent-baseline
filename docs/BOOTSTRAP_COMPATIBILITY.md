@@ -168,3 +168,21 @@ Therefore either:
 
 Those patches belong to the bootstrap layer, not to a second fresh-install
 wrapper.
+
+This repository includes the compatibility patch helper:
+
+```bash
+sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
+```
+
+After that, the expected check is:
+
+```bash
+bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+```
+
+Expected:
+
+```text
+bootstrap_install_env=ok
+```

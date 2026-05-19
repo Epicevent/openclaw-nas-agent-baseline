@@ -72,6 +72,13 @@ bash scripts/apply-openclaw-install-env.sh \
 This helper is intended to be called by `openclaw-bootstrap` during install.
 Operators should not have to run a separate recovery sequence after install.
 
+If the shared bootstrap does not yet support `OPENCLAW_INSTALL_ENV_FILE`, patch
+that bootstrap once:
+
+```bash
+sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
+```
+
 ## Documents
 
 - [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
