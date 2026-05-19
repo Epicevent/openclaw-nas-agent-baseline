@@ -4,18 +4,25 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  import-openclaw-env.sh --env-file FILE [--user USER] [--home HOME] [--no-runtime-env]
+  apply-openclaw-install-env.sh --env-file FILE [--user USER] [--home HOME] [--no-runtime-env] [--import-gateway-token]
 
-Imports selected values from an old OpenClaw .env file into a fresh account.
+Applies install-time OpenClaw settings into a newly created account.
 The script does not print secret values.
+
+This is not a restore step. It is the settings materialization step that the
+bootstrap should run during a fresh install when an install env file is present.
+
+By default, this script does not copy a gateway token from the env file. Fresh
+installs should keep the generated gateway token unless the operator explicitly
+passes --import-gateway-token.
 
 It updates:
   - ~/.openclaw/openclaw.json
   - ~/openclaw/.env, when that runtime env file exists
 
 Examples:
-  bash scripts/import-openclaw-env.sh --env-file /home/oc1/.openclaw-recovery/import/.env.oc1 --home /home/oc1
-  sudo bash scripts/import-openclaw-env.sh --env-file /secure/.env.oc1 --user oc1
+  bash scripts/apply-openclaw-install-env.sh --env-file /home/oc1/.openclaw-install.env --home /home/oc1
+  sudo bash scripts/apply-openclaw-install-env.sh --env-file /secure/oc1.install.env --user oc1
 USAGE
 }
 
@@ -23,6 +30,7 @@ target_user=""
 target_home=""
 env_file=""
 write_runtime_env=1
+import_gateway_token=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +48,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --no-runtime-env)
       write_runtime_env=0
+      shift
+      ;;
+    --import-gateway-token)
+      import_gateway_token=1
       shift
       ;;
     -h|--help)
@@ -93,11 +105,13 @@ OPENCLAW_IMPORT_ENV_FILE="$env_file" \
 OPENCLAW_IMPORT_CONFIG_PATH="$config_path" \
 OPENCLAW_IMPORT_RUNTIME_ENV_PATH="$runtime_env_path" \
 OPENCLAW_IMPORT_WRITE_RUNTIME_ENV="$write_runtime_env" \
+OPENCLAW_IMPORT_GATEWAY_TOKEN="$import_gateway_token" \
 OPENCLAW_IMPORT_USER="$target_user" \
 python3 - <<'PY'
 import json
 import os
 import re
+import secrets
 import shlex
 from pathlib import Path
 
@@ -105,6 +119,7 @@ env_file = Path(os.environ["OPENCLAW_IMPORT_ENV_FILE"])
 config_path = Path(os.environ["OPENCLAW_IMPORT_CONFIG_PATH"])
 runtime_env_path = Path(os.environ["OPENCLAW_IMPORT_RUNTIME_ENV_PATH"])
 write_runtime_env = os.environ["OPENCLAW_IMPORT_WRITE_RUNTIME_ENV"] == "1"
+import_gateway_token = os.environ["OPENCLAW_IMPORT_GATEWAY_TOKEN"] == "1"
 target_user = os.environ["OPENCLAW_IMPORT_USER"]
 
 key_re = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
@@ -126,6 +141,7 @@ def parse_value(raw: str) -> str:
 def parse_env(path: Path) -> dict[str, str]:
     out: dict[str, str] = {}
     for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.lstrip("\ufeff")
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
@@ -196,8 +212,10 @@ else:
 
 auth = gateway.setdefault("auth", {})
 auth.setdefault("mode", "token")
-if env.get("OPENCLAW_GATEWAY_TOKEN"):
+if import_gateway_token and env.get("OPENCLAW_GATEWAY_TOKEN"):
     auth["token"] = env["OPENCLAW_GATEWAY_TOKEN"]
+elif not auth.get("token"):
+    auth["token"] = secrets.token_urlsafe(32)
 
 control = gateway.setdefault("controlUi", {})
 if env.get("OPENCLAW_CONTROL_UI_BASEPATH"):
@@ -248,7 +266,6 @@ runtime_keys = {
     "OPENCLAW_EXTRA_MOUNTS",
     "OPENCLAW_GATEWAY_BIND",
     "OPENCLAW_GATEWAY_PORT",
-    "OPENCLAW_GATEWAY_TOKEN",
     "OPENCLAW_HOME_VOLUME",
     "OPENCLAW_HOST_GID",
     "OPENCLAW_HOST_UID",
@@ -276,6 +293,9 @@ runtime_keys = {
     "OTEL_SERVICE_NAME",
 }
 
+if import_gateway_token:
+    runtime_keys.add("OPENCLAW_GATEWAY_TOKEN")
+
 runtime_values = {key: env[key] for key in runtime_keys if key in env}
 if write_runtime_env and runtime_env_path.parent.exists() and runtime_values:
     upsert_env_file(runtime_env_path, runtime_values)
@@ -286,7 +306,8 @@ else:
 summary = {
     "updated_config": str(config_path),
     "updated_runtime_env": str(runtime_env_path) if runtime_env_written else None,
-    "gateway_token_imported": bool(env.get("OPENCLAW_GATEWAY_TOKEN")),
+    "gateway_token_imported": bool(import_gateway_token and env.get("OPENCLAW_GATEWAY_TOKEN")),
+    "gateway_token_policy": "imported_from_env" if import_gateway_token else "preserved_or_generated_fresh",
     "gemini_api_key_imported": bool(env.get("GEMINI_API_KEY")),
     "default_model_imported": bool(env.get("OPENCLAW_DEFAULT_MODEL")),
     "allowed_origins_imported": bool(origins),

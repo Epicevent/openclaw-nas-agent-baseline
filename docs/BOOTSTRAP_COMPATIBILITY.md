@@ -8,10 +8,11 @@ The two layers have different jobs.
 
 | Layer | Owner | Job |
 | --- | --- | --- |
-| `openclaw-bootstrap.sh` | host/account bootstrap | Create or start one OpenClaw Docker instance per Linux user. |
-| this repository | runtime baseline package | Build a compatible OpenClaw image with document-reading tools and provide repair/check scripts. |
+| `openclaw-bootstrap.sh` | host/account bootstrap | Create or start one OpenClaw Docker instance per Linux user from empty state. |
+| this repository | runtime baseline package | Build a compatible OpenClaw image with document-reading tools and provide install-settings/check helpers. |
 | `/home/ocN/.openclaw` | per-user state | Keep OpenClaw config, auth state, workspace, and account-specific settings. |
 | `/home/ocN/nas_docs` | host NAS mount | Keep the per-user NAS mount outside the container. |
+| `/home/ocN/.openclaw-install.env` | private install input | Provide required account settings such as `GEMINI_API_KEY`. |
 
 ## Standard bootstrap placement
 
@@ -45,6 +46,8 @@ The existing bootstrap owns:
 - bind mounts for `.openclaw`
 - bind mounts for `nas_docs`
 - gateway start/recreate
+- applying install settings during the install, when an install env file is
+  provided
 
 This repository should not duplicate that logic.
 
@@ -56,16 +59,20 @@ This repository owns:
 - `container/install-container-baseline.sh`
 - `scripts/build-container-baseline.sh`
 - `scripts/check-baseline.sh`
-- `scripts/backup-openclaw-state.sh`
-- `scripts/repair-openclaw-state.sh`
+- `scripts/apply-openclaw-install-env.sh`
 - `install.sh`
 - the tar.gz install package workflow
 
-It does not own NAS credentials, OpenClaw tokens, or per-user login state.
+It does not own NAS credentials, OpenClaw gateway tokens, or per-user login
+state. It does provide the code that writes required install settings, such as
+Gemini, into a newly created OpenClaw config when bootstrap calls it.
 
 ## Compatibility point
 
-Compatibility is the image name.
+Compatibility has two points:
+
+1. the image name
+2. the install settings helper
 
 The bootstrap already supports:
 
@@ -73,7 +80,7 @@ The bootstrap already supports:
 OPENCLAW_IMAGE=<image> openclaw-bootstrap
 ```
 
-So the compatible path is:
+So the image-compatible path is:
 
 ```bash
 cd /opt/openclaw-nas-agent-baseline
@@ -85,6 +92,17 @@ bash scripts/build-container-baseline.sh
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
 openclaw-bootstrap
 ```
+
+For accounts that require Gemini, bootstrap must also consume the private
+install env file and call the repo helper during the same install:
+
+```bash
+OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env \
+openclaw-bootstrap
+```
+
+That is still one bootstrap install. It is not a post-install restore.
 
 For another account:
 
@@ -116,6 +134,9 @@ Do not bake into the image:
 - `/home/ocN/.openclaw`
 - NAS documents
 
+Do provide API keys through the private install env file. They are runtime
+settings, not image content.
+
 ## What changing the image does
 
 Changing `OPENCLAW_IMAGE` swaps the tool/runtime layer.
@@ -134,11 +155,16 @@ Those are provided by the bootstrap and host bind mounts.
 
 The observed `openclaw-bootstrap.sh` accepts `OPENCLAW_IMAGE` from the shell
 environment. It does not appear to persist that value into `.env` by itself.
+It also does not currently apply `GEMINI_API_KEY` into `~/.openclaw/openclaw.json`
+as part of first install.
 
 Therefore either:
 
 - pass `OPENCLAW_IMAGE=openclaw-nas-agent:baseline` every time the bootstrap is
   used to recreate/start with the baseline image, or
 - patch the bootstrap separately to persist `OPENCLAW_IMAGE`.
+- patch the bootstrap to call `scripts/apply-openclaw-install-env.sh` when
+  `OPENCLAW_INSTALL_ENV_FILE` is set.
 
-That patch belongs to the bootstrap layer, not this runtime baseline repo.
+Those patches belong to the bootstrap layer, not to a second fresh-install
+wrapper.

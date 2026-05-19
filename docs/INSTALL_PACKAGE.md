@@ -1,13 +1,19 @@
 # Install Package
 
-This project can be shipped as a simple `tar.gz` install package.
+This project can be shipped as a simple `tar.gz` package.
 
-It is intentionally not a `.deb` package yet. The first goal is simpler:
+The package installs the baseline repo on the host, usually under:
 
-- download or copy one archive
-- extract it
-- run `install.sh`
-- get the same operator scripts, container baseline, and OpenClaw repair tools
+```text
+/opt/openclaw-nas-agent-baseline
+```
+
+That path gives `openclaw-bootstrap` a stable place to find:
+
+- `container/Dockerfile`
+- `scripts/build-container-baseline.sh`
+- `scripts/apply-openclaw-install-env.sh`
+- check scripts and docs
 
 ## Build
 
@@ -23,7 +29,7 @@ The output is written to `dist/`, for example:
 dist/openclaw-nas-agent-baseline-20260519-9b1d4ff.tar.gz
 ```
 
-## Install
+## Install On Host
 
 On the target host:
 
@@ -33,61 +39,39 @@ cd openclaw-nas-agent-baseline-*
 sudo bash install.sh
 ```
 
-Default install path:
+## What The Package Contains
 
-```text
-/opt/openclaw-nas-agent-baseline
-```
-
-Install and repair one account:
-
-```bash
-sudo bash install.sh --repair-user oc1 --check
-```
-
-Install and seed many accounts:
-
-```bash
-sudo bash install.sh --repair-users oc1,oc2,oc3
-```
-
-Force the default workspace files to be replaced:
-
-```bash
-sudo bash install.sh --repair-user oc1 --force-defaults
-```
-
-## What the package contains
-
-- host install scripts
-- container build scripts
-- OpenClaw workspace defaults
-- OpenClaw backup and repair scripts
+- baseline container build files
+- install-settings materializer
+- verification scripts
 - docs and examples
 
-## What the package does not contain
+## What The Package Does Not Contain
 
 - NAS credentials
-- OpenClaw login tokens
+- OpenClaw gateway tokens
 - API keys
 - SSH keys
 - user memory databases
 - NAS documents
 
-Those stay on the host in each user account, especially under:
+Secrets and per-account settings stay outside Git, for example:
 
 ```text
-/home/ocN/.openclaw
-/home/ocN/nas_docs
+/home/oc1/.openclaw-install.env
+/home/oc1/.openclaw
+/home/oc1/nas_docs
 ```
 
-## Mental model
+## Fresh Install Relationship
 
-The package makes a host repairable. It does not freeze every user state.
+The operator-facing install command remains bootstrap:
 
-```text
-install package -> /opt/openclaw-nas-agent-baseline
-container image -> repeatable tool/runtime layer
-/home/ocN/.openclaw -> account settings and tokens
-/home/ocN/nas_docs -> account NAS mount
+```bash
+OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env \
+openclaw-bootstrap
 ```
+
+The package is successful when bootstrap can use this repo's image and install
+settings helper during that one install flow.

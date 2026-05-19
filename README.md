@@ -1,115 +1,82 @@
 # OpenClaw NAS Agent Baseline
 
-## Current Focus: Repairable OpenClaw State
+This repository is the runtime baseline package for per-account OpenClaw
+containers.
 
-This repo now treats OpenClaw settings as repairable state, not as something that must be locked forever.
+It is not the host bootstrap. The shared `openclaw-bootstrap` script remains
+the single install/start entrypoint for each Linux account.
 
-- Container images pin the tool/runtime layer.
-- `scripts/backup-openclaw-state.sh` snapshots repairable per-user OpenClaw files.
-- `scripts/repair-openclaw-state.sh` restores a snapshot or reseeds workspace defaults.
-- `install.sh` and `scripts/build-install-package.sh` build a simple tar.gz install package.
-- NAS content and secrets stay outside this public repo.
+## Contract
 
-See [docs/OPENCLAW_RECOVERY.md](docs/OPENCLAW_RECOVERY.md).
-See [docs/INSTALL_PACKAGE.md](docs/INSTALL_PACKAGE.md) for packaging.
-See [docs/BOOTSTRAP_COMPATIBILITY.md](docs/BOOTSTRAP_COMPATIBILITY.md) for the role split with `openclaw-bootstrap.sh`.
-See [docs/FRESH_INSTALL_TEST.md](docs/FRESH_INSTALL_TEST.md) for the destructive fresh install test.
-See [docs/RESTORE_FROM_ENV.md](docs/RESTORE_FROM_ENV.md) for importing tokens/API keys from an old `.env`.
-
-Recommended shared bootstrap command:
+For a prepared account such as `oc1`, an empty-state install should be:
 
 ```bash
-OPENCLAW_IMAGE=openclaw-nas-agent:baseline openclaw-bootstrap
+OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env \
+openclaw-bootstrap
 ```
 
-계정형 OpenClaw/NAS 환경에서 사용자가 리눅스 계정 하나만 받고 접속했을 때, 에이전트가 NAS 문서를 읽고 처리할 수 있도록 준비해야 하는 기본 설치 목록과 운영 스크립트 모음이다.
+The account is considered installed only when:
 
-이 repo의 기준 환경은 다음과 같다.
+- the gateway container is healthy
+- the container uses `openclaw-nas-agent:baseline`
+- `/home/node/nas_docs` is visible inside the container
+- the document-reading tools from this repo are present
+- required install settings such as Gemini are already applied
 
-```text
-OS: Ubuntu 24.04 LTS
-사용자 계정: oc1 ~ oc20
-NAS 마운트: /home/ocN/nas_docs
-에이전트: OpenClaw
-목표: 사용자가 별도 설치 없이 NAS 문서 읽기/요약/검색 요청을 할 수 있게 함
-```
+Gemini settings are install input, not a later restore step.
 
-## 핵심 원칙
+## Role Split
 
-OpenClaw 에이전트가 알아서 설치할 수 있는 것과 관리자가 미리 설치해야 하는 것을 분리한다.
+| Layer | Job |
+| --- | --- |
+| host operation | Linux users, Docker access, CIFS/NAS mounts, reverse proxy, shared bootstrap placement. |
+| `openclaw-bootstrap` | Create/start one OpenClaw instance for the current Linux account from empty state. |
+| this repository | Build the baseline image and provide install-settings/check helpers. |
+| per-account private env | Store secrets such as `GEMINI_API_KEY`; never commit them. |
 
-에이전트가 사용자 홈 안에서 처리 가능한 영역:
-
-```text
-ClawHub skill 검색
-workspace skill 설치
-~/.openclaw 아래 캐시/설정 생성
-사용자 영역 Python/Node 패키지 설치
-```
-
-관리자가 미리 처리해야 하는 영역:
-
-```text
-리눅스 계정 생성
-SSH 접속 설정
-NAS CIFS 마운트
-mount 권한/소유권 설정
-apt/system 패키지 설치
-/usr/bin 계열 도구 설치
-Tesseract 언어팩 설치
-LibreOffice, Poppler, Pandoc, 7z 등 시스템 도구 설치
-```
-
-## 문서
-
-- [설치 매니페스트](docs/INSTALL_MANIFEST.md)
-- [운영 모델](docs/OPERATION_MODEL.md)
-- [컨테이너 베이스라인](docs/CONTAINER_BASELINE.md)
-- [리마운트 가이드](docs/REMOUNT_GUIDE.md)
-
-## 빠른 설치 순서
-
-OpenClaw가 호스트에서 직접 실행되는 경우:
+## Build The Baseline Image
 
 ```bash
-sudo bash scripts/install-system-baseline.sh
+BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
+IMAGE_TAG=openclaw-nas-agent:baseline \
+bash scripts/build-container-baseline.sh
 ```
 
-OpenClaw가 컨테이너 안에서 실행되는 경우:
+## Install Settings
+
+Per-account install settings live outside Git:
 
 ```bash
-BASE_IMAGE=<current-openclaw-runtime-image> bash scripts/build-container-baseline.sh
+/home/oc1/.openclaw-install.env
 ```
 
-OpenClaw skill을 계정별로 설치:
+Example keys:
 
 ```bash
-sudo bash scripts/install-user-openclaw-skills.sh
+GEMINI_API_KEY=...
+OPENCLAW_DEFAULT_MODEL=...
+OPENCLAW_CONTROL_UI_BASEPATH=/oc1
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
 
-설치 상태 확인:
+The helper that materializes those settings is:
 
 ```bash
-bash scripts/check-baseline.sh
-sudo bash scripts/check-users.sh
+bash scripts/apply-openclaw-install-env.sh \
+  --home /home/oc1 \
+  --env-file /home/oc1/.openclaw-install.env
 ```
 
-## 사용자가 접속 후 확인할 것
+This helper is intended to be called by `openclaw-bootstrap` during install.
+Operators should not have to run a separate recovery sequence after install.
 
-```bash
-whoami
-pwd
-ls ~/nas_docs
-openclaw skills list
-```
+## Documents
 
-## 현재 결론
-
-이 환경은 “관리자가 OS/NAS/기본 런타임을 제공하고, 에이전트가 workspace skill 계층을 자가 확장하는 구조”로 운영한다.
-
-즉 사용자가 아무것도 설치하지 않아도 되게 하려면, OpenClaw 실행 위치에 맞춰 기본 패키지와 skill 세트를 계정 생성 시점에 같이 준비해야 한다.
-
-```text
-OpenClaw가 host에서 실행됨       -> scripts/install-system-baseline.sh
-OpenClaw가 container에서 실행됨  -> container/Dockerfile로 image 확장
-```
+- [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
+- [Empty-state fresh install test](docs/FRESH_INSTALL_TEST.md)
+- [Install settings](docs/INSTALL_SETTINGS.md)
+- [Container baseline](docs/CONTAINER_BASELINE.md)
+- [Install package](docs/INSTALL_PACKAGE.md)
+- [Remount guide](docs/REMOUNT_GUIDE.md)
