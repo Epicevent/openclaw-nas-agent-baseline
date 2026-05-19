@@ -7,9 +7,11 @@ This repo now treats OpenClaw settings as repairable state, not as something tha
 - Container images pin the tool/runtime layer.
 - `scripts/backup-openclaw-state.sh` snapshots repairable per-user OpenClaw files.
 - `scripts/repair-openclaw-state.sh` restores a snapshot or reseeds workspace defaults.
+- `install.sh` and `scripts/build-install-package.sh` build a simple tar.gz install package.
 - NAS content and secrets stay outside this public repo.
 
 See [docs/OPENCLAW_RECOVERY.md](docs/OPENCLAW_RECOVERY.md).
+See [docs/INSTALL_PACKAGE.md](docs/INSTALL_PACKAGE.md) for packaging.
 
 계정형 OpenClaw/NAS 환경에서 사용자가 리눅스 계정 하나만 받고 접속했을 때, 에이전트가 NAS 문서를 읽고 처리할 수 있도록 준비해야 하는 기본 설치 목록과 운영 스크립트 모음이다.
 
