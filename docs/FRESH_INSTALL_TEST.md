@@ -386,3 +386,5 @@ Examples of values not preserved by this test:
 
 If those must survive reinstall, run a separate secret export/import or snapshot
 restore flow. That is a different test from this fresh install test.
+
+For old `.env` based recovery, see [RESTORE_FROM_ENV.md](RESTORE_FROM_ENV.md).

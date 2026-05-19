@@ -14,6 +14,7 @@ See [docs/OPENCLAW_RECOVERY.md](docs/OPENCLAW_RECOVERY.md).
 See [docs/INSTALL_PACKAGE.md](docs/INSTALL_PACKAGE.md) for packaging.
 See [docs/BOOTSTRAP_COMPATIBILITY.md](docs/BOOTSTRAP_COMPATIBILITY.md) for the role split with `openclaw-bootstrap.sh`.
 See [docs/FRESH_INSTALL_TEST.md](docs/FRESH_INSTALL_TEST.md) for the destructive fresh install test.
+See [docs/RESTORE_FROM_ENV.md](docs/RESTORE_FROM_ENV.md) for importing tokens/API keys from an old `.env`.
 
 Recommended shared bootstrap command:
 
