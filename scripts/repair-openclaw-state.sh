@@ -11,7 +11,7 @@ Repairs a user's OpenClaw state enough to get the agent usable again.
 Default behavior:
   - backs up the current ~/.openclaw repairable state
   - restores a snapshot if --snapshot is provided
-  - otherwise seeds repo defaults into ~/.openclaw/workspace
+  - otherwise seeds repo defaults into ~/.openclaw/workspace and creates a minimal gateway config
   - recreates workspace NAS symlinks to ~/nas_docs
   - fixes ownership for the target user
 
@@ -85,6 +85,7 @@ target_gid="$(id -g "$target_user" 2>/dev/null || true)"
 openclaw_dir="$target_home/.openclaw"
 workspace_dir="$openclaw_dir/workspace"
 recovery_dir="$target_home/.openclaw-recovery"
+config_path="$openclaw_dir/openclaw.json"
 
 mkdir -p "$openclaw_dir" "$workspace_dir" "$recovery_dir"
 
@@ -131,6 +132,69 @@ else
   install_default "AGENTS.md"
   install_default "TOOLS.md"
   install_default "RECOVERY.md"
+
+  if command -v python3 >/dev/null 2>&1; then
+    OPENCLAW_REPAIR_CONFIG_PATH="$config_path" \
+    OPENCLAW_REPAIR_USER="$target_user" \
+    OPENCLAW_REPAIR_WORKSPACE="/home/node/.openclaw/workspace" \
+    OPENCLAW_REPAIR_BASEPATH="${OPENCLAW_CONTROL_UI_BASEPATH:-/$target_user}" \
+    OPENCLAW_REPAIR_ALLOWED_ORIGINS="${OPENCLAW_PROXY_ALLOWED_ORIGINS:-${OPENCLAW_PROXY_PUBLIC_ORIGIN:-}}" \
+    python3 - <<'PY'
+import json
+import os
+import secrets
+from pathlib import Path
+
+path = Path(os.environ["OPENCLAW_REPAIR_CONFIG_PATH"])
+user = os.environ["OPENCLAW_REPAIR_USER"]
+workspace = os.environ["OPENCLAW_REPAIR_WORKSPACE"]
+base_path = os.environ["OPENCLAW_REPAIR_BASEPATH"] or f"/{user}"
+origins_raw = os.environ.get("OPENCLAW_REPAIR_ALLOWED_ORIGINS", "")
+
+if not base_path.startswith("/"):
+    base_path = f"/{base_path}"
+base_path = base_path.rstrip("/") or f"/{user}"
+
+if path.exists():
+    data = json.loads(path.read_text() or "{}")
+else:
+    data = {}
+
+gateway = data.setdefault("gateway", {})
+gateway.setdefault("mode", "local")
+gateway.setdefault("port", 18789)
+gateway.setdefault("bind", "lan")
+
+auth = gateway.setdefault("auth", {})
+auth.setdefault("mode", "token")
+if not auth.get("token"):
+    auth["token"] = secrets.token_urlsafe(32)
+
+control = gateway.setdefault("controlUi", {})
+control.setdefault("basePath", base_path)
+
+origins = []
+for raw in origins_raw.split(","):
+    origin = raw.strip().rstrip("/")
+    if origin and origin not in origins:
+        origins.append(origin)
+if origins:
+    control["allowedOrigins"] = origins
+
+control.setdefault("allowInsecureAuth", True)
+control.setdefault("dangerouslyDisableDeviceAuth", True)
+
+agents = data.setdefault("agents", {})
+defaults = agents.setdefault("defaults", {})
+defaults.setdefault("workspace", workspace)
+
+path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+path.chmod(0o600)
+PY
+    echo "seeded: $config_path"
+  else
+    echo "warning: python3 not found; skipped minimal OpenClaw gateway config seed" >&2
+  fi
 fi
 
 nas_mount="$target_home/nas_docs"

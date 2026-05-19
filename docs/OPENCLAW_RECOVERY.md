@@ -70,6 +70,15 @@ Repair with repo defaults:
 sudo bash scripts/repair-openclaw-state.sh --user oc1
 ```
 
+For a fresh account, the repair script also creates a minimal
+`~/.openclaw/openclaw.json` with:
+
+- `gateway.mode=local`
+- generated per-user gateway token
+- control UI base path
+- optional allowed origins from `OPENCLAW_PROXY_PUBLIC_ORIGIN` or
+  `OPENCLAW_PROXY_ALLOWED_ORIGINS`
+
 Repair and overwrite default workspace files:
 
 ```bash
