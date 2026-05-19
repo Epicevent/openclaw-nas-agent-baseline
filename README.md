@@ -12,6 +12,7 @@ This repo now treats OpenClaw settings as repairable state, not as something tha
 
 See [docs/OPENCLAW_RECOVERY.md](docs/OPENCLAW_RECOVERY.md).
 See [docs/INSTALL_PACKAGE.md](docs/INSTALL_PACKAGE.md) for packaging.
+See [docs/BOOTSTRAP_COMPATIBILITY.md](docs/BOOTSTRAP_COMPATIBILITY.md) for the role split with `openclaw-bootstrap.sh`.
 
 계정형 OpenClaw/NAS 환경에서 사용자가 리눅스 계정 하나만 받고 접속했을 때, 에이전트가 NAS 문서를 읽고 처리할 수 있도록 준비해야 하는 기본 설치 목록과 운영 스크립트 모음이다.
 
