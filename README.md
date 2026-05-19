@@ -13,6 +13,7 @@ This repo now treats OpenClaw settings as repairable state, not as something tha
 See [docs/OPENCLAW_RECOVERY.md](docs/OPENCLAW_RECOVERY.md).
 See [docs/INSTALL_PACKAGE.md](docs/INSTALL_PACKAGE.md) for packaging.
 See [docs/BOOTSTRAP_COMPATIBILITY.md](docs/BOOTSTRAP_COMPATIBILITY.md) for the role split with `openclaw-bootstrap.sh`.
+See [docs/FRESH_INSTALL_TEST.md](docs/FRESH_INSTALL_TEST.md) for the destructive fresh install test.
 
 Recommended shared bootstrap command:
 
