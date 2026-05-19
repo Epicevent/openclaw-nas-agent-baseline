@@ -13,6 +13,25 @@ The two layers have different jobs.
 | `/home/ocN/.openclaw` | per-user state | Keep OpenClaw config, auth state, workspace, and account-specific settings. |
 | `/home/ocN/nas_docs` | host NAS mount | Keep the per-user NAS mount outside the container. |
 
+## Standard bootstrap placement
+
+The shared bootstrap script should live outside any one user's home directory:
+
+```text
+/opt/openclaw-bootstrap/openclaw-bootstrap.sh
+/usr/local/bin/openclaw-bootstrap -> /opt/openclaw-bootstrap/openclaw-bootstrap.sh
+```
+
+That placement keeps the bootstrap account-neutral. The script still acts on the
+account that executes it because it derives defaults from `$HOME` and `$USER`.
+
+For example:
+
+```text
+oc1 runs openclaw-bootstrap  -> /home/oc1/openclaw, /home/oc1/.openclaw
+oc20 runs openclaw-bootstrap -> /home/oc20/openclaw, /home/oc20/.openclaw
+```
+
 ## What the bootstrap owns
 
 The existing bootstrap owns:
@@ -51,7 +70,7 @@ Compatibility is the image name.
 The bootstrap already supports:
 
 ```bash
-OPENCLAW_IMAGE=<image> bash /home/oc1/openclaw-bootstrap.sh
+OPENCLAW_IMAGE=<image> openclaw-bootstrap
 ```
 
 So the compatible path is:
@@ -64,7 +83,7 @@ IMAGE_TAG=openclaw-nas-agent:baseline \
 bash scripts/build-container-baseline.sh
 
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-bash /home/oc1/openclaw-bootstrap.sh
+openclaw-bootstrap
 ```
 
 For another account:
@@ -73,7 +92,7 @@ For another account:
 sudo su - oc20
 
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-bash /home/oc20/openclaw-bootstrap.sh
+openclaw-bootstrap
 ```
 
 ## Required image contract
