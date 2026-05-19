@@ -62,9 +62,11 @@ apt-get install -y --no-install-recommends \
   python3-pandas \
   python3-openpyxl \
   python3-docx \
-  python3-pptx \
   nodejs \
   npm
+
+python3 -m pip install --no-cache-dir --break-system-packages \
+  python-pptx
 
 if apt-cache show 7zip >/dev/null 2>&1; then
   apt-get install -y --no-install-recommends 7zip
