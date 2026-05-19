@@ -42,14 +42,21 @@ LibreOffice, Poppler, Pandoc, 7z 등 시스템 도구 설치
 
 - [설치 매니페스트](docs/INSTALL_MANIFEST.md)
 - [운영 모델](docs/OPERATION_MODEL.md)
+- [컨테이너 베이스라인](docs/CONTAINER_BASELINE.md)
 - [리마운트 가이드](docs/REMOUNT_GUIDE.md)
 
 ## 빠른 설치 순서
 
-관리자 계정에서:
+OpenClaw가 호스트에서 직접 실행되는 경우:
 
 ```bash
 sudo bash scripts/install-system-baseline.sh
+```
+
+OpenClaw가 컨테이너 안에서 실행되는 경우:
+
+```bash
+BASE_IMAGE=<current-openclaw-runtime-image> bash scripts/build-container-baseline.sh
 ```
 
 OpenClaw skill을 계정별로 설치:
@@ -78,4 +85,9 @@ openclaw skills list
 
 이 환경은 “관리자가 OS/NAS/기본 런타임을 제공하고, 에이전트가 workspace skill 계층을 자가 확장하는 구조”로 운영한다.
 
-즉 사용자가 아무것도 설치하지 않아도 되게 하려면, 이 repo의 시스템 패키지와 기본 skill 세트를 계정 생성 시점에 같이 준비해야 한다.
+즉 사용자가 아무것도 설치하지 않아도 되게 하려면, OpenClaw 실행 위치에 맞춰 기본 패키지와 skill 세트를 계정 생성 시점에 같이 준비해야 한다.
+
+```text
+OpenClaw가 host에서 실행됨       -> scripts/install-system-baseline.sh
+OpenClaw가 container에서 실행됨  -> container/Dockerfile로 image 확장
+```

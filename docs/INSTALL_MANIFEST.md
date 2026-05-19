@@ -2,6 +2,15 @@
 
 이 문서는 계정형 OpenClaw/NAS 환경에서 파일 읽기와 문서 처리를 위해 설치해야 하는 항목을 계층별로 정리한다.
 
+중요:
+
+```text
+OpenClaw가 host에서 실행되면 이 패키지들을 host에 설치한다.
+OpenClaw가 container에서 실행되면 이 패키지들을 OpenClaw container image 안에 설치한다.
+```
+
+컨테이너형 운영에서는 [컨테이너 베이스라인](CONTAINER_BASELINE.md)을 같이 따른다.
+
 ## 1. 시스템 기본 도구
 
 ```text

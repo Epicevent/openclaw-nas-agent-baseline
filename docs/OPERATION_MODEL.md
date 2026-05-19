@@ -97,6 +97,10 @@ openclaw skills install hwp-reader
 
 에이전트가 sudo 없이 설치하기 어려운 영역이다. 관리자가 미리 깔아야 한다.
 
+OpenClaw가 호스트에서 직접 실행되면 host에 설치한다.
+
+OpenClaw가 컨테이너 안에서 실행되면 컨테이너 image 안에 설치한다. host에만 설치하면 컨테이너 내부 에이전트는 해당 도구를 사용할 수 없다.
+
 예:
 
 ```text
@@ -108,6 +112,14 @@ pandoc
 7zip
 python3-venv
 python3-pip
+```
+
+컨테이너형 운영의 필수 조건:
+
+```text
+NAS CIFS mount는 host에서 수행
+/home/ocN/nas_docs를 OpenClaw 컨테이너에 read-only bind mount
+문서 처리 도구는 OpenClaw runtime image 안에 설치
 ```
 
 ## 6. 문서 처리 가능 범위
@@ -130,4 +142,4 @@ HWP/HWPX는 ClawHub의 `hwp-reader` 또는 `hwp-extract-pipeline` 같은 skill�
 
 ## 7. 보고 문장
 
-이 서비스는 계정별 NAS 마운트와 OpenClaw 실행 환경을 결합한 격리형 문서 작업 환경이다. 에이전트는 ClawHub를 통해 skill 계층을 일부 자가 확장할 수 있지만, 시스템 패키지와 NAS 마운트는 sudo/root 영역이므로 관리자가 사전 구성해야 한다.
+이 서비스는 계정별 NAS 마운트와 OpenClaw 실행 환경을 결합한 격리형 문서 작업 환경이다. 에이전트는 ClawHub를 통해 skill 계층을 일부 자가 확장할 수 있지만, 시스템 패키지와 NAS 마운트는 sudo/root 또는 컨테이너 이미지 빌드 영역이므로 관리자가 사전 구성해야 한다.
