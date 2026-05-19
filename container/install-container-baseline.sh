@@ -74,6 +74,10 @@ else
   apt-get install -y --no-install-recommends p7zip-full p7zip-rar || apt-get install -y --no-install-recommends p7zip-full
 fi
 
+if ! command -v 7z >/dev/null 2>&1 && command -v 7zz >/dev/null 2>&1; then
+  ln -sf "$(command -v 7zz)" /usr/local/bin/7z
+fi
+
 if command -v npm >/dev/null 2>&1; then
   npm install -g clawhub || true
 fi
