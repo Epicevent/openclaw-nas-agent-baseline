@@ -18,5 +18,7 @@ RUN chmod +x /tmp/install-container-baseline.sh \
   && /tmp/install-container-baseline.sh \
   && rm -f /tmp/install-container-baseline.sh
 
+USER node
+
 LABEL org.opencontainers.image.title="OpenClaw NAS Agent Baseline"
 LABEL org.opencontainers.image.description="Document-reading baseline packages for OpenClaw containers with per-user NAS mounts"
