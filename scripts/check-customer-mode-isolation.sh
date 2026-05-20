@@ -59,6 +59,8 @@ if [[ -z "$target_home" ]]; then
 fi
 
 container="openclaw-${target_user}-openclaw-gateway-1"
+runtime_env_path="$target_home/openclaw/.env"
+config_path="$target_home/.openclaw/openclaw.json"
 failed=0
 
 pass() {
@@ -88,18 +90,34 @@ fi
 
 check "customer_nas_read_ok" sudo -u "$target_user" test -r "$target_home/nas_docs"
 
-check "runtime_env_exists" test -f "$target_home/openclaw/.env"
-check "config_exists" test -f "$target_home/.openclaw/openclaw.json"
-check "customer_runtime_env_blocked" sudo -u "$target_user" test ! -r "$target_home/openclaw/.env"
-check "customer_config_blocked" sudo -u "$target_user" test ! -r "$target_home/.openclaw/openclaw.json"
-
-if [[ -f "$target_home/.openclaw/openclaw.json" ]] && grep -q '"apiKey"' "$target_home/.openclaw/openclaw.json"; then
-  fail "config_has_no_literal_api_key"
+if [[ -f "$runtime_env_path" ]]; then
+  pass "runtime_env_exists"
 else
-  pass "config_has_no_literal_api_key"
+  fail "runtime_env_exists"
+  echo "INFO missing_runtime_env=$runtime_env_path"
 fi
 
-if sudo python3 - "$target_home/.openclaw/openclaw.json" <<'PY'
+if [[ -f "$config_path" ]]; then
+  pass "config_exists"
+else
+  fail "config_exists"
+  echo "INFO missing_config=$config_path"
+fi
+
+check "customer_runtime_env_blocked" sudo -u "$target_user" test ! -r "$runtime_env_path"
+check "customer_config_blocked" sudo -u "$target_user" test ! -r "$config_path"
+
+if [[ -f "$config_path" ]]; then
+  if grep -q '"apiKey"' "$config_path"; then
+    fail "config_has_no_literal_api_key"
+  else
+    pass "config_has_no_literal_api_key"
+  fi
+else
+  fail "config_has_no_literal_api_key"
+fi
+
+if [[ -f "$config_path" ]] && sudo python3 - "$config_path" <<'PY'
 import json
 import sys
 
