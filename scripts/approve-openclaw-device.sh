@@ -71,8 +71,17 @@ fi
 cd "$openclaw_dir"
 export COMPOSE_PROJECT_NAME="$project"
 
+# The CLI service shares the gateway container's network namespace. Inside that
+# namespace the gateway listens on the container port 18789, not the host-mapped
+# per-account port such as 28789/28889.
+run_cli() {
+  docker compose "${compose_args[@]}" run --rm \
+    -e OPENCLAW_GATEWAY_PORT="${OPENCLAW_GATEWAY_CONTAINER_PORT:-18789}" \
+    openclaw-cli "$@"
+}
+
 if [[ "$mode" == "list" ]]; then
-  docker compose "${compose_args[@]}" run --rm openclaw-cli devices list
+  run_cli devices list
 else
-  docker compose "${compose_args[@]}" run --rm openclaw-cli devices approve "$device_id"
+  run_cli devices approve "$device_id"
 fi
