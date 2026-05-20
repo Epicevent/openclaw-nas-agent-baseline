@@ -13,8 +13,7 @@ Default:
 
 Examples:
   sudo bash install.sh
-  sudo bash install.sh --repair-user oc1 --check
-  sudo bash install.sh --repair-users oc1,oc2,oc3 --force-defaults
+  sudo bash install.sh --check
 
 This installer does not store NAS credentials, OpenClaw tokens, or API keys.
 USAGE
@@ -115,7 +114,7 @@ cat <<EOF
 
 Next useful commands:
   cd $prefix
-  bash scripts/check-baseline.sh
-  sudo bash scripts/check-users.sh
-  sudo bash scripts/repair-openclaw-state.sh --user oc1
+  sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
+  sudo bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+  less README.md
 EOF

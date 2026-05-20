@@ -1,97 +1,257 @@
 # OpenClaw NAS Agent Baseline
 
-This repository is the runtime baseline package for per-account OpenClaw
-containers.
+Start here. For a first install, do not read the other docs first.
 
-It is not the host bootstrap. The shared `openclaw-bootstrap` script remains
-the single install/start entrypoint for each Linux account.
+This repo has one job:
 
-## Contract
-
-For a prepared target account, an empty-state install should be:
-
-```bash
-OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
-openclaw-bootstrap
+```text
+Build an OpenClaw runtime image with document/NAS tools, then let the shared
+openclaw-bootstrap install that image for one Linux account.
 ```
 
-The account is considered installed only when:
+This repo does not own:
 
-- the gateway container is healthy
-- the container uses `openclaw-nas-agent:baseline`
-- `/home/node/nas_docs` is visible inside the container
-- the document-reading tools from this repo are present
-- required install settings such as Gemini are already applied
+- Linux account policy
+- NAS credentials
+- reverse proxy config
+- OpenClaw gateway tokens
+- Gemini/API secrets
 
-Gemini settings are install input, not a later restore step.
+## Flow
 
-## Role Split
+```text
+Once per host:
+  install this repo under /opt
+  patch the shared openclaw-bootstrap
 
-| Layer | Job |
-| --- | --- |
-| host operation | Linux users, Docker access, CIFS/NAS mounts, reverse proxy, shared bootstrap placement. |
-| `openclaw-bootstrap` | Create/start one OpenClaw instance for the current Linux account from empty state. |
-| this repository | Build the baseline image and provide install-settings/check helpers. |
-| per-account private env | Store secrets such as `GEMINI_API_KEY`; never commit them. |
-
-## Build The Baseline Image
-
-```bash
-BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
-IMAGE_TAG=openclaw-nas-agent:baseline \
-bash scripts/build-container-baseline.sh
+Once per account:
+  prepare the Linux user
+  create ~/.openclaw-install.env
+  mount NAS at ~/nas_docs
+  enter that account
+  clone this repo
+  build openclaw-nas-agent:baseline
+  run openclaw-bootstrap
+  verify
 ```
 
-## Install Settings
+## 1. Host Setup
 
-Per-account install settings live outside Git:
-
-```bash
-$HOME/.openclaw-install.env
-```
-
-Example keys:
+Run as a sudo-capable admin account.
 
 ```bash
-GEMINI_API_KEY=...
-OPENCLAW_DEFAULT_MODEL=...
-OPENCLAW_CONTROL_UI_BASEPATH=/$(id -un)
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
+TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
+git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
+cd "$TMP_REPO"
+
+sudo bash install.sh
 ```
 
-The helper that materializes those settings is:
-
-```bash
-bash scripts/apply-openclaw-install-env.sh \
-  --home "$HOME" \
-  --env-file "$HOME/.openclaw-install.env"
-```
-
-This helper is intended to be called by `openclaw-bootstrap` during install.
-Operators should not have to run a separate recovery sequence after install.
-
-If the shared bootstrap does not yet support `OPENCLAW_INSTALL_ENV_FILE`, patch
-that bootstrap once from an admin checkout or temporary clone:
+Patch the shared bootstrap:
 
 ```bash
 PATCH_REPO=/opt/openclaw-nas-agent-baseline
-if [ ! -f "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" ]; then
-  PATCH_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
-  git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$PATCH_REPO"
-fi
 
 sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh"
 sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" --check
 ```
 
-## Documents
+Expected:
+
+```text
+bootstrap_install_env=ok
+```
+
+## 2. Prepare One Account
+
+Change only `TARGET_USER` for each account.
+
+```bash
+TARGET_USER=oc1
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+
+if ! id "$TARGET_USER" >/dev/null 2>&1; then
+  sudo useradd -m -s /bin/bash "$TARGET_USER"
+  sudo passwd "$TARGET_USER"
+  TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+fi
+
+getent group docker >/dev/null || sudo groupadd docker
+getent group openclaw-installers >/dev/null || sudo groupadd openclaw-installers
+sudo usermod -aG docker,openclaw-installers "$TARGET_USER"
+
+id "$TARGET_USER"
+echo "home=$TARGET_HOME"
+```
+
+If the account was newly created or just added to the Docker group, open a new
+login session for that account before running Docker commands as it.
+
+## 3. Create Install Env
+
+Run as the admin account.
+
+```bash
+sudo install -o "$TARGET_USER" -g "$TARGET_USER" -m 600 /dev/null "$TARGET_HOME/.openclaw-install.env"
+
+read -rsp "GEMINI_API_KEY for $TARGET_USER: " GEMINI_API_KEY
+printf '\n'
+
+sudo tee "$TARGET_HOME/.openclaw-install.env" >/dev/null <<EOF
+GEMINI_API_KEY=$GEMINI_API_KEY
+OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
+OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
+OPENCLAW_GATEWAY_BIND=lan
+EOF
+
+sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.openclaw-install.env"
+sudo chmod 600 "$TARGET_HOME/.openclaw-install.env"
+unset GEMINI_API_KEY
+```
+
+Verify without printing secrets:
+
+```bash
+sudo test -f "$TARGET_HOME/.openclaw-install.env" && echo env_ok
+sudo test "$(sudo stat -c '%a' "$TARGET_HOME/.openclaw-install.env")" = "600" && echo env_mode_ok
+sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gemini_key_present
+sudo grep -q "^OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER$" "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
+```
+
+## 4. Mount NAS
+
+Run as the admin account.
+
+```bash
+sudo mkdir -p "$TARGET_HOME/nas_docs"
+sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/nas_docs"
+sudo test -f /etc/samba/hanpass.cred && echo cifs_cred_ok
+
+TARGET_UID="$(id -u "$TARGET_USER")"
+TARGET_GID="$(id -g "$TARGET_USER")"
+
+if ! findmnt -T "$TARGET_HOME/nas_docs" >/dev/null 2>&1; then
+  sudo mount -t cifs //192.168.0.222/hanpass "$TARGET_HOME/nas_docs" \
+    -o credentials=/etc/samba/hanpass.cred,uid="$TARGET_UID",gid="$TARGET_GID",forceuid,forcegid,ro,file_mode=0400,dir_mode=0500,iocharset=utf8,vers=3.1.1,nounix,noserverino,nosharesock
+fi
+```
+
+Verify:
+
+```bash
+findmnt -T "$TARGET_HOME/nas_docs" && echo nas_mount_ok
+sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo nas_read_ok
+```
+
+## 5. Fresh Install As Target User
+
+Enter the target account:
+
+```bash
+sudo su - "$TARGET_USER"
+cd "$HOME"
+```
+
+For a real new account this reset usually removes nothing. For a reinstall
+test, it removes the previous OpenClaw state but keeps env and NAS.
+
+```bash
+docker ps -a --filter "label=com.docker.compose.project=openclaw-$(id -un)" \
+  --format '{{.Names}}' | xargs -r docker rm -f
+
+rm -rf "$HOME/openclaw"
+rm -rf "$HOME/.openclaw"
+rm -rf "$HOME/.openclaw-auth-profile-secrets"
+rm -rf "$HOME/.config/openclaw"
+rm -rf "$HOME/.cache/openclaw"
+rm -rf "$HOME/openclaw-nas-agent-baseline-fresh"
+
+docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
+
+test -f "$HOME/.openclaw-install.env" && echo env_still_ok
+findmnt -T "$HOME/nas_docs" && echo nas_still_ok
+```
+
+Clone and build:
+
+```bash
+git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git \
+  "$HOME/openclaw-nas-agent-baseline-fresh"
+
+cd "$HOME/openclaw-nas-agent-baseline-fresh"
+git rev-parse --short HEAD
+
+BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
+IMAGE_TAG=openclaw-nas-agent:baseline \
+bash scripts/build-container-baseline.sh
+```
+
+Install with bootstrap:
+
+```bash
+OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
+OPENCLAW_BASELINE_DIR="$HOME/openclaw-nas-agent-baseline-fresh" \
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+openclaw-bootstrap < /dev/null
+```
+
+## 6. Verify
+
+```bash
+docker ps --filter "name=openclaw-$(id -un)" \
+  --format 'container={{.Names}} image={{.Image}} status={{.Status}}'
+```
+
+```bash
+python3 - <<'PY'
+import json, os
+cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
+print({
+  "gemini_api_key_present": bool(cfg.get("plugins", {}).get("entries", {}).get("google", {}).get("config", {}).get("webSearch", {}).get("apiKey")),
+  "gateway_token_present": bool(cfg.get("gateway", {}).get("auth", {}).get("token")),
+  "default_model": cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary"),
+})
+PY
+```
+
+```bash
+docker exec "openclaw-$(id -un)-openclaw-gateway-1" sh -lc '
+  id
+  test -d /home/node/.openclaw && echo openclaw_bind_ok
+  test -d /home/node/nas_docs && echo nas_bind_ok
+  printf "nas_sample="
+  find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l
+'
+```
+
+Print the gateway token:
+
+```bash
+python3 - <<'PY'
+import json, os
+cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
+print(cfg["gateway"]["auth"]["token"])
+PY
+```
+
+If the browser asks for device approval:
+
+```bash
+cd "$HOME/openclaw-nas-agent-baseline-fresh"
+bash scripts/approve-openclaw-device.sh DEVICE_ID_FROM_BROWSER
+```
+
+## Reference
+
+Do not start with these. They are for debugging or background.
 
 - [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
-- [Per-account fresh install runbook](docs/PER_ACCOUNT_FRESH_INSTALL_RUNBOOK.md)
-- [Empty-state fresh install test](docs/FRESH_INSTALL_TEST.md)
-- [Install settings](docs/INSTALL_SETTINGS.md)
 - [Container baseline](docs/CONTAINER_BASELINE.md)
+- [Install settings](docs/INSTALL_SETTINGS.md)
 - [Install package](docs/INSTALL_PACKAGE.md)
+- [Recovery](docs/OPENCLAW_RECOVERY.md)
 - [Remount guide](docs/REMOUNT_GUIDE.md)

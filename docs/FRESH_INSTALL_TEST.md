@@ -1,8 +1,7 @@
 # Empty-State Fresh Install Test
 
-This is the concrete test form of the account-neutral runbook in
-[PER_ACCOUNT_FRESH_INSTALL_RUNBOOK.md](PER_ACCOUNT_FRESH_INSTALL_RUNBOOK.md).
-Set `TARGET_USER` first, then run the commands for that account.
+This is the concrete test form of the account-neutral runbook in the repository
+README. Set `TARGET_USER` first, then run the commands for that account.
 
 This test proves the real package contract:
 
