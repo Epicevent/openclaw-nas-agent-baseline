@@ -140,6 +140,8 @@ openclaw-bootstrap < /dev/null
 
 That is the contract. No separate `fresh-install-account.sh` should be needed.
 Gemini is part of this install contract, not a later restore step.
+The Gemini API key must be provided to the Gateway runtime environment, not
+stored as a literal `apiKey` in `~/.openclaw/openclaw.json`.
 
 ## Success Checks
 
@@ -176,19 +178,27 @@ Run as the target account.
 
 ```bash
 jq '{
-  gemini_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
+  gemini_config_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
+  gemini_search_provider: .tools.web.search.provider,
   default_model: .agents.defaults.model.primary,
   gateway_token_present: (.gateway.auth.token != null)
 }' "$HOME/.openclaw/openclaw.json"
+
+grep -q '^GEMINI_API_KEY=' "$HOME/openclaw/.env" && echo gemini_runtime_env_present
 ```
 
 Expected:
 
 ```json
 {
-  "gemini_api_key_present": true,
+  "gemini_config_api_key_present": false,
+  "gemini_search_provider": "gemini",
   "gateway_token_present": true
 }
+```
+
+```text
+gemini_runtime_env_present
 ```
 
 To print the gateway token without exposing API keys:

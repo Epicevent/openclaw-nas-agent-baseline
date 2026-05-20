@@ -17,8 +17,11 @@ installs should keep the generated gateway token unless the operator explicitly
 passes --import-gateway-token.
 
 It updates:
-  - ~/.openclaw/openclaw.json
-  - ~/openclaw/.env, when that runtime env file exists
+  - ~/.openclaw/openclaw.json for non-secret settings
+  - ~/openclaw/.env for runtime env values, when ~/openclaw exists
+
+Secret values such as GEMINI_API_KEY are not written into openclaw.json. The
+Gateway reads them from its runtime environment.
 
 Examples:
   bash scripts/apply-openclaw-install-env.sh --env-file "$HOME/.openclaw-install.env" --home "$HOME"
@@ -232,7 +235,10 @@ if env.get("GEMINI_API_KEY"):
     plugins = data.setdefault("plugins", {}).setdefault("entries", {})
     google = plugins.setdefault("google", {})
     google["enabled"] = True
-    google.setdefault("config", {}).setdefault("webSearch", {})["apiKey"] = env["GEMINI_API_KEY"]
+    web_search_config = google.setdefault("config", {}).setdefault("webSearch", {})
+    # Keep API keys out of host-readable OpenClaw config. Gemini web search
+    # falls back to GEMINI_API_KEY from the Gateway environment.
+    web_search_config.pop("apiKey", None)
     web_search = data.setdefault("tools", {}).setdefault("web", {}).setdefault("search", {})
     web_search["provider"] = "gemini"
     web_search["enabled"] = True
@@ -308,7 +314,8 @@ summary = {
     "updated_runtime_env": str(runtime_env_path) if runtime_env_written else None,
     "gateway_token_imported": bool(import_gateway_token and env.get("OPENCLAW_GATEWAY_TOKEN")),
     "gateway_token_policy": "imported_from_env" if import_gateway_token else "preserved_or_generated_fresh",
-    "gemini_api_key_imported": bool(env.get("GEMINI_API_KEY")),
+    "gemini_api_key_runtime_env_requested": bool(env.get("GEMINI_API_KEY")),
+    "gemini_api_key_written_to_config": False,
     "default_model_imported": bool(env.get("OPENCLAW_DEFAULT_MODEL")),
     "allowed_origins_imported": bool(origins),
     "runtime_env_keys_imported": sorted(runtime_values) if runtime_env_written else [],

@@ -135,7 +135,7 @@ Do not bake into the image:
 - NAS documents
 
 Do provide API keys through the private install env file. They are runtime
-settings, not image content.
+settings, not image content and not `openclaw.json` content.
 
 ## What changing the image does
 
@@ -155,8 +155,8 @@ Those are provided by the bootstrap and host bind mounts.
 
 The observed `openclaw-bootstrap.sh` accepts `OPENCLAW_IMAGE` from the shell
 environment. It does not appear to persist that value into `.env` by itself.
-It also does not currently apply `GEMINI_API_KEY` into `~/.openclaw/openclaw.json`
-as part of first install.
+It also does not currently pass `GEMINI_API_KEY` from the install env contract
+into the Gateway runtime as part of first install.
 
 Therefore either:
 
@@ -164,7 +164,8 @@ Therefore either:
   used to recreate/start with the baseline image, or
 - patch the bootstrap separately to persist `OPENCLAW_IMAGE`.
 - patch the bootstrap to call `scripts/apply-openclaw-install-env.sh` when
-  `OPENCLAW_INSTALL_ENV_FILE` is set.
+  `OPENCLAW_INSTALL_ENV_FILE` is set. The helper writes non-secret config and
+  runtime env only; it must not store the API key in `openclaw.json`.
 
 Those patches belong to the bootstrap layer, not to a second fresh-install
 wrapper.

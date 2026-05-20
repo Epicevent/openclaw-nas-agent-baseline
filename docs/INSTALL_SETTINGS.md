@@ -4,7 +4,11 @@ Fresh install has to include settings that are required for first use.
 
 For this environment, `GEMINI_API_KEY` is not a restore item. It is install
 input. A new account is not considered successfully installed unless Gemini
-search/model settings are present in the newly created OpenClaw config.
+search/model settings are present and the Gateway receives `GEMINI_API_KEY` in
+its runtime environment.
+
+The API key itself must not be materialized into `~/.openclaw/openclaw.json`.
+OpenClaw can use the `GEMINI_API_KEY` environment fallback for Gemini search.
 
 ## Contract
 
@@ -77,9 +81,12 @@ jq '{
     token_present: (.gateway.auth.token != null),
     controlUi: .gateway.controlUi
   },
-  gemini_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
+  gemini_config_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
+  gemini_search_provider: .tools.web.search.provider,
   default_model: .agents.defaults.model.primary
 }' "$HOME/.openclaw/openclaw.json"
+
+grep -q '^GEMINI_API_KEY=' "$HOME/openclaw/.env" && echo gemini_runtime_env_present
 ```
 
 Expected:
@@ -90,6 +97,11 @@ Expected:
     "auth_mode": "token",
     "token_present": true
   },
-  "gemini_api_key_present": true
+  "gemini_config_api_key_present": false,
+  "gemini_search_provider": "gemini"
 }
+```
+
+```text
+gemini_runtime_env_present
 ```

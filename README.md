@@ -208,14 +208,31 @@ docker ps --filter "name=openclaw-$(id -un)" \
 
 ```bash
 python3 - <<'PY'
-import json, os
+import json, os, pathlib
 cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
+web_search=cfg.get("plugins", {}).get("entries", {}).get("google", {}).get("config", {}).get("webSearch", {})
+runtime_env=pathlib.Path("~/openclaw/.env").expanduser()
+runtime_env_gemini_present = False
+if runtime_env.exists():
+    runtime_env_gemini_present = any(
+        line.startswith("GEMINI_API_KEY=")
+        for line in runtime_env.read_text(encoding="utf-8", errors="replace").splitlines()
+    )
 print({
-  "gemini_api_key_present": bool(cfg.get("plugins", {}).get("entries", {}).get("google", {}).get("config", {}).get("webSearch", {}).get("apiKey")),
+  "gemini_config_api_key_present": "apiKey" in web_search,
+  "gemini_runtime_env_present": runtime_env_gemini_present,
   "gateway_token_present": bool(cfg.get("gateway", {}).get("auth", {}).get("token")),
   "default_model": cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary"),
 })
 PY
+```
+
+Expected:
+
+```text
+gemini_config_api_key_present: False
+gemini_runtime_env_present: True
+gateway_token_present: True
 ```
 
 ```bash
