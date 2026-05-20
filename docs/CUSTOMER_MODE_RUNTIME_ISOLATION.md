@@ -206,7 +206,7 @@ To check `/proc` exposure without printing secrets:
 gateway_pids="$(pgrep -f 'node dist/index.js gateway' || true)"
 proc_seen=no
 for pid in $gateway_pids; do
-  if sudo -u ocN sh -c "tr '\\000' '\\n' < /proc/$pid/environ 2>/dev/null | grep -q '^GEMINI_API_KEY='"; then
+  if sudo -u ocN sh -c 'tr "\000" "\n" < "$1" | grep -q "^GEMINI_API_KEY="' sh "/proc/$pid/environ" >/dev/null 2>&1; then
     proc_seen=yes
   fi
 done
