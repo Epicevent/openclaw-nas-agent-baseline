@@ -172,7 +172,8 @@ if not auth.get("token"):
 
 control = gateway.setdefault("controlUi", {})
 control.setdefault("basePath", base_path)
-control.setdefault("autoApproveWithToken", True)
+control.pop("autoApproveWithToken", None)
+control.setdefault("dangerouslyDisableDeviceAuth", True)
 
 origins = []
 for raw in origins_raw.split(","):

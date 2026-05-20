@@ -19,7 +19,7 @@ passes --import-gateway-token.
 It updates:
   - ~/.openclaw/openclaw.json for non-secret settings
   - ~/openclaw/.env for runtime env values, when ~/openclaw exists
-  - Control UI token-based device auto-approval, unless explicitly disabled
+  - Control UI device pairing bypass, unless explicitly disabled
 
 Secret values such as GEMINI_API_KEY are not written into openclaw.json. The
 Gateway reads them from its runtime environment.
@@ -228,8 +228,9 @@ elif not auth.get("token"):
     auth["token"] = secrets.token_urlsafe(32)
 
 control = gateway.setdefault("controlUi", {})
-control["autoApproveWithToken"] = bool_from_env(
-    env.get("OPENCLAW_CONTROL_UI_AUTO_APPROVE_WITH_TOKEN"),
+control.pop("autoApproveWithToken", None)
+control["dangerouslyDisableDeviceAuth"] = bool_from_env(
+    env.get("OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH"),
     default=True,
 )
 if env.get("OPENCLAW_CONTROL_UI_BASEPATH"):
@@ -275,7 +276,7 @@ runtime_keys = {
     "OPENCLAW_BRIDGE_PORT",
     "OPENCLAW_CONFIG_DIR",
     "OPENCLAW_CONTROL_UI_BASEPATH",
-    "OPENCLAW_CONTROL_UI_AUTO_APPROVE_WITH_TOKEN",
+    "OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH",
     "OPENCLAW_DEFAULT_MODEL",
     "OPENCLAW_DISABLE_BONJOUR",
     "OPENCLAW_DOCKER_APT_PACKAGES",
@@ -330,7 +331,7 @@ summary = {
     "gemini_api_key_written_to_config": False,
     "default_model_imported": bool(env.get("OPENCLAW_DEFAULT_MODEL")),
     "allowed_origins_imported": bool(origins),
-    "control_ui_auto_approve_with_token": bool(control.get("autoApproveWithToken")),
+    "control_ui_device_auth_disabled": bool(control.get("dangerouslyDisableDeviceAuth")),
     "runtime_env_keys_imported": sorted(runtime_values) if runtime_env_written else [],
 }
 print(json.dumps(summary, indent=2, ensure_ascii=False))

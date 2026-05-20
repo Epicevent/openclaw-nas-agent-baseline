@@ -138,7 +138,7 @@ oc1_nas_read_ok
 oc1_runtime_env_blocked
 oc1_config_blocked
 config_has_no_literal_api_key
-control_ui_auto_approve_with_token
+control_ui_device_auth_disabled
 oc1_docker_blocked=yes
 oc1_proc_env_gemini_visible=no
 container_env_gemini_present
@@ -153,7 +153,7 @@ oc1 can read its NAS.
 oc1 cannot read ~/openclaw/.env.
 oc1 cannot read ~/.openclaw/openclaw.json.
 openclaw.json does not contain a literal provider apiKey.
-Control UI can auto-approve browser device pairing when the valid Gateway token is presented.
+Control UI uses Gateway token auth without a separate browser-device approval step.
 oc1 cannot use Docker.
 oc1 cannot read the gateway's GEMINI_API_KEY through /proc.
 The container still receives GEMINI_API_KEY.
@@ -203,8 +203,8 @@ sudo -u ocN test ! -r /home/ocN/.openclaw/openclaw.json && echo customer_config_
 sudo python3 - <<PY
 import json
 cfg=json.load(open("/home/ocN/.openclaw/openclaw.json", encoding="utf-8"))
-assert cfg["gateway"]["controlUi"]["autoApproveWithToken"] is True
-print("control_ui_auto_approve_with_token")
+assert cfg["gateway"]["controlUi"]["dangerouslyDisableDeviceAuth"] is True
+print("control_ui_device_auth_disabled")
 PY
 ```
 
