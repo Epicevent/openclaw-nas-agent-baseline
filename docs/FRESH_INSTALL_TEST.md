@@ -73,6 +73,7 @@ account:
 GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
 OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER
+OPENCLAW_CONTROL_UI_AUTO_APPROVE_WITH_TOKEN=1
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
@@ -184,7 +185,8 @@ sudo jq '{
   gemini_config_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
   gemini_search_provider: .tools.web.search.provider,
   default_model: .agents.defaults.model.primary,
-  gateway_token_present: (.gateway.auth.token != null)
+  gateway_token_present: (.gateway.auth.token != null),
+  control_ui_auto_approve_with_token: (.gateway.controlUi.autoApproveWithToken == true)
 }' "$TARGET_HOME/.openclaw/openclaw.json"
 
 sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/openclaw/.env" && echo gemini_runtime_env_present
@@ -196,7 +198,8 @@ Expected:
 {
   "gemini_config_api_key_present": false,
   "gemini_search_provider": "gemini",
-  "gateway_token_present": true
+  "gateway_token_present": true,
+  "control_ui_auto_approve_with_token": true
 }
 ```
 
@@ -273,8 +276,9 @@ https://www.ji-tech.co.kr/<account>/ code=200 redirect=
 
 ## Device Pairing
 
-If the browser asks for a one-time device approval, do not disable device auth.
-Approve only the displayed device id:
+Fresh customer-mode installs should not require a one-time browser device
+approval when the valid Gateway token is used. If an older OpenClaw build still
+asks, approve only the displayed device id:
 
 ```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \

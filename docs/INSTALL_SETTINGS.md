@@ -20,7 +20,8 @@ When an install env file is provided, bootstrap should:
 2. create `~/.openclaw`
 3. apply install settings into the new config
 4. start/restart the gateway
-5. finish only after the container is healthy
+5. enable token-based Control UI device auto-approval
+6. finish only after the container is healthy
 
 The package repo provides the helper that materializes those settings:
 
@@ -56,6 +57,7 @@ GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
 OPENCLAW_SANDBOX=...
 OPENCLAW_CONTROL_UI_BASEPATH=/$(id -un)
+OPENCLAW_CONTROL_UI_AUTO_APPROVE_WITH_TOKEN=1
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
@@ -81,7 +83,7 @@ jq '{
   gateway: {
     auth_mode: .gateway.auth.mode,
     token_present: (.gateway.auth.token != null),
-    controlUi: .gateway.controlUi
+    control_ui_auto_approve_with_token: (.gateway.controlUi.autoApproveWithToken == true)
   },
   gemini_config_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
   gemini_search_provider: .tools.web.search.provider,
@@ -97,7 +99,8 @@ Expected:
 {
   "gateway": {
     "auth_mode": "token",
-    "token_present": true
+    "token_present": true,
+    "control_ui_auto_approve_with_token": true
   },
   "gemini_config_api_key_present": false,
   "gemini_search_provider": "gemini"

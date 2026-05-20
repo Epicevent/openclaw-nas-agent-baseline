@@ -138,6 +138,7 @@ oc1_nas_read_ok
 oc1_runtime_env_blocked
 oc1_config_blocked
 config_has_no_literal_api_key
+control_ui_auto_approve_with_token
 oc1_docker_blocked=yes
 oc1_proc_env_gemini_visible=no
 container_env_gemini_present
@@ -152,6 +153,7 @@ oc1 can read its NAS.
 oc1 cannot read ~/openclaw/.env.
 oc1 cannot read ~/.openclaw/openclaw.json.
 openclaw.json does not contain a literal provider apiKey.
+Control UI can auto-approve browser device pairing when the valid Gateway token is presented.
 oc1 cannot use Docker.
 oc1 cannot read the gateway's GEMINI_API_KEY through /proc.
 The container still receives GEMINI_API_KEY.
@@ -198,6 +200,12 @@ docker inspect "openclaw-ocN-openclaw-gateway-1" \
 sudo -u ocN test -r /home/ocN/nas_docs && echo customer_nas_read_ok
 sudo -u ocN test ! -r /home/ocN/openclaw/.env && echo customer_runtime_env_blocked
 sudo -u ocN test ! -r /home/ocN/.openclaw/openclaw.json && echo customer_config_blocked
+sudo python3 - <<PY
+import json
+cfg=json.load(open("/home/ocN/.openclaw/openclaw.json", encoding="utf-8"))
+assert cfg["gateway"]["controlUi"]["autoApproveWithToken"] is True
+print("control_ui_auto_approve_with_token")
+PY
 ```
 
 To check `/proc` exposure without printing secrets:

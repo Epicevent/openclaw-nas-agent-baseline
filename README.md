@@ -91,6 +91,7 @@ sudo tee "$TARGET_HOME/.openclaw-install.env" >/dev/null <<EOF
 GEMINI_API_KEY=$GEMINI_API_KEY
 OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
 OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER
+OPENCLAW_CONTROL_UI_AUTO_APPROVE_WITH_TOKEN=1
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 OPENCLAW_GATEWAY_BIND=lan
@@ -198,6 +199,7 @@ PASS config_exists
 PASS customer_runtime_env_blocked
 PASS customer_config_blocked
 PASS config_has_no_literal_api_key
+PASS control_ui_auto_approve_with_token
 PASS customer_docker_blocked
 PASS customer_proc_env_gemini_blocked
 PASS container_env_gemini_present
@@ -233,8 +235,27 @@ Use the token with the account's proxied Control UI URL:
 https://YOUR_CONTROL_UI_HOST/$TARGET_USER/
 ```
 
-If the browser asks for device approval, approve only the device id shown by the
-browser:
+Normal installs should not ask for device approval. The install settings set
+`gateway.controlUi.autoApproveWithToken=true`, so a browser that presents the
+valid Gateway token should be admitted without a separate device approval step.
+
+Verify the setting as admin:
+
+```bash
+TARGET_USER=oc1
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+
+sudo python3 - <<PY
+import json
+from pathlib import Path
+
+cfg = json.loads(Path("$TARGET_HOME/.openclaw/openclaw.json").read_text(encoding="utf-8"))
+print(cfg.get("gateway", {}).get("controlUi", {}).get("autoApproveWithToken") is True)
+PY
+```
+
+If an older OpenClaw build still asks for device approval, approve only the
+device id shown by the browser:
 
 ```bash
 TARGET_USER=oc1

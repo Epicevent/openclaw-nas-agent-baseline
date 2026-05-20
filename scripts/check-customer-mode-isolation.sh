@@ -14,6 +14,7 @@ Expected pass state:
   - USER cannot read /home/USER/openclaw/.env
   - USER cannot read /home/USER/.openclaw/openclaw.json
   - USER cannot see GEMINI_API_KEY through /proc
+  - Control UI can auto-approve device pairing when a valid gateway token is used
   - gateway container has GEMINI_API_KEY and can read NAS
 
 Run as root/admin.
@@ -96,6 +97,20 @@ if [[ -f "$target_home/.openclaw/openclaw.json" ]] && grep -q '"apiKey"' "$targe
   fail "config_has_no_literal_api_key"
 else
   pass "config_has_no_literal_api_key"
+fi
+
+if sudo python3 - "$target_home/.openclaw/openclaw.json" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+enabled = data.get("gateway", {}).get("controlUi", {}).get("autoApproveWithToken") is True
+raise SystemExit(0 if enabled else 1)
+PY
+then
+  pass "control_ui_auto_approve_with_token"
+else
+  fail "control_ui_auto_approve_with_token"
 fi
 
 if sudo -u "$target_user" docker ps >/tmp/openclaw-customer-check-docker.out 2>/tmp/openclaw-customer-check-docker.err; then
