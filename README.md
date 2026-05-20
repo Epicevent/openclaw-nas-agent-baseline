@@ -1,32 +1,31 @@
 # OpenClaw NAS Agent Baseline
 
-Start here.
+이 저장소는 고객사별 Linux 계정(`oc1`, `oc2`, ...)마다 독립된 OpenClaw
+컨테이너를 만들고, 각 계정 전용 NAS 경로를 컨테이너에 붙이기 위한 설치
+패키지다.
 
-This repo builds the OpenClaw runtime image and provides the host-side helpers
-needed to run one isolated OpenClaw instance per Linux customer account.
-
-The default target is **customer mode**:
+기본 목표는 **customer mode**다.
 
 ```text
-Customer account ocN:
-  can SSH in
-  can read /home/ocN/nas_docs
-  cannot use Docker
-  cannot read runtime env/API keys
-  cannot read OpenClaw raw config
+고객 계정 ocN:
+  SSH 접속 가능
+  /home/ocN/nas_docs 읽기 가능
+  Docker 사용 불가
+  API key/runtime env 읽기 불가
+  OpenClaw raw config 읽기 불가
 
-Runtime account ocN_rt:
-  is not a human login account
-  runs the OpenClaw gateway container
-  reads API keys from runtime env
-  reads NAS through ocN_data group
+런타임 계정 ocN_rt:
+  사람이 로그인하지 않는 시스템 계정
+  OpenClaw gateway 컨테이너 실행
+  API key/runtime env 읽기 가능
+  ocN_data 그룹을 통해 NAS 읽기 가능
 ```
 
-Do not hand an account to a customer until the customer-mode check passes.
+고객에게 계정을 넘기기 전에 반드시 customer-mode check가 통과해야 한다.
 
-## Host Setup
+## 1. Host Setup
 
-Run once as a sudo-capable admin account:
+sudo 가능한 관리자 계정에서 한 번 실행한다.
 
 ```bash
 TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
@@ -36,7 +35,7 @@ cd "$TMP_REPO"
 sudo bash install.sh
 ```
 
-Patch the shared bootstrap:
+공용 bootstrap에 이 저장소의 설치 hook을 패치한다.
 
 ```bash
 PATCH_REPO=/opt/openclaw-nas-agent-baseline
@@ -45,16 +44,16 @@ sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh"
 sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" --check
 ```
 
-Expected:
+정상 출력:
 
 ```text
 bootstrap_install_env=ok
 bootstrap_customer_mode=ok
 ```
 
-## Prepare One Account
+## 2. 계정 준비
 
-Run as admin. Change only `TARGET_USER`.
+관리자 계정에서 실행한다. 바꿀 값은 `TARGET_USER` 하나다.
 
 ```bash
 TARGET_USER=oc1
@@ -67,19 +66,18 @@ if ! id "$TARGET_USER" >/dev/null 2>&1; then
 fi
 
 getent group openclaw-installers >/dev/null || sudo groupadd openclaw-installers
-
 sudo usermod -aG openclaw-installers "$TARGET_USER"
 
 id "$TARGET_USER"
 echo "home=$TARGET_HOME"
 ```
 
-Do not give the customer this account yet.
+주의: 고객 계정을 Docker 그룹에 넣지 않는다.
 
-## Create Install Env
+## 3. 설치 입력 파일 만들기
 
-This file is install input. It is locked down by the customer-mode isolation
-bootstrap path and is not readable by the customer account.
+`$TARGET_HOME/.openclaw-install.env`는 설치 입력 파일이다. API key는 여기에
+들어가지만, 설치 후 고객 계정은 이 파일을 읽을 수 없다.
 
 ```bash
 sudo install -o root -g root -m 600 /dev/null "$TARGET_HOME/.openclaw-install.env"
@@ -102,17 +100,17 @@ sudo chmod 600 "$TARGET_HOME/.openclaw-install.env"
 unset GEMINI_API_KEY
 ```
 
-Verify without printing secrets:
+값 자체를 출력하지 않고 존재 여부만 확인한다.
 
 ```bash
 sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gemini_key_present
 sudo grep -q "^OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER$" "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
 ```
 
-## NAS Prerequisites
+## 4. NAS 준비와 전달 방식
 
-Direct customer-mode bootstrap remounts the account NAS path with the final
-customer/runtime shared permissions.
+이 단계는 NAS를 직접 마운트하는 단계가 아니다. bootstrap이 마운트할 수
+있도록 디렉터리와 credential 파일 존재만 확인한다.
 
 ```bash
 sudo mkdir -p "$TARGET_HOME/nas_docs"
@@ -120,18 +118,29 @@ sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/nas_docs"
 sudo test -f /etc/samba/hanpass.cred && echo cifs_cred_ok
 ```
 
-For a non-default share or credentials file, pass these to bootstrap:
+기본 NAS 값은 bootstrap patch 안에 들어 있다.
 
-```bash
-OPENCLAW_CUSTOMER_SHARE=//server/share
-OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/cifs.cred
+```text
+OPENCLAW_CUSTOMER_SHARE=//192.168.0.222/hanpass
+OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred
 ```
 
-## Bootstrap In Customer Mode
+기본값을 쓸 때는 bootstrap 명령에 NAS 값을 따로 적지 않아도 된다.
 
-Run as admin. The customer account does not need Docker group membership.
+NAS share나 credential 파일이 기본값과 다르면, bootstrap 실행 명령의
+`sudo env` 블록에 아래 두 줄을 추가해서 전달한다.
 
-Build the baseline image:
+```bash
+OPENCLAW_CUSTOMER_SHARE='//192.168.0.222/hanpass' \
+OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred \
+```
+
+실제 마운트는 customer-mode bootstrap이 수행한다. 최종 마운트 권한은
+`ocN`과 `ocN_rt`만 읽을 수 있는 형태다.
+
+## 5. Baseline 이미지 빌드
+
+관리자 계정에서 실행한다.
 
 ```bash
 cd /opt/openclaw-nas-agent-baseline
@@ -142,7 +151,45 @@ sudo env \
   bash scripts/build-container-baseline.sh
 ```
 
-For a reinstall test, remove previous OpenClaw state but keep env and NAS:
+## 6. Customer Mode Bootstrap
+
+관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, NAS 마운트, runtime
+계정 구성, 권한 잠금을 한 번에 수행한다.
+
+기본 NAS를 쓰는 경우:
+
+```bash
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER="$TARGET_USER" \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  openclaw-bootstrap < /dev/null
+```
+
+NAS 값을 직접 전달해야 하는 경우:
+
+```bash
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER="$TARGET_USER" \
+  OPENCLAW_CUSTOMER_SHARE='//192.168.0.222/hanpass' \
+  OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  openclaw-bootstrap < /dev/null
+```
+
+## 7. 재설치 테스트 때 지울 것
+
+fresh install 검증을 위해 기존 OpenClaw 상태를 지울 때만 사용한다. NAS,
+proxy, `.openclaw-install.env`, CIFS credential은 지우지 않는다.
 
 ```bash
 sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \
@@ -158,38 +205,16 @@ sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
 sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
 ```
 
-Run bootstrap:
+## 8. 설치 확인
 
-```bash
-sudo env \
-  OPENCLAW_CUSTOMER_MODE=1 \
-  OPENCLAW_TARGET_USER="$TARGET_USER" \
-  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
-  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
-  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
-  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
-  openclaw-bootstrap < /dev/null
-```
-
-## Verify Customer Mode
-
-Run as admin before giving the account to a customer:
+관리자 계정에서 실행한다.
 
 ```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
   --user "$TARGET_USER"
 ```
 
-If converting an older staging install, use the migration helper:
-
-```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-customer-mode-isolation.sh \
-  --user "$TARGET_USER" \
-  --check
-```
-
-Expected pass lines:
+정상 출력에는 아래 PASS들이 포함되어야 한다.
 
 ```text
 PASS customer_not_in_docker_group
@@ -206,15 +231,19 @@ PASS container_env_gemini_present
 PASS container_nas_read_ok
 ```
 
-Now the account can be handed to the customer.
+`container_env_gemini_present` 또는 `container_nas_read_ok`가 실패하고
+컨테이너가 `restarting/unhealthy`면 먼저 로그를 본다.
 
-## First Web UI Access
+```bash
+sudo docker logs --tail=200 "openclaw-$TARGET_USER-openclaw-gateway-1"
+```
 
-After customer-mode bootstrap passes its check, the customer account has no
-Docker or raw config access. An admin should provide the first Gateway
-connection details.
+## 9. 고객에게 전달할 Web UI 정보
 
-Print the Gateway token as admin:
+고객 계정은 Docker나 raw config를 읽을 수 없으므로, 최초 접속 정보는
+관리자가 확인해서 전달한다.
+
+Gateway token 출력:
 
 ```bash
 TARGET_USER=oc1
@@ -229,33 +258,27 @@ print(cfg["gateway"]["auth"]["token"])
 PY
 ```
 
-Use the token with the account's proxied Control UI URL:
+고객에게 전달할 URL 형식:
 
 ```text
 https://YOUR_CONTROL_UI_HOST/$TARGET_USER/
 ```
 
-Normal installs should not ask for device approval. The install settings set
-`gateway.controlUi.dangerouslyDisableDeviceAuth=true`, so the hosted Control UI
-uses Gateway token auth without a separate browser-device approval step.
+정상 설치에서는 별도의 device approval이 뜨지 않아야 한다. 현재 hosted
+customer flow에서는 아래 설정을 사용한다.
 
-Verify the setting as admin:
-
-```bash
-TARGET_USER=oc1
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-
-sudo python3 - <<PY
-import json
-from pathlib import Path
-
-cfg = json.loads(Path("$TARGET_HOME/.openclaw/openclaw.json").read_text(encoding="utf-8"))
-print(cfg.get("gateway", {}).get("controlUi", {}).get("dangerouslyDisableDeviceAuth") is True)
-PY
+```json
+{
+  "gateway": {
+    "controlUi": {
+      "dangerouslyDisableDeviceAuth": true
+    }
+  }
+}
 ```
 
-If an older OpenClaw build still asks for device approval, approve only the
-device id shown by the browser:
+그래도 구버전 OpenClaw에서 device approval을 요구하면, 브라우저에 표시된
+device id만 승인한다.
 
 ```bash
 TARGET_USER=oc1
@@ -266,7 +289,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
   "$DEVICE_ID"
 ```
 
-To inspect pending or known devices:
+pending device 확인:
 
 ```bash
 TARGET_USER=oc1
@@ -276,9 +299,9 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
   --list
 ```
 
-## Customer Smoke Test
+## 10. 고객 계정 Smoke Test
 
-Open a new terminal and start a fresh customer SSH session:
+새 터미널에서 고객 계정으로 SSH 접속한다.
 
 ```bash
 TARGET_USER=oc1
@@ -286,7 +309,7 @@ SSH_HOST=YOUR_CUSTOMER_SSH_HOST
 ssh "$TARGET_USER@$SSH_HOST"
 ```
 
-Expected:
+고객 계정에서 확인한다.
 
 ```bash
 id
@@ -296,14 +319,14 @@ cat ~/.openclaw/openclaw.json
 docker ps
 ```
 
-Expected behavior:
+기대 결과:
 
 ```text
 id
-  no docker group
+  docker group 없음
 
 ls ~/nas_docs
-  works
+  읽기 가능
 
 cat ~/openclaw/.env
   Permission denied
@@ -315,7 +338,7 @@ docker ps
   permission denied
 ```
 
-## Reference
+## 참고 문서
 
 - [Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md)
 - [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
