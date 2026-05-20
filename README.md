@@ -173,6 +173,29 @@ sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
 sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
 ```
 
+삭제가 끝났는지 확인한다.
+
+```bash
+echo "TARGET_USER=$TARGET_USER"
+echo "TARGET_HOME=$TARGET_HOME"
+
+sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \
+  --format '{{.Names}}'
+
+sudo test ! -e "$TARGET_HOME/openclaw" && echo openclaw_dir_deleted
+sudo test ! -e "$TARGET_HOME/.openclaw" && echo openclaw_state_deleted
+sudo test ! -e "$TARGET_HOME/.openclaw-auth-profile-secrets" && echo auth_secrets_deleted
+sudo test ! -e "$TARGET_HOME/.config/openclaw" && echo config_deleted
+sudo test ! -e "$TARGET_HOME/.cache/openclaw" && echo cache_deleted
+
+sudo docker image inspect openclaw-nas-agent:baseline >/dev/null 2>&1 \
+  && echo image_still_exists \
+  || echo image_deleted
+```
+
+정상적으로 지워졌다면 `*_deleted` 출력이 보인다. 이 상태는 OpenClaw가
+없는 상태이므로, 반드시 6번 이미지 빌드와 7번 bootstrap을 이어서 실행한다.
+
 ## 6. Baseline 이미지 빌드
 
 관리자 계정에서 실행한다. 5번에서 이미지를 지웠다면 이 단계가 다시
