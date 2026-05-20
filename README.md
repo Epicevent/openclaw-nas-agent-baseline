@@ -6,6 +6,16 @@
 
 기본 목표는 **customer mode**다.
 
+여기서 `rt`는 `runtime`의 약자다. `ocN_rt`는 고객에게 알려주거나 SSH로
+접속시키는 계정이 아니라, OpenClaw gateway 컨테이너를 실행하기 위한 호스트
+Linux 시스템 계정이다. 예를 들어 `TARGET_USER=oc13`이면 고객 계정은
+`oc13`, 런타임 계정은 `oc13_rt`, NAS 공유용 그룹은 `oc13_data`가 된다.
+
+이 분리가 필요한 이유는 고객 계정 `ocN`은 NAS를 읽을 수 있어야 하지만,
+API key가 들어 있는 runtime env나 OpenClaw raw config는 읽으면 안 되기
+때문이다. 그래서 고객이 SSH로 접속하는 계정과 OpenClaw 프로세스가 실제로
+도는 계정을 분리한다.
+
 ```text
 고객 계정 ocN:
   SSH 접속 가능
@@ -14,11 +24,14 @@
   API key/runtime env 읽기 불가
   OpenClaw raw config 읽기 불가
 
-런타임 계정 ocN_rt:
+런타임(rt) 계정 ocN_rt:
   사람이 로그인하지 않는 시스템 계정
-  OpenClaw gateway 컨테이너 실행
+  OpenClaw gateway 컨테이너의 실행 UID/GID로 사용
   API key/runtime env 읽기 가능
   ocN_data 그룹을 통해 NAS 읽기 가능
+
+NAS 공유 그룹 ocN_data:
+  ocN과 ocN_rt가 같은 NAS 마운트를 읽기 위한 계정별 그룹
 ```
 
 고객에게 계정을 넘기기 전에 반드시 customer-mode check가 통과해야 한다.
@@ -218,7 +231,7 @@ sudo env \
 
 ## 7. Customer Mode Bootstrap
 
-관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, NAS 마운트, runtime
+관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, NAS 마운트, 런타임(rt)
 계정 구성, 권한 잠금을 한 번에 수행한다.
 
 기본 NAS를 쓰는 경우:
