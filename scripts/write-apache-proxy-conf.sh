@@ -27,11 +27,17 @@ Options:
   --host HOST          Public host for subdomain mode. Default: USER.BASE_DOMAIN.
   --base-domain NAME   Base domain for default host. Default: ji-tech.co.kr.
   --port PORT          Backend host port. Default: docker port, then ocN slot.
-  --output FILE        Config path. Default: /home/USER/openclaw/deploy/apache-USER.conf.
+  --output FILE        Config path. Defaults:
+                         subdomain: /home/USER/openclaw/deploy/apache-subdomain-USER.conf
+                         path:      /home/USER/openclaw/deploy/apache-USER.conf
+  --cert-live-name NAME Let's Encrypt live cert name. Default: BASE_DOMAIN.
+  --cert-file FILE      Certificate file for subdomain VirtualHost.
+  --cert-key FILE       Certificate key file for subdomain VirtualHost.
   --apply              Write the file. Without this, print the config only.
   --reload             With --apply, run apache2ctl -t and reload apache2.
 
 Notes:
+  - subdomain mode writes a complete <VirtualHost *:443> file like deploy.zip.
   - subdomain mode requires DNS and TLS/certificate coverage outside this script.
   - subdomain mode expects OpenClaw gateway controlUi.basePath="/".
   - path mode keeps /ocN in the backend path and therefore expects basePath="/ocN".
@@ -42,6 +48,9 @@ target_user=""
 mode="subdomain"
 host=""
 base_domain="${OPENCLAW_BASE_DOMAIN:-ji-tech.co.kr}"
+cert_live_name=""
+cert_file=""
+cert_key=""
 port=""
 output=""
 apply=0
@@ -63,6 +72,18 @@ while [[ $# -gt 0 ]]; do
       ;;
     --base-domain)
       base_domain="${2:?missing --base-domain value}"
+      shift 2
+      ;;
+    --cert-live-name)
+      cert_live_name="${2:?missing --cert-live-name value}"
+      shift 2
+      ;;
+    --cert-file)
+      cert_file="${2:?missing --cert-file value}"
+      shift 2
+      ;;
+    --cert-key)
+      cert_key="${2:?missing --cert-key value}"
       shift 2
       ;;
     --port)
@@ -122,8 +143,23 @@ if [[ -z "$host" ]]; then
   host="${target_user}.${base_domain}"
 fi
 
+if [[ -z "$cert_live_name" ]]; then
+  cert_live_name="$base_domain"
+fi
+
+if [[ -z "$cert_file" ]]; then
+  cert_file="/etc/letsencrypt/live/${cert_live_name}/fullchain.pem"
+fi
+
+if [[ -z "$cert_key" ]]; then
+  cert_key="/etc/letsencrypt/live/${cert_live_name}/privkey.pem"
+fi
+
 if [[ -z "$output" ]]; then
-  output="$target_home/openclaw/deploy/apache-${target_user}.conf"
+  case "$mode" in
+    subdomain) output="$target_home/openclaw/deploy/apache-subdomain-${target_user}.conf" ;;
+    path) output="$target_home/openclaw/deploy/apache-${target_user}.conf" ;;
+  esac
 fi
 
 if [[ -z "$port" ]]; then
@@ -140,40 +176,39 @@ if [[ -z "$port" ]]; then
 fi
 
 render_subdomain() {
-  local host_regex
-  host_regex="${host//./\\.}"
   cat <<EOF
-# Managed by openclaw-nas-agent-baseline.
-# Mode: subdomain
-# Public:  https://${host}/...
-# Backend: http://127.0.0.1:${port}/...
-# Requires OpenClaw gateway controlUi.basePath="/".
+# Subdomain VirtualHost - ${target_user} (port ${port})
+# Server: /etc/apache2/sites-available/${host}.conf -> a2ensite -> reload
+# DNS: ${host} -> server IP, or a wildcard ${base_domain} A record
+# OpenClaw: OPENCLAW_PROXY_MODE=subdomain
+#           OPENCLAW_PROXY_PUBLIC_ORIGIN=https://${host}
+#           OPENCLAW_CONTROL_UI_BASEPATH=/
 
-ProxyRequests Off
-ProxyPreserveHost On
-ProxyTimeout 3600
+<VirtualHost *:443>
+    ServerName ${host}
 
-RewriteEngine On
+    SSLEngine on
+    SSLCertificateFile      ${cert_file}
+    SSLCertificateKeyFile   ${cert_key}
 
-# WebSocket: https://${host}/... -> ws://127.0.0.1:${port}/...
-RewriteCond %{HTTP_HOST} ^${host_regex}$ [NC]
-RewriteCond %{HTTP:Upgrade} =websocket [NC]
-RewriteCond %{HTTP:Connection} .*upgrade.* [NC]
-RewriteRule ^/?(.*)$ ws://127.0.0.1:${port}/\$1 [P,L]
-
-# HTTP: https://${host}/... -> http://127.0.0.1:${port}/...
-RewriteCond %{HTTP_HOST} ^${host_regex}$ [NC]
-RewriteRule ^/?(.*)$ http://127.0.0.1:${port}/\$1 [P,L]
-
-<Location />
+    ProxyRequests Off
     ProxyPreserveHost On
-    RequestHeader set X-Forwarded-Proto "https"
-    RequestHeader set X-Forwarded-Prefix "/"
-    RequestHeader set X-Forwarded-Host expr=%{HTTP_HOST}
-</Location>
+    ProxyTimeout 3600
 
-ProxyPassReverse / http://127.0.0.1:${port}/
-ProxyPassReverseCookiePath / /
+    RewriteEngine On
+    RewriteCond %{HTTP:Upgrade} =websocket [NC]
+    RewriteCond %{HTTP:Connection} .*upgrade.* [NC]
+    RewriteRule ^/(.*)$ ws://127.0.0.1:${port}/\$1 [P,L]
+
+    <Location />
+        ProxyPreserveHost On
+        RequestHeader set X-Forwarded-Proto "https"
+        RequestHeader set X-Forwarded-Host expr=%{HTTP_HOST}
+    </Location>
+
+    ProxyPass        / http://127.0.0.1:${port}/ retry=0 timeout=3600
+    ProxyPassReverse / http://127.0.0.1:${port}/
+</VirtualHost>
 EOF
 }
 

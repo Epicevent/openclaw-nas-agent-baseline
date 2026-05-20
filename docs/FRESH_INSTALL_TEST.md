@@ -74,6 +74,7 @@ account:
 ```bash
 GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
+OPENCLAW_PROXY_MODE=subdomain
 OPENCLAW_CONTROL_UI_BASEPATH=/
 OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
@@ -157,6 +158,15 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
   --host "$CONTROL_UI_HOST" \
   --apply \
   --reload
+```
+
+For already-installed accounts, use the conversion helper instead. It updates
+the config/runtime env, writes the deploy conf, and force-recreates the gateway:
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-subdomain-mode.sh \
+  --user "$TARGET_USER" \
+  --host "$CONTROL_UI_HOST"
 ```
 
 ## Success Checks

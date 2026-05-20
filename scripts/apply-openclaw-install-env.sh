@@ -238,17 +238,21 @@ if import_gateway_token and env.get("OPENCLAW_GATEWAY_TOKEN"):
 elif not auth.get("token"):
     auth["token"] = secrets.token_urlsafe(32)
 
+proxy_mode = (env.get("OPENCLAW_PROXY_MODE") or "").strip().lower()
+
 control = gateway.setdefault("controlUi", {})
 control.pop("autoApproveWithToken", None)
 control["dangerouslyDisableDeviceAuth"] = bool_from_env(
     env.get("OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH"),
     default=True,
 )
-if env.get("OPENCLAW_CONTROL_UI_BASEPATH"):
+if "OPENCLAW_CONTROL_UI_BASEPATH" in env:
     control["basePath"] = normalize_base_path(
         env["OPENCLAW_CONTROL_UI_BASEPATH"],
-        default=f"/{target_user}",
+        default="/" if proxy_mode == "subdomain" else f"/{target_user}",
     )
+elif proxy_mode == "subdomain":
+    control["basePath"] = "/"
 
 origins = split_origins(env.get("OPENCLAW_PROXY_PUBLIC_ORIGIN", ""), env.get("OPENCLAW_PROXY_ALLOWED_ORIGINS", ""))
 if origins:
@@ -309,6 +313,7 @@ runtime_keys = {
     "OPENCLAW_PORT_SLOT",
     "OPENCLAW_PORT_STRIDE",
     "OPENCLAW_PROXY_ALLOWED_ORIGINS",
+    "OPENCLAW_PROXY_MODE",
     "OPENCLAW_PROXY_PUBLIC_ORIGIN",
     "OPENCLAW_SANDBOX",
     "OPENCLAW_SKIP_ONBOARDING",

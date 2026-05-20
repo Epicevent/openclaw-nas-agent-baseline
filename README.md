@@ -133,6 +133,7 @@ printf '\n'
 sudo tee "$TARGET_HOME/.openclaw-install.env" >/dev/null <<EOF
 GEMINI_API_KEY=$GEMINI_API_KEY
 OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
+OPENCLAW_PROXY_MODE=subdomain
 OPENCLAW_CONTROL_UI_BASEPATH=/
 OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
@@ -149,6 +150,7 @@ unset GEMINI_API_KEY
 
 ```bash
 sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gemini_key_present
+sudo grep -q '^OPENCLAW_PROXY_MODE=subdomain$' "$TARGET_HOME/.openclaw-install.env" && echo proxy_mode_ok
 sudo grep -q '^OPENCLAW_CONTROL_UI_BASEPATH=/$' "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
 sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$TARGET_HOME/.openclaw-install.env" && echo origin_ok
 ```
@@ -306,14 +308,28 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
   --reload
 ```
 
-이 스크립트는 기본적으로 아래 파일을 쓴다.
+이 스크립트는 `deploy.zip`과 같은 형식의 계정별 전체 VirtualHost 파일을
+쓴다. 기본 출력 위치:
 
 ```text
-/home/ocN/openclaw/deploy/apache-ocN.conf
+/home/ocN/openclaw/deploy/apache-subdomain-ocN.conf
 ```
 
-해당 파일은 기존 Apache SSL VirtualHost에서 `IncludeOptional`로 포함되어야
-한다. 고객 배포에서 `/ocN` path mode를 쓰지 않는다.
+이 파일을 실제로 활성화하려면 운영자가 `/etc/apache2/sites-available`에
+설치하고 `a2ensite`/reload를 수행해야 한다. DNS와 TLS 준비가 끝나기 전에는
+deploy 폴더에 파일만 둬도 된다.
+
+이미 설치된 계정을 subdomain mode로 전환할 때는 아래 helper를 사용한다. 이
+명령은 `openclaw.json`, `openclaw/.env`, deploy conf를 맞춘 뒤 gateway
+컨테이너를 force-recreate한다.
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-subdomain-mode.sh \
+  --user "$TARGET_USER" \
+  --host "$CONTROL_UI_HOST"
+```
+
+고객 배포에서 `/ocN` path mode를 쓰지 않는다.
 
 ## 9. 설치 확인
 

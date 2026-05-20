@@ -1,0 +1,198 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage:
+  apply-subdomain-mode.sh --user USER [options]
+
+Converts an existing OpenClaw customer account to subdomain mode:
+
+  - sets gateway.controlUi.basePath="/"
+  - sets allowedOrigins to https://USER.BASE_DOMAIN, unless --host is passed
+  - writes runtime env values into /home/USER/openclaw/.env
+  - writes deploy/apache-subdomain-USER.conf
+  - force-recreates the OpenClaw gateway container
+
+Options:
+  --user USER          Target account, for example oc3. Required.
+  --host HOST          Public host. Default: USER.BASE_DOMAIN.
+  --base-domain NAME   Base domain. Default: ji-tech.co.kr.
+  --no-apache-conf     Do not write deploy/apache-subdomain-USER.conf.
+  --no-recreate        Do not force-recreate the gateway container.
+
+Run as root/admin.
+USAGE
+}
+
+target_user=""
+host=""
+base_domain="${OPENCLAW_BASE_DOMAIN:-ji-tech.co.kr}"
+write_apache=1
+recreate=1
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --user)
+      target_user="${2:?missing --user value}"
+      shift 2
+      ;;
+    --host)
+      host="${2:?missing --host value}"
+      shift 2
+      ;;
+    --base-domain)
+      base_domain="${2:?missing --base-domain value}"
+      shift 2
+      ;;
+    --no-apache-conf)
+      write_apache=0
+      shift
+      ;;
+    --no-recreate)
+      recreate=0
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "error: unknown argument: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$target_user" ]]; then
+  echo "error: --user is required" >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ "$(id -u)" -ne 0 ]]; then
+  echo "error: run with sudo/root" >&2
+  exit 1
+fi
+
+target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+if [[ -z "$target_home" ]]; then
+  echo "error: user not found: $target_user" >&2
+  exit 1
+fi
+
+if [[ -z "$host" ]]; then
+  host="${target_user}.${base_domain}"
+fi
+
+origin="https://${host}"
+config_path="$target_home/.openclaw/openclaw.json"
+runtime_env_path="$target_home/openclaw/.env"
+compose_dir="$target_home/openclaw"
+container="openclaw-${target_user}-openclaw-gateway-1"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ ! -f "$config_path" ]]; then
+  echo "error: missing config: $config_path" >&2
+  exit 1
+fi
+
+if [[ ! -d "$compose_dir" ]]; then
+  echo "error: missing compose dir: $compose_dir" >&2
+  exit 1
+fi
+
+backup_dir="/tmp/openclaw-subdomain-mode-backup.${target_user}.$(date +%Y%m%d%H%M%S)"
+mkdir -p "$backup_dir"
+cp -a "$config_path" "$backup_dir/openclaw.json.bak"
+if [[ -f "$runtime_env_path" ]]; then
+  cp -a "$runtime_env_path" "$backup_dir/env.bak"
+fi
+
+echo "target_user=$target_user"
+echo "target_home=$target_home"
+echo "host=$host"
+echo "origin=$origin"
+echo "backup_dir=$backup_dir"
+
+SUBDOMAIN_CONFIG_PATH="$config_path" \
+SUBDOMAIN_RUNTIME_ENV_PATH="$runtime_env_path" \
+SUBDOMAIN_ORIGIN="$origin" \
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+config_path = Path(os.environ["SUBDOMAIN_CONFIG_PATH"])
+runtime_env_path = Path(os.environ["SUBDOMAIN_RUNTIME_ENV_PATH"])
+origin = os.environ["SUBDOMAIN_ORIGIN"].rstrip("/")
+
+data = json.loads(config_path.read_text(encoding="utf-8") or "{}")
+control = data.setdefault("gateway", {}).setdefault("controlUi", {})
+control["basePath"] = "/"
+control["dangerouslyDisableDeviceAuth"] = True
+control["allowedOrigins"] = [origin]
+control.pop("autoApproveWithToken", None)
+config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+config_path.chmod(0o600)
+
+runtime_values = {
+    "OPENCLAW_PROXY_MODE": "subdomain",
+    "OPENCLAW_CONTROL_UI_BASEPATH": "/",
+    "OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH": "1",
+    "OPENCLAW_PROXY_PUBLIC_ORIGIN": origin,
+    "OPENCLAW_PROXY_ALLOWED_ORIGINS": origin,
+}
+
+def quote(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+lines = []
+seen = set()
+if runtime_env_path.exists():
+    lines = runtime_env_path.read_text(encoding="utf-8", errors="replace").splitlines()
+
+out = []
+for line in lines:
+    stripped = line.strip()
+    key = stripped.split("=", 1)[0] if "=" in stripped else ""
+    if key in runtime_values:
+        out.append(f"{key}={quote(runtime_values[key])}")
+        seen.add(key)
+    else:
+        out.append(line)
+
+for key in sorted(runtime_values):
+    if key not in seen:
+        out.append(f"{key}={quote(runtime_values[key])}")
+
+runtime_env_path.parent.mkdir(parents=True, exist_ok=True)
+runtime_env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
+runtime_env_path.chmod(0o600)
+PY
+
+echo "updated_config=$config_path"
+echo "updated_runtime_env=$runtime_env_path"
+
+if [[ "$write_apache" -eq 1 ]]; then
+  bash "$script_dir/write-apache-proxy-conf.sh" \
+    --user "$target_user" \
+    --mode subdomain \
+    --host "$host" \
+    --base-domain "$base_domain" \
+    --apply
+fi
+
+if [[ "$recreate" -eq 1 ]]; then
+  echo "== docker compose force-recreate gateway =="
+  cd "$compose_dir"
+  compose_args=(-f docker-compose.yml)
+  [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
+  [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
+  [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
+  docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
+  docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
+fi
+
+echo "done"
