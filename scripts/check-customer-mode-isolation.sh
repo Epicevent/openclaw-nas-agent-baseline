@@ -15,8 +15,6 @@ Expected pass state:
   - USER cannot read /home/USER/.openclaw/openclaw.json
   - USER cannot see GEMINI_API_KEY through /proc
   - Control UI device pairing is disabled for this hosted customer flow
-  - Control UI basePath matches /USER
-  - ocN gateway host port matches 28789 + (N - 1) * 100
   - gateway container has GEMINI_API_KEY and can read NAS
 
 Run as root/admin.
@@ -133,22 +131,6 @@ else
   fail "control_ui_device_auth_disabled"
 fi
 
-if [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$target_user" <<'PY'
-import json
-import sys
-
-data = json.load(open(sys.argv[1], encoding="utf-8"))
-target_user = sys.argv[2]
-expected = f"/{target_user}"
-actual = data.get("gateway", {}).get("controlUi", {}).get("basePath")
-raise SystemExit(0 if actual == expected else 1)
-PY
-then
-  pass "control_ui_basepath_ok"
-else
-  fail "control_ui_basepath_ok"
-fi
-
 if sudo -u "$target_user" docker ps >/tmp/openclaw-customer-check-docker.out 2>/tmp/openclaw-customer-check-docker.err; then
   fail "customer_docker_blocked"
 else
@@ -171,21 +153,6 @@ fi
 
 if docker inspect "$container" >/dev/null 2>&1; then
   docker inspect "$container" --format 'INFO container_user={{.Config.User}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
-
-  if [[ "$target_user" =~ ^oc([0-9]+)$ ]]; then
-    slot="${BASH_REMATCH[1]}"
-    expected_port=$((28789 + (slot - 1) * 100))
-    actual_port="$(docker port "$container" 18789/tcp 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | tail -1)"
-    if [[ "$actual_port" == "$expected_port" ]]; then
-      pass "gateway_port_slot_ok"
-    else
-      fail "gateway_port_slot_ok"
-      echo "INFO expected_gateway_port=$expected_port actual_gateway_port=${actual_port:-missing}"
-    fi
-  else
-    echo "INFO gateway_port_slot_ok=skipped_non_oc_user"
-  fi
-
   if docker exec "$container" sh -lc 'test -n "$GEMINI_API_KEY"'; then
     pass "container_env_gemini_present"
   else

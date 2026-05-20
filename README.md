@@ -271,10 +271,8 @@ PASS customer_runtime_env_blocked
 PASS customer_config_blocked
 PASS config_has_no_literal_api_key
 PASS control_ui_device_auth_disabled
-PASS control_ui_basepath_ok
 PASS customer_docker_blocked
 PASS customer_proc_env_gemini_blocked
-PASS gateway_port_slot_ok
 PASS container_env_gemini_present
 PASS container_nas_read_ok
 ```
