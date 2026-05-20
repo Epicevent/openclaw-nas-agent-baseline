@@ -221,17 +221,12 @@ Now the account can be handed to the customer.
 
 ## Customer Smoke Test
 
-Open a fresh customer session using the hostname and account that will be given
-to that customer:
+Open a new terminal and start a fresh customer SSH session:
 
 ```bash
-# Replace both values before running. This is not a literal copy/paste command.
 TARGET_USER=oc1
 SSH_HOST=YOUR_CUSTOMER_SSH_HOST
 ssh "$TARGET_USER@$SSH_HOST"
-
-# Optional shortcut when this SSH client has a matching ~/.ssh/config alias:
-# ssh oc1
 ```
 
 Expected:
