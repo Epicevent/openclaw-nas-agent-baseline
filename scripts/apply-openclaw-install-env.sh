@@ -173,6 +173,17 @@ def bool_from_env(value, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def normalize_base_path(value: str, default: str) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return default
+    if raw == "/":
+        return "/"
+    if not raw.startswith("/"):
+        raw = f"/{raw}"
+    return raw.rstrip("/") or "/"
+
+
 def quote_env(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
@@ -234,10 +245,10 @@ control["dangerouslyDisableDeviceAuth"] = bool_from_env(
     default=True,
 )
 if env.get("OPENCLAW_CONTROL_UI_BASEPATH"):
-    base_path = env["OPENCLAW_CONTROL_UI_BASEPATH"].strip()
-    if base_path and not base_path.startswith("/"):
-        base_path = f"/{base_path}"
-    control["basePath"] = (base_path.rstrip("/") or f"/{target_user}")
+    control["basePath"] = normalize_base_path(
+        env["OPENCLAW_CONTROL_UI_BASEPATH"],
+        default=f"/{target_user}",
+    )
 
 origins = split_origins(env.get("OPENCLAW_PROXY_PUBLIC_ORIGIN", ""), env.get("OPENCLAW_PROXY_ALLOWED_ORIGINS", ""))
 if origins:

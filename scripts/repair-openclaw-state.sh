@@ -151,9 +151,13 @@ workspace = os.environ["OPENCLAW_REPAIR_WORKSPACE"]
 base_path = os.environ["OPENCLAW_REPAIR_BASEPATH"] or f"/{user}"
 origins_raw = os.environ.get("OPENCLAW_REPAIR_ALLOWED_ORIGINS", "")
 
-if not base_path.startswith("/"):
+base_path = base_path.strip()
+if base_path == "/":
+    base_path = "/"
+elif not base_path.startswith("/"):
     base_path = f"/{base_path}"
-base_path = base_path.rstrip("/") or f"/{user}"
+else:
+    base_path = base_path.rstrip("/") or f"/{user}"
 
 if path.exists():
     data = json.loads(path.read_text() or "{}")

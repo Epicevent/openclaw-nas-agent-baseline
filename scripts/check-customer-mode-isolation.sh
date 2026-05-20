@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  check-customer-mode-isolation.sh --user USER
+  check-customer-mode-isolation.sh --user USER [--expected-basepath PATH] [--expected-origin ORIGIN]
 
 Checks customer-mode isolation without printing secret values.
 
@@ -22,11 +22,21 @@ USAGE
 }
 
 target_user=""
+expected_basepath=""
+expected_origin=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user)
       target_user="${2:?missing user}"
+      shift 2
+      ;;
+    --expected-basepath)
+      expected_basepath="${2:?missing basepath}"
+      shift 2
+      ;;
+    --expected-origin)
+      expected_origin="${2:?missing origin}"
       shift 2
       ;;
     -h|--help)
@@ -129,6 +139,45 @@ then
   pass "control_ui_device_auth_disabled"
 else
   fail "control_ui_device_auth_disabled"
+fi
+
+if [[ -n "$expected_basepath" ]]; then
+  if [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$expected_basepath" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+expected = sys.argv[2]
+actual = data.get("gateway", {}).get("controlUi", {}).get("basePath")
+if actual != expected:
+    print(f"INFO control_ui_basepath actual={actual!r} expected={expected!r}")
+    raise SystemExit(1)
+PY
+  then
+    pass "control_ui_basepath_ok"
+  else
+    fail "control_ui_basepath_ok"
+  fi
+fi
+
+if [[ -n "$expected_origin" ]]; then
+  if [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$expected_origin" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+expected = sys.argv[2].rstrip("/")
+origins = data.get("gateway", {}).get("controlUi", {}).get("allowedOrigins") or []
+origins = [str(origin).rstrip("/") for origin in origins]
+if expected not in origins:
+    print(f"INFO control_ui_allowed_origins actual={origins!r} expected={expected!r}")
+    raise SystemExit(1)
+PY
+  then
+    pass "control_ui_allowed_origin_ok"
+  else
+    fail "control_ui_allowed_origin_ok"
+  fi
 fi
 
 if sudo -u "$target_user" docker ps >/tmp/openclaw-customer-check-docker.out 2>/tmp/openclaw-customer-check-docker.err; then

@@ -6,6 +6,19 @@
 
 기본 목표는 **customer mode**다.
 
+고객 배포용 Web UI는 **subdomain mode**를 기본으로 한다.
+
+```text
+권장: https://oc13.ji-tech.co.kr/
+비권장: https://www.ji-tech.co.kr/oc13/
+```
+
+`/ocN` path 방식은 Apache 라우팅은 분리할 수 있지만 브라우저
+`localStorage`가 같은 origin(`https://www.ji-tech.co.kr`)을 공유한다.
+따라서 같은 브라우저에서 여러 계정을 테스트하면 Gateway URL/token 설정이
+서로 섞일 수 있다. 고객에게 넘기는 구조는 `ocN.ji-tech.co.kr`처럼 origin을
+계정별로 분리한다.
+
 여기서 `rt`는 `runtime`의 약자다. `ocN_rt`는 고객에게 알려주거나 SSH로
 접속시키는 계정이 아니라, OpenClaw gateway 컨테이너를 실행하기 위한 호스트
 Linux 시스템 계정이다. 예를 들어 `TARGET_USER=oc13`이면 고객 계정은
@@ -40,10 +53,10 @@ NAS 공유 그룹 ocN_data:
 
 ```text
 일반 신규 설치:
-  1 -> 2 -> 3 -> 4 -> 6 -> 7 -> 8
+  1 -> 2 -> 3 -> 4 -> 6 -> 7 -> 8 -> 9
 
 기존 계정을 일부러 지우고 fresh install 재검증:
-  1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
+  1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 ```
 
 ## 1. Host Setup
@@ -76,10 +89,12 @@ bootstrap_customer_mode=ok
 
 ## 2. 계정 준비
 
-관리자 계정에서 실행한다. 바꿀 값은 `TARGET_USER` 하나다.
+관리자 계정에서 실행한다. 바꿀 값은 `TARGET_USER` 하나다. subdomain은
+`TARGET_USER`에서 자동으로 만든다.
 
 ```bash
 TARGET_USER=oc1
+CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
 ```
 
 이후 명령은 위에서 지정한 `TARGET_USER` 기준으로 실행한다. 다른 계정을
@@ -99,6 +114,7 @@ sudo usermod -aG openclaw-installers "$TARGET_USER"
 
 id "$TARGET_USER"
 echo "home=$TARGET_HOME"
+echo "control_ui_host=$CONTROL_UI_HOST"
 ```
 
 주의: 고객 계정을 Docker 그룹에 넣지 않는다.
@@ -117,10 +133,10 @@ printf '\n'
 sudo tee "$TARGET_HOME/.openclaw-install.env" >/dev/null <<EOF
 GEMINI_API_KEY=$GEMINI_API_KEY
 OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
-OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER
+OPENCLAW_CONTROL_UI_BASEPATH=/
 OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://$CONTROL_UI_HOST
 OPENCLAW_GATEWAY_BIND=lan
 EOF
 
@@ -133,7 +149,8 @@ unset GEMINI_API_KEY
 
 ```bash
 sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gemini_key_present
-sudo grep -q "^OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER$" "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
+sudo grep -q '^OPENCLAW_CONTROL_UI_BASEPATH=/$' "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
+sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$TARGET_HOME/.openclaw-install.env" && echo origin_ok
 ```
 
 ## 4. NAS 준비와 전달 방식
@@ -243,8 +260,8 @@ sudo env \
   OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
   OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
   OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
-  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
-  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN="https://$CONTROL_UI_HOST" \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS="https://$CONTROL_UI_HOST" \
   openclaw-bootstrap < /dev/null
 ```
 
@@ -259,18 +276,54 @@ sudo env \
   OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
   OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
   OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
-  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
-  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN="https://$CONTROL_UI_HOST" \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS="https://$CONTROL_UI_HOST" \
   openclaw-bootstrap < /dev/null
 ```
 
-## 8. 설치 확인
+## 8. Subdomain Proxy 적용
+
+관리자 계정에서 실행한다. 이 단계는 Apache가
+`https://ocN.ji-tech.co.kr/...` 요청을 해당 계정 gateway의 root(`/`)로
+보내도록 proxy conf를 작성한다.
+
+사전 조건:
+
+```text
+DNS: ocN.ji-tech.co.kr 이 이 서버를 가리킴
+TLS: ocN.ji-tech.co.kr 을 포함하는 인증서 또는 wildcard 인증서가 Apache에 적용됨
+Apache: 기본 SSL VirtualHost가 이 host를 받을 수 있음
+```
+
+적용:
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
+  --user "$TARGET_USER" \
+  --mode subdomain \
+  --host "$CONTROL_UI_HOST" \
+  --apply \
+  --reload
+```
+
+이 스크립트는 기본적으로 아래 파일을 쓴다.
+
+```text
+/home/ocN/openclaw/deploy/apache-ocN.conf
+```
+
+해당 파일은 기존 Apache SSL VirtualHost에서 `IncludeOptional`로 포함되어야
+한다. 고객 배포에서 `/ocN` path mode를 쓰지 않는다.
+
+## 9. 설치 확인
 
 관리자 계정에서 실행한다.
 
 ```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
-  --user "$TARGET_USER"
+  --user "$TARGET_USER" \
+  --expected-basepath / \
+  --expected-origin "https://$CONTROL_UI_HOST"
 ```
 
 정상 출력에는 아래 PASS들이 포함되어야 한다.
@@ -284,6 +337,8 @@ PASS customer_runtime_env_blocked
 PASS customer_config_blocked
 PASS config_has_no_literal_api_key
 PASS control_ui_device_auth_disabled
+PASS control_ui_basepath_ok
+PASS control_ui_allowed_origin_ok
 PASS customer_docker_blocked
 PASS customer_proc_env_gemini_blocked
 PASS container_env_gemini_present
@@ -297,7 +352,7 @@ PASS container_nas_read_ok
 sudo docker logs --tail=200 "openclaw-$TARGET_USER-openclaw-gateway-1"
 ```
 
-## 9. 고객에게 전달할 Web UI 정보
+## 10. 고객에게 전달할 Web UI 정보
 
 고객 계정은 Docker나 raw config를 읽을 수 없으므로, 최초 접속 정보는
 관리자가 확인해서 전달한다.
@@ -308,6 +363,7 @@ Gateway token 출력:
 
 ```bash
 TARGET_USER=oc1
+CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
 ```
 
 그 다음 token을 출력한다.
@@ -327,7 +383,13 @@ PY
 고객에게 전달할 URL 형식:
 
 ```text
-https://YOUR_CONTROL_UI_HOST/$TARGET_USER/
+https://ocN.ji-tech.co.kr/
+```
+
+예:
+
+```text
+https://oc13.ji-tech.co.kr/
 ```
 
 정상 설치에서는 별도의 device approval이 뜨지 않아야 한다. 현재 hosted
@@ -364,7 +426,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
   --list
 ```
 
-## 10. 고객 계정 Smoke Test
+## 11. 고객 계정 Smoke Test
 
 새 터미널에서 고객 계정으로 SSH 접속한다.
 

@@ -56,11 +56,16 @@ Example keys:
 GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
 OPENCLAW_SANDBOX=...
-OPENCLAW_CONTROL_UI_BASEPATH=/$(id -un)
+OPENCLAW_CONTROL_UI_BASEPATH=/
 OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ocN.ji-tech.co.kr
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ocN.ji-tech.co.kr
 ```
+
+Customer deployments use subdomain mode. `OPENCLAW_CONTROL_UI_BASEPATH=/` is
+intentional: the browser sees `https://ocN.ji-tech.co.kr/`, while Apache routes
+that host to the account gateway root. Avoid using `/ocN` paths for customer
+delivery because browser storage is shared per origin, not per path.
 
 Do not commit this file to GitHub.
 

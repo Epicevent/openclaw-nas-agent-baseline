@@ -33,6 +33,7 @@ Set the target:
 ```bash
 TARGET_USER=oc1  # change this for each account
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
 ```
 
 The host already has:
@@ -41,7 +42,8 @@ The host already has:
 - Docker access for the admin account running the test
 - CIFS credentials at `/etc/samba/hanpass.cred`
 - shared bootstrap at `/usr/local/bin/openclaw-bootstrap`
-- reverse proxy routing `/$TARGET_USER/` to the account gateway
+- DNS/TLS for `$CONTROL_UI_HOST`
+- reverse proxy routing `$CONTROL_UI_HOST/` to the account gateway root
 - private install settings at `$TARGET_HOME/.openclaw-install.env`
 
 Before running the destructive test, the shared bootstrap must have the install
@@ -72,10 +74,10 @@ account:
 ```bash
 GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
-OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER
+OPENCLAW_CONTROL_UI_BASEPATH=/
 OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://$CONTROL_UI_HOST
 ```
 
 After the destructive reset, the repo image is rebuilt from the installed
@@ -134,8 +136,8 @@ sudo env \
   OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
   OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
   OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
-  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
-  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN="https://$CONTROL_UI_HOST" \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS="https://$CONTROL_UI_HOST" \
   openclaw-bootstrap < /dev/null
 ```
 
@@ -143,6 +145,19 @@ That is the contract. No separate `fresh-install-account.sh` should be needed.
 Gemini is part of this install contract, not a later restore step.
 The Gemini API key must be provided to the Gateway runtime environment, not
 stored as a literal `apiKey` in `~/.openclaw/openclaw.json`.
+
+## Subdomain Proxy
+
+Run as admin after bootstrap:
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
+  --user "$TARGET_USER" \
+  --mode subdomain \
+  --host "$CONTROL_UI_HOST" \
+  --apply \
+  --reload
+```
 
 ## Success Checks
 
