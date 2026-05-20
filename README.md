@@ -1,48 +1,32 @@
 # OpenClaw NAS Agent Baseline
 
-Start here. For a first install, do not read the other docs first.
+Start here.
 
-This repo has one job:
+This repo builds the OpenClaw runtime image and provides the host-side helpers
+needed to run one isolated OpenClaw instance per Linux customer account.
 
-```text
-Build an OpenClaw runtime image with document/NAS tools, then let the shared
-openclaw-bootstrap install that image for one Linux account.
-```
-
-This repo does not own:
-
-- Linux account policy
-- NAS credentials
-- reverse proxy config
-- OpenClaw gateway tokens
-- Gemini/API secrets
-
-Security note: the flow below is still the lab/admin install flow. Do not give
-customer accounts Docker access or run a secret-bearing Gateway as the customer
-UID. For the customer-mode isolation direction validated on `oc1`, see
-[Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md).
-
-## Flow
+The default target is **customer mode**:
 
 ```text
-Once per host:
-  install this repo under /opt
-  patch the shared openclaw-bootstrap
+Customer account ocN:
+  can SSH in
+  can read /home/ocN/nas_docs
+  cannot use Docker
+  cannot read runtime env/API keys
+  cannot read OpenClaw raw config
 
-Once per account:
-  prepare the Linux user
-  create ~/.openclaw-install.env
-  mount NAS at ~/nas_docs
-  enter that account
-  clone this repo
-  build openclaw-nas-agent:baseline
-  run openclaw-bootstrap
-  verify
+Runtime account ocN_rt:
+  is not a human login account
+  runs the OpenClaw gateway container
+  reads API keys from runtime env
+  reads NAS through ocN_data group
 ```
 
-## 1. Host Setup
+Do not hand an account to a customer until the customer-mode check passes.
 
-Run as a sudo-capable admin account.
+## Host Setup
+
+Run once as a sudo-capable admin account:
 
 ```bash
 TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
@@ -67,9 +51,9 @@ Expected:
 bootstrap_install_env=ok
 ```
 
-## 2. Prepare One Account
+## Prepare One Account
 
-Change only `TARGET_USER` for each account.
+Run as admin. Change only `TARGET_USER`.
 
 ```bash
 TARGET_USER=oc1
@@ -83,18 +67,21 @@ fi
 
 getent group docker >/dev/null || sudo groupadd docker
 getent group openclaw-installers >/dev/null || sudo groupadd openclaw-installers
+
+# Temporary bootstrap access only. The customer-mode isolation script removes
+# docker before the account is handed to a customer.
 sudo usermod -aG docker,openclaw-installers "$TARGET_USER"
 
 id "$TARGET_USER"
 echo "home=$TARGET_HOME"
 ```
 
-If the account was newly created or just added to the Docker group, open a new
-login session for that account before running Docker commands as it.
+Do not give the customer this account yet.
 
-## 3. Create Install Env
+## Create Install Env
 
-Run as the admin account.
+This file is install input. It is locked down by the customer-mode isolation
+step after bootstrap.
 
 ```bash
 sudo install -o "$TARGET_USER" -g "$TARGET_USER" -m 600 /dev/null "$TARGET_HOME/.openclaw-install.env"
@@ -119,15 +106,14 @@ unset GEMINI_API_KEY
 Verify without printing secrets:
 
 ```bash
-sudo test -f "$TARGET_HOME/.openclaw-install.env" && echo env_ok
-sudo test "$(sudo stat -c '%a' "$TARGET_HOME/.openclaw-install.env")" = "600" && echo env_mode_ok
 sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gemini_key_present
 sudo grep -q "^OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER$" "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
 ```
 
-## 4. Mount NAS
+## Mount NAS For Bootstrap
 
-Run as the admin account.
+The customer-mode isolation step remounts this with the final shared group
+permissions. This bootstrap mount only needs to let the initial install work.
 
 ```bash
 sudo mkdir -p "$TARGET_HOME/nas_docs"
@@ -139,7 +125,7 @@ TARGET_GID="$(id -g "$TARGET_USER")"
 
 if ! findmnt -T "$TARGET_HOME/nas_docs" >/dev/null 2>&1; then
   sudo mount -t cifs //192.168.0.222/hanpass "$TARGET_HOME/nas_docs" \
-    -o credentials=/etc/samba/hanpass.cred,uid="$TARGET_UID",gid="$TARGET_GID",forceuid,forcegid,ro,file_mode=0400,dir_mode=0500,iocharset=utf8,vers=3.1.1,nounix,noserverino,nosharesock
+    -o credentials=/etc/samba/hanpass.cred,uid="$TARGET_UID",gid="$TARGET_GID",forceuid,forcegid,ro,file_mode=0400,dir_mode=0700,iocharset=utf8,vers=3.1.1,nounix,noserverino,nosharesock
 fi
 ```
 
@@ -150,17 +136,20 @@ findmnt -T "$TARGET_HOME/nas_docs" && echo nas_mount_ok
 sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo nas_read_ok
 ```
 
-## 5. Fresh Install As Target User
+## Bootstrap In Staging Mode
 
-Enter the target account:
+This step uses the existing shared bootstrap. It is a staging step, not the
+final customer state.
+
+Open a new login session for the target account so its temporary Docker group is
+visible:
 
 ```bash
 sudo su - "$TARGET_USER"
 cd "$HOME"
 ```
 
-For a real new account this reset usually removes nothing. For a reinstall
-test, it removes the previous OpenClaw state but keeps env and NAS.
+For a reinstall test, remove previous OpenClaw state but keep env and NAS:
 
 ```bash
 docker ps -a --filter "label=com.docker.compose.project=openclaw-$(id -un)" \
@@ -174,28 +163,20 @@ rm -rf "$HOME/.cache/openclaw"
 rm -rf "$HOME/openclaw-nas-agent-baseline-fresh"
 
 docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
-
-test -f "$HOME/.openclaw-install.env" && echo env_still_ok
-findmnt -T "$HOME/nas_docs" && echo nas_still_ok
 ```
 
-Clone and build:
+Clone, build, and bootstrap:
 
 ```bash
 git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git \
   "$HOME/openclaw-nas-agent-baseline-fresh"
 
 cd "$HOME/openclaw-nas-agent-baseline-fresh"
-git rev-parse --short HEAD
 
 BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
 IMAGE_TAG=openclaw-nas-agent:baseline \
 bash scripts/build-container-baseline.sh
-```
 
-Install with bootstrap:
-
-```bash
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
 OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
 OPENCLAW_BASELINE_DIR="$HOME/openclaw-nas-agent-baseline-fresh" \
@@ -204,76 +185,82 @@ OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
 openclaw-bootstrap < /dev/null
 ```
 
-## 6. Verify
+Exit back to the admin account:
 
 ```bash
-docker ps --filter "name=openclaw-$(id -un)" \
-  --format 'container={{.Names}} image={{.Image}} status={{.Status}}'
+exit
 ```
 
+## Apply Customer Mode
+
+Run as admin before giving the account to a customer:
+
 ```bash
-python3 - <<'PY'
-import json, os, pathlib
-cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
-web_search=cfg.get("plugins", {}).get("entries", {}).get("google", {}).get("config", {}).get("webSearch", {})
-runtime_env=pathlib.Path("~/openclaw/.env").expanduser()
-runtime_env_gemini_present = False
-if runtime_env.exists():
-    runtime_env_gemini_present = any(
-        line.startswith("GEMINI_API_KEY=")
-        for line in runtime_env.read_text(encoding="utf-8", errors="replace").splitlines()
-    )
-print({
-  "gemini_config_api_key_present": "apiKey" in web_search,
-  "gemini_runtime_env_present": runtime_env_gemini_present,
-  "gateway_token_present": bool(cfg.get("gateway", {}).get("auth", {}).get("token")),
-  "default_model": cfg.get("agents", {}).get("defaults", {}).get("model", {}).get("primary"),
-})
-PY
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-customer-mode-isolation.sh \
+  --user "$TARGET_USER" \
+  --check
+```
+
+Expected pass lines:
+
+```text
+PASS customer_not_in_docker_group
+PASS customer_nas_read_ok
+PASS runtime_env_exists
+PASS config_exists
+PASS customer_runtime_env_blocked
+PASS customer_config_blocked
+PASS config_has_no_literal_api_key
+PASS customer_docker_blocked
+PASS customer_proc_env_gemini_blocked
+PASS container_env_gemini_present
+PASS container_nas_read_ok
+```
+
+Now the account can be handed to the customer.
+
+## Customer Smoke Test
+
+Open a fresh customer session:
+
+```bash
+ssh oc1
 ```
 
 Expected:
 
+```bash
+id
+ls ~/nas_docs | head
+cat ~/openclaw/.env
+cat ~/.openclaw/openclaw.json
+docker ps
+```
+
+Expected behavior:
+
 ```text
-gemini_config_api_key_present: False
-gemini_runtime_env_present: True
-gateway_token_present: True
-```
+id
+  no docker group
 
-```bash
-docker exec "openclaw-$(id -un)-openclaw-gateway-1" sh -lc '
-  id
-  test -d /home/node/.openclaw && echo openclaw_bind_ok
-  test -d /home/node/nas_docs && echo nas_bind_ok
-  printf "nas_sample="
-  find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l
-'
-```
+ls ~/nas_docs
+  works
 
-Print the gateway token:
+cat ~/openclaw/.env
+  Permission denied
 
-```bash
-python3 - <<'PY'
-import json, os
-cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
-print(cfg["gateway"]["auth"]["token"])
-PY
-```
+cat ~/.openclaw/openclaw.json
+  Permission denied
 
-If the browser asks for device approval:
-
-```bash
-cd "$HOME/openclaw-nas-agent-baseline-fresh"
-bash scripts/approve-openclaw-device.sh DEVICE_ID_FROM_BROWSER
+docker ps
+  permission denied
 ```
 
 ## Reference
 
-Do not start with these. They are for debugging or background.
-
+- [Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md)
 - [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
 - [Container baseline](docs/CONTAINER_BASELINE.md)
-- [Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md)
 - [Install settings](docs/INSTALL_SETTINGS.md)
 - [Install package](docs/INSTALL_PACKAGE.md)
 - [Recovery](docs/OPENCLAW_RECOVERY.md)

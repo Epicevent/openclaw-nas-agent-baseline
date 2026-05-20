@@ -137,6 +137,7 @@ container_user=995:982 status=running health=healthy
 oc1_nas_read_ok
 oc1_runtime_env_blocked
 oc1_config_blocked
+config_has_no_literal_api_key
 oc1_docker_blocked=yes
 oc1_proc_env_gemini_visible=no
 container_env_gemini_present
@@ -150,6 +151,7 @@ Meaning:
 oc1 can read its NAS.
 oc1 cannot read ~/openclaw/.env.
 oc1 cannot read ~/.openclaw/openclaw.json.
+openclaw.json does not contain a literal provider apiKey.
 oc1 cannot use Docker.
 oc1 cannot read the gateway's GEMINI_API_KEY through /proc.
 The container still receives GEMINI_API_KEY.
@@ -217,14 +219,30 @@ Expected:
 customer_proc_env_gemini_visible=no
 ```
 
+## Repository Helpers
+
+The validated conversion is now represented by scripts:
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-customer-mode-isolation.sh \
+  --user ocN \
+  --check
+
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
+  --user ocN
+```
+
+`apply-customer-mode-isolation.sh` is intentionally an admin/root script. It
+removes Docker access from the customer account, remounts NAS with the
+customer/data-group split, rewrites the compose runtime user override, protects
+state/env files, restarts the gateway, and can run the check script.
+
+`check-customer-mode-isolation.sh` prints only pass/fail and presence/blocking
+status. It must not print API keys, gateway tokens, or raw secret values.
+
 ## Next Work
 
-This document records the validated shape. The next repository changes should
-make it repeatable without a one-off script:
-
-1. Add a customer-mode account preparation script.
-2. Teach bootstrap or its patch layer to support runtime UID/GID and data group
-   overrides.
-3. Separate README flows into lab mode and customer mode.
-4. Add a customer-mode check script that prints only presence/blocking status,
-   never secret values.
+The current flow still uses the existing shared bootstrap as a staging install
+before customer-mode isolation is applied. The next deeper change is to teach
+bootstrap itself to install directly in customer mode, so the temporary Docker
+membership step can disappear entirely.
