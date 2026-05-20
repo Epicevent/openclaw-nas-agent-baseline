@@ -1,5 +1,9 @@
 # Empty-State Fresh Install Test
 
+This is the concrete test form of the account-neutral runbook in
+[PER_ACCOUNT_FRESH_INSTALL_RUNBOOK.md](PER_ACCOUNT_FRESH_INSTALL_RUNBOOK.md).
+Set `TARGET_USER` first, then run the commands for that account.
+
 This test proves the real package contract:
 
 ```text
@@ -25,22 +29,35 @@ the host prerequisites, not in a second fresh-install wrapper script.
 
 ## Assumptions
 
-The host already has:
-
-- Linux user `oc1`
-- Docker access for `oc1`
-- NAS mounted at `/home/oc1/nas_docs`
-- shared bootstrap at `/usr/local/bin/openclaw-bootstrap`
-- reverse proxy routing `/oc1/` to the oc1 gateway
-- private install settings at `/home/oc1/.openclaw-install.env`
-
-Before running the destructive test, the shared bootstrap must have the install
-env hook. This is a one-time host operation, not part of account reinstall:
+Set the target:
 
 ```bash
-cd /home/oc1/openclaw-nas-agent-baseline-fresh
-sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
-sudo bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+TARGET_USER=oc1  # change this for each account
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+```
+
+The host already has:
+
+- Linux user `$TARGET_USER`
+- Docker access for `$TARGET_USER`
+- NAS mounted at `$TARGET_HOME/nas_docs`
+- shared bootstrap at `/usr/local/bin/openclaw-bootstrap`
+- reverse proxy routing `/$TARGET_USER/` to the account gateway
+- private install settings at `$TARGET_HOME/.openclaw-install.env`
+
+Before running the destructive test, the shared bootstrap must have the install
+env hook. This is a one-time host operation, not part of account reinstall. Do
+not rely on a target user's home directory to find this patch helper.
+
+```bash
+PATCH_REPO=/opt/openclaw-nas-agent-baseline
+if [ ! -f "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" ]; then
+  PATCH_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
+  git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$PATCH_REPO"
+fi
+
+sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh"
+sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" --check
 ```
 
 Expected:
@@ -55,7 +72,7 @@ account:
 ```bash
 GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
-OPENCLAW_CONTROL_UI_BASEPATH=/oc1
+OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
@@ -65,18 +82,18 @@ After the destructive reset, the repo image is rebuilt from GitHub in the
 
 ## Destructive Reset
 
-Run as `oc1`.
+Run as the target account.
 
 This intentionally deletes per-user OpenClaw state. It must not delete NAS,
-proxy, fstab, CIFS credentials, `/home/oc1/.openclaw-install.env`, or
+proxy, fstab, CIFS credentials, `$HOME/.openclaw-install.env`, or
 `/opt/openclaw-bootstrap`.
 
 ```bash
 set -eu
 
-cd /home/oc1
+cd "$HOME"
 
-docker ps -a --filter 'label=com.docker.compose.project=openclaw-oc1' \
+docker ps -a --filter "label=com.docker.compose.project=openclaw-$(id -un)" \
   --format '{{.Names}}' | xargs -r docker rm -f
 
 rm -rf "$HOME/openclaw"
@@ -96,7 +113,7 @@ At this point the account is empty from OpenClaw's point of view.
 
 ## Build From GitHub
 
-Run as `oc1`.
+Run as the target account.
 
 ```bash
 git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git \
@@ -111,7 +128,7 @@ bash scripts/build-container-baseline.sh
 
 ## Bootstrap Command
 
-Run as `oc1`.
+Run as the target account.
 
 ```bash
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
@@ -127,11 +144,11 @@ Gemini is part of this install contract, not a later restore step.
 
 ## Success Checks
 
-Run as `oc1`.
+Run as the target account.
 
 ```bash
 for i in $(seq 1 30); do
-  status=$(docker inspect openclaw-oc1-openclaw-gateway-1 \
+  status=$(docker inspect "openclaw-$(id -un)-openclaw-gateway-1" \
     --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
     2>/dev/null || echo missing)
   echo "health_attempt_$i=$status"
@@ -139,31 +156,31 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-docker ps --filter name=openclaw-oc1-openclaw-gateway-1 \
+docker ps --filter "name=openclaw-$(id -un)-openclaw-gateway-1" \
   --format 'container={{.Names}} image={{.Image}} status={{.Status}} ports={{.Ports}}'
 
-docker inspect openclaw-oc1-openclaw-gateway-1 \
+docker inspect "openclaw-$(id -un)-openclaw-gateway-1" \
   --format 'config_image={{.Config.Image}} user={{.Config.User}} workdir={{.Config.WorkingDir}}'
 ```
 
 Expected:
 
 ```text
-container=openclaw-oc1-openclaw-gateway-1
+container=openclaw-<account>-openclaw-gateway-1
 image=openclaw-nas-agent:baseline
 status=Up ... (healthy)
 ```
 
 ## Install Settings Check
 
-Run as `oc1`.
+Run as the target account.
 
 ```bash
 jq '{
   gemini_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
   default_model: .agents.defaults.model.primary,
   gateway_token_present: (.gateway.auth.token != null)
-}' /home/oc1/.openclaw/openclaw.json
+}' "$HOME/.openclaw/openclaw.json"
 ```
 
 Expected:
@@ -187,10 +204,10 @@ PY
 
 ## NAS and Tool Checks
 
-Run as `oc1`.
+Run as the target account.
 
 ```bash
-docker exec openclaw-oc1-openclaw-gateway-1 sh -lc '
+docker exec "openclaw-$(id -un)-openclaw-gateway-1" sh -lc '
   echo id=$(id)
   ls -ld /home/node/.openclaw /home/node/.openclaw/workspace /home/node/nas_docs
   printf "nas_sample="
@@ -219,10 +236,16 @@ when the NAS contains files.
 
 ## Dashboard Checks
 
-Run as `oc1`.
+Run as the target account. The default gateway port is derived from the account
+suffix, so `oc1` is `28789`, `oc2` is `28889`, and so on.
 
 ```bash
-for url in http://127.0.0.1:28789/oc1/ https://ji-tech.co.kr/oc1/ https://www.ji-tech.co.kr/oc1/; do
+slot="$(id -un | sed -n 's/^oc\([0-9][0-9]*\)$/\1/p')"
+slot="${slot:-1}"
+port=$((28789 + (slot - 1) * 100))
+base="/$(id -un)"
+
+for url in "http://127.0.0.1:${port}${base}/" "https://ji-tech.co.kr${base}/" "https://www.ji-tech.co.kr${base}/"; do
   printf '%s ' "$url"
   curl -k -sS -o /dev/null -w 'code=%{http_code} redirect=%{redirect_url}\n' --max-time 8 "$url" || true
 done
@@ -231,9 +254,9 @@ done
 Expected:
 
 ```text
-http://127.0.0.1:28789/oc1/ code=200 redirect=
-https://ji-tech.co.kr/oc1/ code=200 redirect=
-https://www.ji-tech.co.kr/oc1/ code=200 redirect=
+http://127.0.0.1:<port>/<account>/ code=200 redirect=
+https://ji-tech.co.kr/<account>/ code=200 redirect=
+https://www.ji-tech.co.kr/<account>/ code=200 redirect=
 ```
 
 ## Device Pairing

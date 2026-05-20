@@ -58,9 +58,9 @@ sudo bash install.sh
 Secrets and per-account settings stay outside Git, for example:
 
 ```text
-/home/oc1/.openclaw-install.env
-/home/oc1/.openclaw
-/home/oc1/nas_docs
+$HOME/.openclaw-install.env
+$HOME/.openclaw
+$HOME/nas_docs
 ```
 
 ## Fresh Install Relationship
@@ -69,7 +69,7 @@ The operator-facing install command remains bootstrap:
 
 ```bash
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env \
+OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
 openclaw-bootstrap
 ```
 

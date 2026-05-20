@@ -22,8 +22,8 @@ The package repo provides the helper that materializes those settings:
 
 ```bash
 bash scripts/apply-openclaw-install-env.sh \
-  --home /home/oc1 \
-  --env-file /home/oc1/.openclaw-install.env
+  --home "$HOME" \
+  --env-file "$HOME/.openclaw-install.env"
 ```
 
 That helper is meant to be called by bootstrap. It is not a separate recovery
@@ -34,13 +34,13 @@ flow for the operator to remember after install.
 Put account-specific install settings in a private file owned by that account:
 
 ```bash
-/home/oc1/.openclaw-install.env
+$HOME/.openclaw-install.env
 ```
 
 Permissions:
 
 ```bash
-chmod 600 /home/oc1/.openclaw-install.env
+chmod 600 "$HOME/.openclaw-install.env"
 ```
 
 Example keys:
@@ -49,7 +49,7 @@ Example keys:
 GEMINI_API_KEY=...
 OPENCLAW_DEFAULT_MODEL=...
 OPENCLAW_SANDBOX=...
-OPENCLAW_CONTROL_UI_BASEPATH=/oc1
+OPENCLAW_CONTROL_UI_BASEPATH=/$(id -un)
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
@@ -79,7 +79,7 @@ jq '{
   },
   gemini_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
   default_model: .agents.defaults.model.primary
-}' /home/oc1/.openclaw/openclaw.json
+}' "$HOME/.openclaw/openclaw.json"
 ```
 
 Expected:

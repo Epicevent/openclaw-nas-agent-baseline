@@ -21,8 +21,8 @@ It updates:
   - ~/openclaw/.env, when that runtime env file exists
 
 Examples:
-  bash scripts/apply-openclaw-install-env.sh --env-file /home/oc1/.openclaw-install.env --home /home/oc1
-  sudo bash scripts/apply-openclaw-install-env.sh --env-file /secure/oc1.install.env --user oc1
+  bash scripts/apply-openclaw-install-env.sh --env-file "$HOME/.openclaw-install.env" --home "$HOME"
+  sudo bash scripts/apply-openclaw-install-env.sh --env-file /secure/ocN.install.env --user ocN
 USAGE
 }
 

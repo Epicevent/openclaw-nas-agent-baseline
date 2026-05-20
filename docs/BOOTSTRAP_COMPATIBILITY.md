@@ -98,7 +98,7 @@ install env file and call the repo helper during the same install:
 
 ```bash
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env \
+OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
 openclaw-bootstrap
 ```
 
@@ -172,13 +172,19 @@ wrapper.
 This repository includes the compatibility patch helper:
 
 ```bash
-sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
+PATCH_REPO=/opt/openclaw-nas-agent-baseline
+if [ ! -f "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" ]; then
+  PATCH_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
+  git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$PATCH_REPO"
+fi
+
+sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh"
 ```
 
 After that, the expected check is:
 
 ```bash
-bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" --check
 ```
 
 Expected:

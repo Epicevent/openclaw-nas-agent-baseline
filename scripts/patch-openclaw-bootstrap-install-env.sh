@@ -8,7 +8,7 @@ Usage:
 
 Patches the shared openclaw-bootstrap script so fresh installs can consume:
 
-  OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env
+  OPENCLAW_INSTALL_ENV_FILE=$HOME/.openclaw-install.env
 
 The bootstrap remains the single install/start entrypoint. This patch only adds
 the hook that calls scripts/apply-openclaw-install-env.sh during bootstrap.
