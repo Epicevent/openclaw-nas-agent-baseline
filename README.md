@@ -67,6 +67,11 @@ bootstrap_customer_mode=ok
 
 ```bash
 TARGET_USER=oc1
+```
+
+이후 명령은 위에서 지정한 `TARGET_USER` 기준으로 실행한다.
+
+```bash
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
 if ! id "$TARGET_USER" >/dev/null 2>&1; then
