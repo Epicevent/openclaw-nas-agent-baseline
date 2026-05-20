@@ -221,10 +221,18 @@ Now the account can be handed to the customer.
 
 ## Customer Smoke Test
 
-Open a fresh customer session:
+Open a fresh customer session using the hostname and account that will be given
+to that customer:
 
 ```bash
-ssh oc1
+# Replace both values before running. This is not a literal copy/paste command.
+TARGET_USER=oc1
+SSH_HOST=YOUR_CUSTOMER_SSH_HOST
+ssh "$TARGET_USER@$SSH_HOST"
+
+# Operator-local aliases are only examples. They work only on machines whose
+# ~/.ssh/config defines that alias, so do not put them in customer instructions:
+# ssh oc1
 ```
 
 Expected:
