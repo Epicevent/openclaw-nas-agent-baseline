@@ -69,7 +69,8 @@ bootstrap_customer_mode=ok
 TARGET_USER=oc1
 ```
 
-이후 명령은 위에서 지정한 `TARGET_USER` 기준으로 실행한다.
+이후 명령은 위에서 지정한 `TARGET_USER` 기준으로 실행한다. 다른 계정을
+작업할 때는 이 한 줄만 바꾼다.
 
 ```bash
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
@@ -290,8 +291,15 @@ sudo docker logs --tail=200 "openclaw-$TARGET_USER-openclaw-gateway-1"
 
 Gateway token 출력:
 
+대상 계정을 바꿔야 하면 먼저 이 값만 바꾼다.
+
 ```bash
 TARGET_USER=oc1
+```
+
+그 다음 token을 출력한다.
+
+```bash
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
 sudo python3 - <<PY
@@ -326,9 +334,10 @@ customer flow에서는 아래 설정을 사용한다.
 device id만 승인한다.
 
 ```bash
-TARGET_USER=oc1
 DEVICE_ID=DEVICE_ID_FROM_BROWSER
+```
 
+```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
   --user "$TARGET_USER" \
   "$DEVICE_ID"
@@ -337,8 +346,6 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
 pending device 확인:
 
 ```bash
-TARGET_USER=oc1
-
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
   --user "$TARGET_USER" \
   --list
@@ -350,6 +357,9 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
 
 ```bash
 TARGET_USER=oc1
+```
+
+```bash
 SSH_HOST=YOUR_CUSTOMER_SSH_HOST
 ssh "$TARGET_USER@$SSH_HOST"
 ```
