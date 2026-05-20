@@ -23,6 +23,16 @@
 
 고객에게 계정을 넘기기 전에 반드시 customer-mode check가 통과해야 한다.
 
+실행 순서는 아래처럼 읽으면 된다.
+
+```text
+일반 신규 설치:
+  1 -> 2 -> 3 -> 4 -> 6 -> 7 -> 8
+
+기존 계정을 일부러 지우고 fresh install 재검증:
+  1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8
+```
+
 ## 1. Host Setup
 
 sudo 가능한 관리자 계정에서 한 번 실행한다.
@@ -138,9 +148,35 @@ OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred \
 실제 마운트는 customer-mode bootstrap이 수행한다. 최종 마운트 권한은
 `ocN`과 `ocN_rt`만 읽을 수 있는 형태다.
 
-## 5. Baseline 이미지 빌드
+## 5. 선택: Fresh Install 재검증 시작점
 
-관리자 계정에서 실행한다.
+새 계정에 처음 설치하는 경우에는 이 단계는 건너뛴다.
+
+이미 설치된 계정을 일부러 지우고 fresh install을 검증할 때만 실행한다.
+이 블록을 실행하면 OpenClaw 설치물과 컨테이너가 삭제된다. 따라서 실행한
+뒤에는 반드시 6번 이미지 빌드와 7번 bootstrap을 다시 실행해야 한다.
+
+이 블록은 NAS, proxy, `.openclaw-install.env`, CIFS credential은 지우지
+않는다.
+
+```bash
+sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \
+  --format '{{.Names}}' | xargs -r sudo docker rm -f
+
+sudo rm -rf "$TARGET_HOME/openclaw"
+sudo rm -rf "$TARGET_HOME/.openclaw"
+sudo rm -rf "$TARGET_HOME/.openclaw-auth-profile-secrets"
+sudo rm -rf "$TARGET_HOME/.config/openclaw"
+sudo rm -rf "$TARGET_HOME/.cache/openclaw"
+sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
+
+sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
+```
+
+## 6. Baseline 이미지 빌드
+
+관리자 계정에서 실행한다. 5번에서 이미지를 지웠다면 이 단계가 다시
+필요하다.
 
 ```bash
 cd /opt/openclaw-nas-agent-baseline
@@ -151,7 +187,7 @@ sudo env \
   bash scripts/build-container-baseline.sh
 ```
 
-## 6. Customer Mode Bootstrap
+## 7. Customer Mode Bootstrap
 
 관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, NAS 마운트, runtime
 계정 구성, 권한 잠금을 한 번에 수행한다.
@@ -184,25 +220,6 @@ sudo env \
   OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
   OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
   openclaw-bootstrap < /dev/null
-```
-
-## 7. 재설치 테스트 때 지울 것
-
-fresh install 검증을 위해 기존 OpenClaw 상태를 지울 때만 사용한다. NAS,
-proxy, `.openclaw-install.env`, CIFS credential은 지우지 않는다.
-
-```bash
-sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \
-  --format '{{.Names}}' | xargs -r sudo docker rm -f
-
-sudo rm -rf "$TARGET_HOME/openclaw"
-sudo rm -rf "$TARGET_HOME/.openclaw"
-sudo rm -rf "$TARGET_HOME/.openclaw-auth-profile-secrets"
-sudo rm -rf "$TARGET_HOME/.config/openclaw"
-sudo rm -rf "$TARGET_HOME/.cache/openclaw"
-sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
-
-sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
 ```
 
 ## 8. 설치 확인
