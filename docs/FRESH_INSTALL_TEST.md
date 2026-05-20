@@ -34,6 +34,21 @@ The host already has:
 - reverse proxy routing `/oc1/` to the oc1 gateway
 - private install settings at `/home/oc1/.openclaw-install.env`
 
+Before running the destructive test, the shared bootstrap must have the install
+env hook. This is a one-time host operation, not part of account reinstall:
+
+```bash
+cd /home/oc1/openclaw-nas-agent-baseline-fresh
+sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
+sudo bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+```
+
+Expected:
+
+```text
+bootstrap_install_env=ok
+```
+
 The install settings file must include Gemini when Gemini is required for the
 account:
 
@@ -45,46 +60,63 @@ OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
 
-The repo image has already been built, or this test builds it before bootstrap:
-
-```bash
-cd /home/oc1/openclaw-nas-agent-baseline
-
-BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
-IMAGE_TAG=openclaw-nas-agent:baseline \
-bash scripts/build-container-baseline.sh
-```
+After the destructive reset, the repo image is rebuilt from GitHub in the
+`Build From GitHub` step below.
 
 ## Destructive Reset
 
 Run as `oc1`.
 
 This intentionally deletes per-user OpenClaw state. It must not delete NAS,
-proxy, fstab, CIFS credentials, or `/opt/openclaw-bootstrap`.
+proxy, fstab, CIFS credentials, `/home/oc1/.openclaw-install.env`, or
+`/opt/openclaw-bootstrap`.
 
 ```bash
 set -eu
 
+cd /home/oc1
+
 docker ps -a --filter 'label=com.docker.compose.project=openclaw-oc1' \
   --format '{{.Names}}' | xargs -r docker rm -f
 
-rm -rf /home/oc1/.openclaw
-rm -rf /home/oc1/openclaw
+rm -rf "$HOME/openclaw"
+rm -rf "$HOME/.openclaw"
+rm -rf "$HOME/.openclaw-auth-profile-secrets"
+rm -rf "$HOME/.config/openclaw"
+rm -rf "$HOME/.cache/openclaw"
 
-test ! -e /home/oc1/.openclaw
-test ! -e /home/oc1/openclaw
-findmnt -T /home/oc1/nas_docs
+docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
+rm -rf "$HOME/openclaw-nas-agent-baseline-fresh"
+
+test -f "$HOME/.openclaw-install.env"
+findmnt -T "$HOME/nas_docs"
 ```
 
 At this point the account is empty from OpenClaw's point of view.
 
-## Install Command
+## Build From GitHub
+
+Run as `oc1`.
+
+```bash
+git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git \
+  "$HOME/openclaw-nas-agent-baseline-fresh"
+
+cd "$HOME/openclaw-nas-agent-baseline-fresh"
+
+BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
+IMAGE_TAG=openclaw-nas-agent:baseline \
+bash scripts/build-container-baseline.sh
+```
+
+## Bootstrap Command
 
 Run as `oc1`.
 
 ```bash
 OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE=/home/oc1/.openclaw-install.env \
+OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
+OPENCLAW_BASELINE_DIR="$HOME/openclaw-nas-agent-baseline-fresh" \
 OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
 openclaw-bootstrap < /dev/null
@@ -143,6 +175,16 @@ Expected:
 }
 ```
 
+To print the gateway token without exposing API keys:
+
+```bash
+python3 - <<'PY'
+import json, os
+cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
+print(cfg["gateway"]["auth"]["token"])
+PY
+```
+
 ## NAS and Tool Checks
 
 Run as `oc1`.
@@ -192,6 +234,22 @@ Expected:
 http://127.0.0.1:28789/oc1/ code=200 redirect=
 https://ji-tech.co.kr/oc1/ code=200 redirect=
 https://www.ji-tech.co.kr/oc1/ code=200 redirect=
+```
+
+## Device Pairing
+
+If the browser asks for a one-time device approval, do not disable device auth.
+Approve only the displayed device id:
+
+```bash
+cd "$HOME/openclaw-nas-agent-baseline-fresh"
+bash scripts/approve-openclaw-device.sh DEVICE_ID_FROM_BROWSER
+```
+
+To inspect pending/known devices:
+
+```bash
+bash scripts/approve-openclaw-device.sh --list
 ```
 
 ## What This Test Does Not Preserve
