@@ -230,8 +230,7 @@ TARGET_USER=oc1
 SSH_HOST=YOUR_CUSTOMER_SSH_HOST
 ssh "$TARGET_USER@$SSH_HOST"
 
-# Operator-local aliases are only examples. They work only on machines whose
-# ~/.ssh/config defines that alias, so do not put them in customer instructions:
+# Optional shortcut when this SSH client has a matching ~/.ssh/config alias:
 # ssh oc1
 ```
 
