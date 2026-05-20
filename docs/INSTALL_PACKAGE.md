@@ -43,6 +43,7 @@ sudo bash install.sh
 
 - baseline container build files
 - install-settings materializer
+- customer-mode bootstrap patch helper
 - verification scripts
 - docs and examples
 
@@ -58,9 +59,9 @@ sudo bash install.sh
 Secrets and per-account settings stay outside Git, for example:
 
 ```text
-$HOME/.openclaw-install.env
-$HOME/.openclaw
-$HOME/nas_docs
+/home/ocN/.openclaw-install.env
+/home/ocN/.openclaw
+/home/ocN/nas_docs
 ```
 
 ## Fresh Install Relationship
@@ -68,10 +69,15 @@ $HOME/nas_docs
 The operator-facing install command remains bootstrap:
 
 ```bash
-OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
-openclaw-bootstrap
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER=ocN \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE=/home/ocN/.openclaw-install.env \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  openclaw-bootstrap < /dev/null
 ```
 
 The package is successful when bootstrap can use this repo's image and install
-settings helper during that one install flow.
+settings helper during that one install flow, without adding the customer
+account to the Docker group.

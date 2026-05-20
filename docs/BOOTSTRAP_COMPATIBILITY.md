@@ -23,8 +23,10 @@ The shared bootstrap script should live outside any one user's home directory:
 /usr/local/bin/openclaw-bootstrap -> /opt/openclaw-bootstrap/openclaw-bootstrap.sh
 ```
 
-That placement keeps the bootstrap account-neutral. The script still acts on the
-account that executes it because it derives defaults from `$HOME` and `$USER`.
+That placement keeps the bootstrap account-neutral. In lab mode, the script
+acts on the account that executes it because it derives defaults from `$HOME`
+and `$USER`. In customer mode, an admin runs the same bootstrap with
+`OPENCLAW_CUSTOMER_MODE=1` and `OPENCLAW_TARGET_USER=ocN`.
 
 For example:
 
@@ -104,13 +106,17 @@ openclaw-bootstrap
 
 That is still one bootstrap install. It is not a post-install restore.
 
-For another account:
+For customer mode, the customer account does not need Docker group membership.
+An admin runs:
 
 ```bash
-sudo su - oc20
-
-OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-openclaw-bootstrap
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER=oc20 \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE=/home/oc20/.openclaw-install.env \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  openclaw-bootstrap < /dev/null
 ```
 
 ## Required image contract
@@ -154,18 +160,18 @@ Those are provided by the bootstrap and host bind mounts.
 ## Important note
 
 The observed `openclaw-bootstrap.sh` accepts `OPENCLAW_IMAGE` from the shell
-environment. It does not appear to persist that value into `.env` by itself.
-It also does not currently pass `GEMINI_API_KEY` from the install env contract
-into the Gateway runtime as part of first install.
+environment. Older unpatched copies do not persist that value into `.env` by
+themselves and do not pass `GEMINI_API_KEY` from the install env contract into
+the Gateway runtime as part of first install.
 
-Therefore either:
+Therefore patch the bootstrap with this repository's helper. The patch:
 
-- pass `OPENCLAW_IMAGE=openclaw-nas-agent:baseline` every time the bootstrap is
-  used to recreate/start with the baseline image, or
-- patch the bootstrap separately to persist `OPENCLAW_IMAGE`.
-- patch the bootstrap to call `scripts/apply-openclaw-install-env.sh` when
-  `OPENCLAW_INSTALL_ENV_FILE` is set. The helper writes non-secret config and
-  runtime env only; it must not store the API key in `openclaw.json`.
+- persists `OPENCLAW_IMAGE` into the generated runtime env
+- calls `scripts/apply-openclaw-install-env.sh` when
+  `OPENCLAW_INSTALL_ENV_FILE` is set
+- supports `OPENCLAW_CUSTOMER_MODE=1 OPENCLAW_TARGET_USER=ocN`, where root runs
+  Docker and the customer account is never added to the Docker group
+- writes the final runtime-user compose override during bootstrap
 
 Those patches belong to the bootstrap layer, not to a second fresh-install
 wrapper.
@@ -192,4 +198,5 @@ Expected:
 
 ```text
 bootstrap_install_env=ok
+bootstrap_customer_mode=ok
 ```

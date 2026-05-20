@@ -35,7 +35,8 @@ flow for the operator to remember after install.
 
 ## Install Env File
 
-Put account-specific install settings in a private file owned by that account:
+Put account-specific install settings in a private file readable by the admin
+bootstrap path, not by the customer account:
 
 ```bash
 $HOME/.openclaw-install.env
@@ -44,6 +45,7 @@ $HOME/.openclaw-install.env
 Permissions:
 
 ```bash
+chown root:root "$HOME/.openclaw-install.env"
 chmod 600 "$HOME/.openclaw-install.env"
 ```
 

@@ -19,7 +19,7 @@ replay a manual recovery sequence.
 
 | Layer | Job |
 | --- | --- |
-| host operation | Create the Linux account, Docker access, NAS mount, proxy route, and shared bootstrap. |
+| host operation | Create the Linux account, NAS/proxy prerequisites, and shared bootstrap. |
 | this repository | Build `openclaw-nas-agent:baseline` from `container/Dockerfile` and provide install-settings/check helpers. |
 | `openclaw-bootstrap` | Install/start OpenClaw for the current Linux account from empty state and apply install settings. |
 
@@ -38,8 +38,8 @@ TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 The host already has:
 
 - Linux user `$TARGET_USER`
-- Docker access for `$TARGET_USER`
-- NAS mounted at `$TARGET_HOME/nas_docs`
+- Docker access for the admin account running the test
+- CIFS credentials at `/etc/samba/hanpass.cred`
 - shared bootstrap at `/usr/local/bin/openclaw-bootstrap`
 - reverse proxy routing `/$TARGET_USER/` to the account gateway
 - private install settings at `$TARGET_HOME/.openclaw-install.env`
@@ -63,6 +63,7 @@ Expected:
 
 ```text
 bootstrap_install_env=ok
+bootstrap_customer_mode=ok
 ```
 
 The install settings file must include Gemini when Gemini is required for the
@@ -76,66 +77,65 @@ OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr
 OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 ```
 
-After the destructive reset, the repo image is rebuilt from GitHub in the
-`Build From GitHub` step below.
+After the destructive reset, the repo image is rebuilt from the installed
+baseline package in `/opt`.
 
 ## Destructive Reset
 
-Run as the target account.
+Run as admin.
 
 This intentionally deletes per-user OpenClaw state. It must not delete NAS,
-proxy, fstab, CIFS credentials, `$HOME/.openclaw-install.env`, or
+proxy, fstab, CIFS credentials, `$TARGET_HOME/.openclaw-install.env`, or
 `/opt/openclaw-bootstrap`.
 
 ```bash
 set -eu
 
-cd "$HOME"
+sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \
+  --format '{{.Names}}' | xargs -r sudo docker rm -f
 
-docker ps -a --filter "label=com.docker.compose.project=openclaw-$(id -un)" \
-  --format '{{.Names}}' | xargs -r docker rm -f
+sudo rm -rf "$TARGET_HOME/openclaw"
+sudo rm -rf "$TARGET_HOME/.openclaw"
+sudo rm -rf "$TARGET_HOME/.openclaw-auth-profile-secrets"
+sudo rm -rf "$TARGET_HOME/.config/openclaw"
+sudo rm -rf "$TARGET_HOME/.cache/openclaw"
+sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
 
-rm -rf "$HOME/openclaw"
-rm -rf "$HOME/.openclaw"
-rm -rf "$HOME/.openclaw-auth-profile-secrets"
-rm -rf "$HOME/.config/openclaw"
-rm -rf "$HOME/.cache/openclaw"
+sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
 
-docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
-rm -rf "$HOME/openclaw-nas-agent-baseline-fresh"
-
-test -f "$HOME/.openclaw-install.env"
-findmnt -T "$HOME/nas_docs"
+sudo test -f "$TARGET_HOME/.openclaw-install.env"
+sudo test -f /etc/samba/hanpass.cred
 ```
 
 At this point the account is empty from OpenClaw's point of view.
 
-## Build From GitHub
+## Build Baseline Image
 
-Run as the target account.
+Run as admin from the installed baseline package.
 
 ```bash
-git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git \
-  "$HOME/openclaw-nas-agent-baseline-fresh"
+cd /opt/openclaw-nas-agent-baseline
 
-cd "$HOME/openclaw-nas-agent-baseline-fresh"
-
-BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
-IMAGE_TAG=openclaw-nas-agent:baseline \
-bash scripts/build-container-baseline.sh
+sudo env \
+  BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
+  IMAGE_TAG=openclaw-nas-agent:baseline \
+  bash scripts/build-container-baseline.sh
 ```
 
 ## Bootstrap Command
 
-Run as the target account.
+Run as admin. The customer account does not need Docker group membership.
 
 ```bash
-OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
-OPENCLAW_BASELINE_DIR="$HOME/openclaw-nas-agent-baseline-fresh" \
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
-openclaw-bootstrap < /dev/null
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER="$TARGET_USER" \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  openclaw-bootstrap < /dev/null
 ```
 
 That is the contract. No separate `fresh-install-account.sh` should be needed.
@@ -145,11 +145,11 @@ stored as a literal `apiKey` in `~/.openclaw/openclaw.json`.
 
 ## Success Checks
 
-Run as the target account.
+Run as admin.
 
 ```bash
 for i in $(seq 1 30); do
-  status=$(docker inspect "openclaw-$(id -un)-openclaw-gateway-1" \
+  status=$(sudo docker inspect "openclaw-$TARGET_USER-openclaw-gateway-1" \
     --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
     2>/dev/null || echo missing)
   echo "health_attempt_$i=$status"
@@ -157,11 +157,14 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-docker ps --filter "name=openclaw-$(id -un)-openclaw-gateway-1" \
+sudo docker ps --filter "name=openclaw-$TARGET_USER-openclaw-gateway-1" \
   --format 'container={{.Names}} image={{.Image}} status={{.Status}} ports={{.Ports}}'
 
-docker inspect "openclaw-$(id -un)-openclaw-gateway-1" \
+sudo docker inspect "openclaw-$TARGET_USER-openclaw-gateway-1" \
   --format 'config_image={{.Config.Image}} user={{.Config.User}} workdir={{.Config.WorkingDir}}'
+
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
+  --user "$TARGET_USER"
 ```
 
 Expected:
@@ -174,17 +177,17 @@ status=Up ... (healthy)
 
 ## Install Settings Check
 
-Run as the target account.
+Run as admin without printing secrets.
 
 ```bash
-jq '{
+sudo jq '{
   gemini_config_api_key_present: (.plugins.entries.google.config.webSearch.apiKey != null),
   gemini_search_provider: .tools.web.search.provider,
   default_model: .agents.defaults.model.primary,
   gateway_token_present: (.gateway.auth.token != null)
-}' "$HOME/.openclaw/openclaw.json"
+}' "$TARGET_HOME/.openclaw/openclaw.json"
 
-grep -q '^GEMINI_API_KEY=' "$HOME/openclaw/.env" && echo gemini_runtime_env_present
+sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/openclaw/.env" && echo gemini_runtime_env_present
 ```
 
 Expected:
@@ -204,19 +207,19 @@ gemini_runtime_env_present
 To print the gateway token without exposing API keys:
 
 ```bash
-python3 - <<'PY'
-import json, os
-cfg=json.load(open(os.path.expanduser("~/.openclaw/openclaw.json"), encoding="utf-8"))
+sudo python3 - <<PY
+import json
+cfg=json.load(open("$TARGET_HOME/.openclaw/openclaw.json", encoding="utf-8"))
 print(cfg["gateway"]["auth"]["token"])
 PY
 ```
 
 ## NAS and Tool Checks
 
-Run as the target account.
+Run as admin.
 
 ```bash
-docker exec "openclaw-$(id -un)-openclaw-gateway-1" sh -lc '
+sudo docker exec "openclaw-$TARGET_USER-openclaw-gateway-1" sh -lc '
   echo id=$(id)
   ls -ld /home/node/.openclaw /home/node/.openclaw/workspace /home/node/nas_docs
   printf "nas_sample="
@@ -245,14 +248,14 @@ when the NAS contains files.
 
 ## Dashboard Checks
 
-Run as the target account. The default gateway port is derived from the account
+Run as admin or from a host shell. The default gateway port is derived from the account
 suffix, so `oc1` is `28789`, `oc2` is `28889`, and so on.
 
 ```bash
-slot="$(id -un | sed -n 's/^oc\([0-9][0-9]*\)$/\1/p')"
+slot="$(printf '%s' "$TARGET_USER" | sed -n 's/^oc\([0-9][0-9]*\)$/\1/p')"
 slot="${slot:-1}"
 port=$((28789 + (slot - 1) * 100))
-base="/$(id -un)"
+base="/$TARGET_USER"
 
 for url in "http://127.0.0.1:${port}${base}/" "https://ji-tech.co.kr${base}/" "https://www.ji-tech.co.kr${base}/"; do
   printf '%s ' "$url"
@@ -274,14 +277,17 @@ If the browser asks for a one-time device approval, do not disable device auth.
 Approve only the displayed device id:
 
 ```bash
-cd "$HOME/openclaw-nas-agent-baseline-fresh"
-bash scripts/approve-openclaw-device.sh DEVICE_ID_FROM_BROWSER
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
+  --user "$TARGET_USER" \
+  DEVICE_ID_FROM_BROWSER
 ```
 
 To inspect pending/known devices:
 
 ```bash
-bash scripts/approve-openclaw-device.sh --list
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
+  --user "$TARGET_USER" \
+  --list
 ```
 
 ## What This Test Does Not Preserve

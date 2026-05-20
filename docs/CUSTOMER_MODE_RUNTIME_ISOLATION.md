@@ -221,13 +221,21 @@ customer_proc_env_gemini_visible=no
 
 ## Repository Helpers
 
-The validated conversion is now represented by scripts:
+The default install path is now direct customer-mode bootstrap:
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-customer-mode-isolation.sh \
-  --user ocN \
-  --check
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER=ocN \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE=/home/ocN/.openclaw-install.env \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  openclaw-bootstrap < /dev/null
+```
 
+Then verify:
+
+```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
   --user ocN
 ```
@@ -240,9 +248,10 @@ state/env files, restarts the gateway, and can run the check script.
 `check-customer-mode-isolation.sh` prints only pass/fail and presence/blocking
 status. It must not print API keys, gateway tokens, or raw secret values.
 
-## Next Work
+For older staging installs, use the migration helper:
 
-The current flow still uses the existing shared bootstrap as a staging install
-before customer-mode isolation is applied. The next deeper change is to teach
-bootstrap itself to install directly in customer mode, so the temporary Docker
-membership step can disappear entirely.
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-customer-mode-isolation.sh \
+  --user ocN \
+  --check
+```

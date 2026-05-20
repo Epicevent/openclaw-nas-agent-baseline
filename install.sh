@@ -116,7 +116,6 @@ Next useful commands:
   cd $prefix
   sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
   sudo bash scripts/patch-openclaw-bootstrap-install-env.sh --check
-  sudo bash scripts/apply-customer-mode-isolation.sh --user oc1 --check
   sudo bash scripts/check-customer-mode-isolation.sh --user oc1
   less README.md
 EOF

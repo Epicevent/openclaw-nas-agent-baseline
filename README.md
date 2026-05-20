@@ -49,6 +49,7 @@ Expected:
 
 ```text
 bootstrap_install_env=ok
+bootstrap_customer_mode=ok
 ```
 
 ## Prepare One Account
@@ -65,12 +66,9 @@ if ! id "$TARGET_USER" >/dev/null 2>&1; then
   TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 fi
 
-getent group docker >/dev/null || sudo groupadd docker
 getent group openclaw-installers >/dev/null || sudo groupadd openclaw-installers
 
-# Temporary bootstrap access only. The customer-mode isolation script removes
-# docker before the account is handed to a customer.
-sudo usermod -aG docker,openclaw-installers "$TARGET_USER"
+sudo usermod -aG openclaw-installers "$TARGET_USER"
 
 id "$TARGET_USER"
 echo "home=$TARGET_HOME"
@@ -81,10 +79,10 @@ Do not give the customer this account yet.
 ## Create Install Env
 
 This file is install input. It is locked down by the customer-mode isolation
-step after bootstrap.
+bootstrap path and is not readable by the customer account.
 
 ```bash
-sudo install -o "$TARGET_USER" -g "$TARGET_USER" -m 600 /dev/null "$TARGET_HOME/.openclaw-install.env"
+sudo install -o root -g root -m 600 /dev/null "$TARGET_HOME/.openclaw-install.env"
 
 read -rsp "GEMINI_API_KEY for $TARGET_USER: " GEMINI_API_KEY
 printf '\n'
@@ -98,7 +96,7 @@ OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr
 OPENCLAW_GATEWAY_BIND=lan
 EOF
 
-sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/.openclaw-install.env"
+sudo chown root:root "$TARGET_HOME/.openclaw-install.env"
 sudo chmod 600 "$TARGET_HOME/.openclaw-install.env"
 unset GEMINI_API_KEY
 ```
@@ -110,90 +108,79 @@ sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gem
 sudo grep -q "^OPENCLAW_CONTROL_UI_BASEPATH=/$TARGET_USER$" "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
 ```
 
-## Mount NAS For Bootstrap
+## NAS Prerequisites
 
-The customer-mode isolation step remounts this with the final shared group
-permissions. This bootstrap mount only needs to let the initial install work.
+Direct customer-mode bootstrap remounts the account NAS path with the final
+customer/runtime shared permissions.
 
 ```bash
 sudo mkdir -p "$TARGET_HOME/nas_docs"
 sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/nas_docs"
 sudo test -f /etc/samba/hanpass.cred && echo cifs_cred_ok
-
-TARGET_UID="$(id -u "$TARGET_USER")"
-TARGET_GID="$(id -g "$TARGET_USER")"
-
-if ! findmnt -T "$TARGET_HOME/nas_docs" >/dev/null 2>&1; then
-  sudo mount -t cifs //192.168.0.222/hanpass "$TARGET_HOME/nas_docs" \
-    -o credentials=/etc/samba/hanpass.cred,uid="$TARGET_UID",gid="$TARGET_GID",forceuid,forcegid,ro,file_mode=0400,dir_mode=0700,iocharset=utf8,vers=3.1.1,nounix,noserverino,nosharesock
-fi
 ```
 
-Verify:
+For a non-default share or credentials file, pass these to bootstrap:
 
 ```bash
-findmnt -T "$TARGET_HOME/nas_docs" && echo nas_mount_ok
-sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo nas_read_ok
+OPENCLAW_CUSTOMER_SHARE=//server/share
+OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/cifs.cred
 ```
 
-## Bootstrap In Staging Mode
+## Bootstrap In Customer Mode
 
-This step uses the existing shared bootstrap. It is a staging step, not the
-final customer state.
+Run as admin. The customer account does not need Docker group membership.
 
-Open a new login session for the target account so its temporary Docker group is
-visible:
+Build the baseline image:
 
 ```bash
-sudo su - "$TARGET_USER"
-cd "$HOME"
+cd /opt/openclaw-nas-agent-baseline
+
+sudo env \
+  BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
+  IMAGE_TAG=openclaw-nas-agent:baseline \
+  bash scripts/build-container-baseline.sh
 ```
 
 For a reinstall test, remove previous OpenClaw state but keep env and NAS:
 
 ```bash
-docker ps -a --filter "label=com.docker.compose.project=openclaw-$(id -un)" \
-  --format '{{.Names}}' | xargs -r docker rm -f
+sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \
+  --format '{{.Names}}' | xargs -r sudo docker rm -f
 
-rm -rf "$HOME/openclaw"
-rm -rf "$HOME/.openclaw"
-rm -rf "$HOME/.openclaw-auth-profile-secrets"
-rm -rf "$HOME/.config/openclaw"
-rm -rf "$HOME/.cache/openclaw"
-rm -rf "$HOME/openclaw-nas-agent-baseline-fresh"
+sudo rm -rf "$TARGET_HOME/openclaw"
+sudo rm -rf "$TARGET_HOME/.openclaw"
+sudo rm -rf "$TARGET_HOME/.openclaw-auth-profile-secrets"
+sudo rm -rf "$TARGET_HOME/.config/openclaw"
+sudo rm -rf "$TARGET_HOME/.cache/openclaw"
+sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
 
-docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
+sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
 ```
 
-Clone, build, and bootstrap:
+Run bootstrap:
 
 ```bash
-git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git \
-  "$HOME/openclaw-nas-agent-baseline-fresh"
-
-cd "$HOME/openclaw-nas-agent-baseline-fresh"
-
-BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
-IMAGE_TAG=openclaw-nas-agent:baseline \
-bash scripts/build-container-baseline.sh
-
-OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-OPENCLAW_INSTALL_ENV_FILE="$HOME/.openclaw-install.env" \
-OPENCLAW_BASELINE_DIR="$HOME/openclaw-nas-agent-baseline-fresh" \
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
-openclaw-bootstrap < /dev/null
+sudo env \
+  OPENCLAW_CUSTOMER_MODE=1 \
+  OPENCLAW_TARGET_USER="$TARGET_USER" \
+  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
+  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
+  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
+  OPENCLAW_PROXY_PUBLIC_ORIGIN=https://ji-tech.co.kr \
+  OPENCLAW_PROXY_ALLOWED_ORIGINS=https://ji-tech.co.kr,https://www.ji-tech.co.kr \
+  openclaw-bootstrap < /dev/null
 ```
 
-Exit back to the admin account:
-
-```bash
-exit
-```
-
-## Apply Customer Mode
+## Verify Customer Mode
 
 Run as admin before giving the account to a customer:
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
+  --user "$TARGET_USER"
+```
+
+If converting an older staging install, use the migration helper:
 
 ```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-customer-mode-isolation.sh \
@@ -221,8 +208,9 @@ Now the account can be handed to the customer.
 
 ## First Web UI Access
 
-After customer mode is applied, the customer account no longer has Docker or raw
-config access. An admin should provide the first Gateway connection details.
+After customer-mode bootstrap passes its check, the customer account has no
+Docker or raw config access. An admin should provide the first Gateway
+connection details.
 
 Print the Gateway token as admin:
 
