@@ -219,6 +219,54 @@ PASS container_nas_read_ok
 
 Now the account can be handed to the customer.
 
+## First Web UI Access
+
+After customer mode is applied, the customer account no longer has Docker or raw
+config access. An admin should provide the first Gateway connection details.
+
+Print the Gateway token as admin:
+
+```bash
+TARGET_USER=oc1
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+
+sudo python3 - <<PY
+import json
+from pathlib import Path
+
+cfg = json.loads(Path("$TARGET_HOME/.openclaw/openclaw.json").read_text(encoding="utf-8"))
+print(cfg["gateway"]["auth"]["token"])
+PY
+```
+
+Use the token with the account's proxied Control UI URL:
+
+```text
+https://YOUR_CONTROL_UI_HOST/$TARGET_USER/
+```
+
+If the browser asks for device approval, approve only the device id shown by the
+browser:
+
+```bash
+TARGET_USER=oc1
+DEVICE_ID=DEVICE_ID_FROM_BROWSER
+
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
+  --user "$TARGET_USER" \
+  "$DEVICE_ID"
+```
+
+To inspect pending or known devices:
+
+```bash
+TARGET_USER=oc1
+
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
+  --user "$TARGET_USER" \
+  --list
+```
+
 ## Customer Smoke Test
 
 Open a new terminal and start a fresh customer SSH session:

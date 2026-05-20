@@ -4,12 +4,18 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  approve-openclaw-device.sh DEVICE_ID
-  approve-openclaw-device.sh --list
+  approve-openclaw-device.sh [--user USER] DEVICE_ID
+  approve-openclaw-device.sh [--user USER] --list
 
-Approves or lists OpenClaw Control UI devices for the current Linux account.
+Approves or lists OpenClaw Control UI devices for an OpenClaw account.
 
-Run this as the target account, for example:
+Run as the target account in lab mode, or as admin/root with --user in customer
+mode.
+
+Examples:
+
+  sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh --user oc1 --list
+  sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh --user oc1 62a39efd-d9d4-4eb4-8bdb-b9bbf61e1668
 
   sudo su - oc1
   bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh 62a39efd-d9d4-4eb4-8bdb-b9bbf61e1668
@@ -18,9 +24,14 @@ USAGE
 
 mode="approve"
 device_id=""
+target_user=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --user)
+      target_user="${2:?missing user}"
+      shift 2
+      ;;
     --list)
       mode="list"
       shift
@@ -38,7 +49,7 @@ while [[ $# -gt 0 ]]; do
       device_id="$1"
       shift
       ;;
-  esac
+    esac
 done
 
 if [[ "$mode" == "approve" && -z "$device_id" ]]; then
@@ -47,7 +58,18 @@ if [[ "$mode" == "approve" && -z "$device_id" ]]; then
   exit 2
 fi
 
-openclaw_dir="${OPENCLAW_DIR:-$HOME/openclaw}"
+if [[ -n "$target_user" ]]; then
+  target_home="$(getent passwd "$target_user" | cut -d: -f6)"
+  if [[ -z "$target_home" ]]; then
+    echo "error: user not found: $target_user" >&2
+    exit 1
+  fi
+else
+  target_user="$(id -un)"
+  target_home="$HOME"
+fi
+
+openclaw_dir="${OPENCLAW_DIR:-$target_home/openclaw}"
 if [[ ! -d "$openclaw_dir" ]]; then
   echo "error: OpenClaw directory not found: $openclaw_dir" >&2
   exit 1
@@ -58,7 +80,7 @@ compose_args=(-f docker-compose.yml)
 [[ -f "$openclaw_dir/docker-compose.host-user.yml" ]] && compose_args+=(-f docker-compose.host-user.yml)
 [[ -f "$openclaw_dir/docker-compose.sandbox.yml" ]] && compose_args+=(-f docker-compose.sandbox.yml)
 
-project="openclaw-$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
+project="openclaw-$(printf '%s' "$target_user" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
 if [[ -f "$openclaw_dir/.env" ]]; then
   existing_project="$(awk -F= '$1=="COMPOSE_PROJECT_NAME"{print $2}' "$openclaw_dir/.env" | tail -1)"
   existing_project="${existing_project//$'\r'/}"
