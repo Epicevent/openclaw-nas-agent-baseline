@@ -156,8 +156,20 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
   --user "$TARGET_USER" \
   --mode subdomain \
   --host "$CONTROL_UI_HOST" \
-  --apply \
-  --reload
+  --apply
+```
+
+The generated file is only the account-side deploy artifact. A root operator
+must install and enable the Apache site:
+
+```bash
+sudo install -o root -g root -m 0644 \
+  "$TARGET_HOME/openclaw/deploy/apache-subdomain-$TARGET_USER.conf" \
+  "/etc/apache2/sites-available/$CONTROL_UI_HOST.conf"
+
+sudo a2ensite "$CONTROL_UI_HOST.conf"
+sudo apache2ctl -t
+sudo systemctl reload apache2
 ```
 
 For already-installed accounts, use the conversion helper instead. It updates
@@ -189,8 +201,10 @@ sudo docker ps --filter "name=openclaw-$TARGET_USER-openclaw-gateway-1" \
 sudo docker inspect "openclaw-$TARGET_USER-openclaw-gateway-1" \
   --format 'config_image={{.Config.Image}} user={{.Config.User}} workdir={{.Config.WorkingDir}}'
 
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
-  --user "$TARGET_USER"
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-deployment.sh \
+  --user "$TARGET_USER" \
+  --expected-basepath / \
+  --expected-origin "https://$CONTROL_UI_HOST"
 ```
 
 Expected:

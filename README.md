@@ -369,10 +369,12 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-subdomain-mode.sh \
 
 ## 9. 설치 확인
 
-관리자 계정에서 실행한다.
+관리자 계정에서 실행한다. 최종 완료 판정은 `deployment` 체크로 한다. 이
+스크립트는 내부에서 customer-mode 격리 체크를 먼저 실행한 뒤, Apache
+VirtualHost 등록과 실제 공개 URL 응답까지 확인한다.
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-mode-isolation.sh \
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-deployment.sh \
   --user "$TARGET_USER" \
   --expected-basepath / \
   --expected-origin "https://$CONTROL_UI_HOST"
@@ -395,7 +397,22 @@ PASS customer_docker_blocked
 PASS customer_proc_env_gemini_blocked
 PASS container_env_gemini_present
 PASS container_nas_read_ok
+PASS customer_isolation_ok
+PASS apache_subdomain_basepath_ok
+PASS apache_expected_host_parse_ok
+PASS apache_deploy_conf_exists
+PASS apache_site_available_ok
+PASS apache_site_enabled_ok
+PASS apache_syntax_ok
+PASS apache_vhost_registered_ok
+PASS apache_backend_port_ok
+PASS public_url_openclaw_page_ok
 ```
+
+`apache_site_available_ok`, `apache_site_enabled_ok`,
+`apache_vhost_registered_ok`, `public_url_openclaw_page_ok` 중 하나가
+실패하면 아직 `/etc/apache2` 운영 반영이 끝난 것이 아니다. 이 상태에서는
+브라우저가 OpenClaw가 아니라 기본 회사 홈페이지를 볼 수 있다.
 
 `container_env_gemini_present` 또는 `container_nas_read_ok`가 실패하고
 컨테이너가 `restarting/unhealthy`면 먼저 로그를 본다.
