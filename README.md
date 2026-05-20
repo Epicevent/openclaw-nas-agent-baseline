@@ -17,6 +17,11 @@ This repo does not own:
 - OpenClaw gateway tokens
 - Gemini/API secrets
 
+Security note: the flow below is still the lab/admin install flow. Do not give
+customer accounts Docker access or run a secret-bearing Gateway as the customer
+UID. For the customer-mode isolation direction validated on `oc1`, see
+[Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md).
+
 ## Flow
 
 ```text
@@ -268,6 +273,7 @@ Do not start with these. They are for debugging or background.
 
 - [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
 - [Container baseline](docs/CONTAINER_BASELINE.md)
+- [Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md)
 - [Install settings](docs/INSTALL_SETTINGS.md)
 - [Install package](docs/INSTALL_PACKAGE.md)
 - [Recovery](docs/OPENCLAW_RECOVERY.md)
