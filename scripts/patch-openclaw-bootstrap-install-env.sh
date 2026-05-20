@@ -82,6 +82,8 @@ host_user_marker = "OPENCLAW_BOOTSTRAP_HOST_USER_RECREATE_PATCH v1"
 customer_mode_marker = "OPENCLAW_BOOTSTRAP_CUSTOMER_MODE_PATCH v1"
 customer_finalize_marker = "OPENCLAW_BOOTSTRAP_CUSTOMER_MODE_FINALIZE_CALL v1"
 customer_mode_probe = "openclaw_customer_mode_truthy()"
+customer_port_slot_probe = 'export OPENCLAW_PORT_SLOT="${BASH_REMATCH[1]}"'
+customer_basepath_probe = 'export OPENCLAW_CONTROL_UI_BASEPATH="${OPENCLAW_CONTROL_UI_BASEPATH:-/$OPENCLAW_TARGET_USER}"'
 
 text = target.read_text(encoding="utf-8")
 
@@ -91,6 +93,8 @@ if mode == "check":
         and main_call_marker in text
         and host_user_marker in text
         and customer_mode_probe in text
+        and customer_port_slot_probe in text
+        and customer_basepath_probe in text
         and customer_finalize_marker in text
     )
     if ok:
@@ -104,6 +108,10 @@ if mode == "check":
         print("bootstrap_host_user_recreate=missing")
     if customer_mode_probe not in text:
         print("bootstrap_customer_mode=missing")
+    if customer_mode_probe in text and customer_port_slot_probe not in text:
+        print("bootstrap_customer_port_slot=missing")
+    if customer_mode_probe in text and customer_basepath_probe not in text:
+        print("bootstrap_customer_basepath=missing")
     if customer_mode_probe in text and customer_finalize_marker not in text:
         print("bootstrap_customer_mode_finalize=missing")
     sys.exit(0 if ok else 1)
@@ -113,6 +121,8 @@ if (
     and main_call_marker in text
     and host_user_marker in text
     and customer_mode_probe in text
+    and customer_port_slot_probe in text
+    and customer_basepath_probe in text
     and customer_finalize_marker in text
 ):
     print(f"already patched: {target}")
@@ -206,6 +216,12 @@ if openclaw_customer_mode_truthy "${{OPENCLAW_CUSTOMER_MODE:-0}}"; then
   export USER="$OPENCLAW_TARGET_USER"
   export LOGNAME="$OPENCLAW_TARGET_USER"
   export OPENCLAW_INSTANCE="${{OPENCLAW_INSTANCE:-$OPENCLAW_TARGET_USER}}"
+
+  if [[ -z "${{OPENCLAW_PORT_SLOT:-}}" && "$OPENCLAW_INSTANCE" =~ ^oc([0-9]+)$ ]]; then
+    export OPENCLAW_PORT_SLOT="${{BASH_REMATCH[1]}}"
+  fi
+
+  export OPENCLAW_CONTROL_UI_BASEPATH="${{OPENCLAW_CONTROL_UI_BASEPATH:-/$OPENCLAW_TARGET_USER}}"
   export OPENCLAW_HOST_UID="$OPENCLAW_RUNTIME_UID"
   export OPENCLAW_HOST_GID="$OPENCLAW_RUNTIME_GID"
   export OPENCLAW_TARGET_USER OPENCLAW_TARGET_HOME
@@ -240,7 +256,16 @@ fi
 
 '''
 
-if customer_mode_probe not in new:
+customer_block_re = re.compile(
+    r"\n# OPENCLAW_BOOTSTRAP_CUSTOMER_MODE_PATCH v1\n"
+    r"openclaw_customer_mode_truthy\(\) \{.*?\nfi\n\n"
+    r"(?=OPENCLAW_HOST_UID=)",
+    re.S,
+)
+
+if customer_block_re.search(new):
+    new = customer_block_re.sub("\n" + customer_mode_bootstrap, new, count=1)
+elif customer_mode_probe not in new:
     if "OPENCLAW_CUSTOMER_MODE_PATCH_MARKER=" in new:
         marker_line_re = re.compile(r"OPENCLAW_CUSTOMER_MODE_PATCH_MARKER='[^']+'\n")
         new = marker_line_re.sub(lambda m: m.group(0) + customer_mode_bootstrap, new, count=1)
