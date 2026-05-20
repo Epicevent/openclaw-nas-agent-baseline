@@ -287,25 +287,40 @@ sudo env \
 
 관리자 계정에서 실행한다. 이 단계는 Apache가
 `https://ocN.ji-tech.co.kr/...` 요청을 해당 계정 gateway의 root(`/`)로
-보내도록 proxy conf를 작성한다.
+보내도록 proxy conf를 준비하고, 운영 Apache에 활성화한다.
+
+역할을 분리해서 이해하면 된다.
+
+```text
+Git repo:
+  계정별 Apache 설정 파일을 생성하는 기준
+
+/home/ocN/openclaw/deploy/apache-subdomain-ocN.conf:
+  이 패키지가 생성하는 계정별 VirtualHost 원본
+
+/etc/apache2/sites-available/ocN.ji-tech.co.kr.conf:
+  Apache가 실제 운영 설정으로 읽을 사이트 파일
+
+/etc/apache2/sites-enabled/ocN.ji-tech.co.kr.conf:
+  a2ensite 후 활성화되는 심볼릭 링크
+```
 
 사전 조건:
 
 ```text
 DNS: ocN.ji-tech.co.kr 이 이 서버를 가리킴
 TLS: ocN.ji-tech.co.kr 을 포함하는 인증서 또는 wildcard 인증서가 Apache에 적용됨
-Apache: 기본 SSL VirtualHost가 이 host를 받을 수 있음
+Apache: ocN.ji-tech.co.kr 전용 VirtualHost를 sites-available/sites-enabled에 등록 가능
 ```
 
-적용:
+먼저 계정 홈의 `deploy` 폴더에 VirtualHost 원본을 생성한다.
 
 ```bash
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
   --user "$TARGET_USER" \
   --mode subdomain \
   --host "$CONTROL_UI_HOST" \
-  --apply \
-  --reload
+  --apply
 ```
 
 이 스크립트는 `deploy.zip`과 같은 형식의 계정별 전체 VirtualHost 파일을
@@ -315,9 +330,30 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-apache-proxy-conf.sh \
 /home/ocN/openclaw/deploy/apache-subdomain-ocN.conf
 ```
 
-이 파일을 실제로 활성화하려면 운영자가 `/etc/apache2/sites-available`에
-설치하고 `a2ensite`/reload를 수행해야 한다. DNS와 TLS 준비가 끝나기 전에는
-deploy 폴더에 파일만 둬도 된다.
+이 파일은 아직 Apache에 활성화된 것이 아니다. 신규 고객 계정이 추가될 때마다
+운영자는 같은 파일을 `/etc/apache2/sites-available`에 설치하고 `a2ensite` 후
+reload해야 한다. 이 단계를 빼면 `https://ocN.ji-tech.co.kr/` 요청은 Apache의
+기본 사이트로 떨어질 수 있다.
+
+```bash
+sudo install -o root -g root -m 0644 \
+  "$TARGET_HOME/openclaw/deploy/apache-subdomain-$TARGET_USER.conf" \
+  "/etc/apache2/sites-available/$CONTROL_UI_HOST.conf"
+
+sudo a2ensite "$CONTROL_UI_HOST.conf"
+sudo apache2ctl -t
+sudo systemctl reload apache2
+```
+
+정상 등록 여부 확인:
+
+```bash
+sudo apache2ctl -S | grep -A3 -B3 "$CONTROL_UI_HOST"
+curl -k -I "https://$CONTROL_UI_HOST/"
+```
+
+DNS와 TLS 준비가 끝나기 전에는 deploy 폴더에 파일만 둬도 된다. 다만 고객에게
+전달하는 실제 접속 URL은 Apache 사이트 활성화까지 끝난 뒤에만 정상 동작한다.
 
 이미 설치된 계정을 subdomain mode로 전환할 때는 아래 helper를 사용한다. 이
 명령은 `openclaw.json`, `openclaw/.env`, deploy conf를 맞춘 뒤 gateway
