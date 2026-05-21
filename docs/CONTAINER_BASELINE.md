@@ -68,6 +68,22 @@ NAS CIFS mount는 host에서 수행
 
 컨테이너 내부에서 CIFS를 직접 mount하려면 `SYS_ADMIN` 같은 강한 권한이 필요하므로 기본 운영 모델에서 제외한다.
 
+## 한글 런타임
+
+한글 NAS 문서와 파일명을 안정적으로 처리하려면 컨테이너 안에서도 UTF-8 locale과
+한글 폰트가 필요하다. `tesseract-ocr-kor`는 OCR 언어 데이터일 뿐이고,
+LibreOffice 변환이나 파일명 처리를 위한 locale/font를 대신하지 않는다.
+
+필수 상태:
+
+```text
+LANG=ko_KR.UTF-8
+locale charmap -> UTF-8
+locale -a -> ko_KR.UTF-8 또는 ko_KR.utf8
+fc-list :lang=ko -> 1개 이상
+hwp5txt/hwp5proc -> pyhwp fallback 명령
+```
+
 ## 컨테이너 내부 검증
 
 컨테이너에 들어가서 확인한다.
@@ -76,11 +92,16 @@ NAS CIFS mount는 host에서 수행
 whoami
 id
 ls /home/oc14/nas_docs
+locale charmap
+locale -a | grep -Ei '^ko_KR(\.utf8|\.UTF-8)?$'
+fc-list :lang=ko | head
 command -v pdftotext
 command -v libreoffice
 command -v tesseract
 command -v pandoc
 command -v xlsx2csv
+command -v hwp5txt
+command -v hwp5proc
 openclaw skills check
 ```
 

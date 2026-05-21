@@ -14,6 +14,7 @@ and the public URL.
 
 Expected pass state:
   - customer-mode isolation passes
+  - container document baseline tools and Korean runtime support pass
   - Apache vhost is registered by apache2ctl -S
   - Apache registered vhost config file exists
   - Apache registered vhost config points at the expected gateway port
@@ -214,6 +215,63 @@ if bash "$script_dir/check-customer-mode-isolation.sh" \
   pass "customer_isolation_ok"
 else
   fail "customer_isolation_ok"
+fi
+
+echo "== container document baseline =="
+if docker inspect "$container" >/dev/null 2>&1; then
+  pass "container_exists_for_document_baseline"
+
+  check "container_locale_utf8" \
+    docker exec "$container" sh -lc 'locale charmap 2>/dev/null | grep -qi UTF-8'
+
+  check "container_ko_locale_available" \
+    docker exec "$container" sh -lc 'locale -a 2>/dev/null | grep -Eiq "^ko_KR(\\.utf8|\\.UTF-8)?$"'
+
+  check "container_korean_fonts_available" \
+    docker exec "$container" sh -lc 'command -v fc-list >/dev/null 2>&1 && [ "$(fc-list :lang=ko 2>/dev/null | wc -l)" -gt 0 ]'
+
+  required_container_commands=(
+    file
+    rg
+    jq
+    yq
+    7z
+    7zz
+    libreoffice
+    soffice
+    pandoc
+    pdftotext
+    pdfinfo
+    tesseract
+    ocrmypdf
+    xlsx2csv
+    in2csv
+    ssconvert
+    antiword
+    catdoc
+    python3
+    node
+    npm
+    clawhub
+    hwp5txt
+    hwp5proc
+  )
+
+  for command_name in "${required_container_commands[@]}"; do
+    check "container_cmd_${command_name}_ok" \
+      docker exec "$container" sh -lc "command -v '$command_name' >/dev/null 2>&1"
+  done
+
+  check "container_tesseract_kor_available" \
+    docker exec "$container" sh -lc 'tesseract --list-langs 2>/dev/null | grep -qx kor'
+
+  check "container_python_document_modules_ok" \
+    docker exec "$container" python3 -c 'import docx, pandas, openpyxl, pptx, lxml, bs4, pypdf, pdfplumber, fitz'
+
+  check "container_korean_file_smoke_ok" \
+    docker exec "$container" python3 -c 'from pathlib import Path; p=Path("/tmp/openclaw-korean-smoke"); p.mkdir(exist_ok=True); f=p/"\ud55c\uae00.txt"; f.write_text("\ud55c\uae00 \ud14c\uc2a4\ud2b8\n", encoding="utf-8"); assert f.read_text(encoding="utf-8").strip() == "\ud55c\uae00 \ud14c\uc2a4\ud2b8"; f.unlink(); p.rmdir()'
+else
+  fail "container_exists_for_document_baseline"
 fi
 
 echo "== apache subdomain =="

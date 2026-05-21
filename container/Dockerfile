@@ -18,6 +18,10 @@ RUN chmod +x /tmp/install-container-baseline.sh \
   && /tmp/install-container-baseline.sh \
   && rm -f /tmp/install-container-baseline.sh
 
+ENV LANG=ko_KR.UTF-8 \
+    LANGUAGE=ko_KR:ko \
+    LC_ALL=ko_KR.UTF-8
+
 USER node
 
 LABEL org.opencontainers.image.title="OpenClaw NAS Agent Baseline"

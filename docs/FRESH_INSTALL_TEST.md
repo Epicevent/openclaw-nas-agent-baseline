@@ -264,15 +264,20 @@ Run as admin.
 sudo docker exec "openclaw-$TARGET_USER-openclaw-gateway-1" sh -lc '
   echo id=$(id)
   ls -ld /home/node/.openclaw /home/node/.openclaw/workspace /home/node/nas_docs
+  locale charmap | grep -qi UTF-8
+  locale -a | grep -Eiq "^ko_KR(\\.utf8|\\.UTF-8)?$"
+  test "$(fc-list :lang=ko 2>/dev/null | wc -l)" -gt 0
   printf "nas_sample="
   find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l
-  for x in openclaw rg jq yq file 7z 7zz libreoffice soffice pandoc pdftotext pdfinfo tesseract ocrmypdf xlsx2csv in2csv ssconvert antiword catdoc clawhub; do
+  for x in openclaw rg jq yq file 7z 7zz libreoffice soffice pandoc pdftotext pdfinfo tesseract ocrmypdf xlsx2csv in2csv ssconvert antiword catdoc clawhub hwp5txt hwp5proc; do
     command -v "$x" >/dev/null || { echo "missing:$x"; exit 1; }
   done
+  tesseract --list-langs 2>/dev/null | grep -qx kor
   python3 - <<PY
-import pptx, docx, pandas, openpyxl
+import pptx, docx, pandas, openpyxl, pypdf, pdfplumber, fitz
 print("python_modules=ok")
 PY
+  python3 -c '\''from pathlib import Path; p=Path("/tmp/openclaw-korean-smoke"); p.mkdir(exist_ok=True); f=p/"\ud55c\uae00.txt"; f.write_text("\ud55c\uae00 \ud14c\uc2a4\ud2b8\n", encoding="utf-8"); assert f.read_text(encoding="utf-8").strip() == "\ud55c\uae00 \ud14c\uc2a4\ud2b8"; f.unlink(); p.rmdir()'\''
   echo tools=ok
 '
 ```

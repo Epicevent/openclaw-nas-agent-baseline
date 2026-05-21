@@ -11,7 +11,35 @@ OpenClaw가 container에서 실행되면 이 패키지들을 OpenClaw container 
 
 컨테이너형 운영에서는 [컨테이너 베이스라인](CONTAINER_BASELINE.md)을 같이 따른다.
 
-## 1. 시스템 기본 도구
+## 1. 한글 런타임 기본값
+
+```text
+locales
+fontconfig
+fonts-noto-cjk
+fonts-noto-cjk-extra
+fonts-nanum
+```
+
+설정:
+
+```text
+LANG=ko_KR.UTF-8
+LANGUAGE=ko_KR:ko
+LC_ALL=ko_KR.UTF-8
+locale-gen ko_KR.UTF-8
+fc-cache -f
+```
+
+용도:
+
+```text
+한글 파일명 표시/처리
+LibreOffice 한글 문서 변환
+OCR/문서 렌더링 시 한글 글꼴 제공
+```
+
+## 2. 시스템 기본 도구
 
 ```text
 ca-certificates
@@ -35,7 +63,7 @@ GitHub/ClawHub 연동
 기본 탐색/진단
 ```
 
-## 2. 검색/구조화 데이터 도구
+## 3. 검색/구조화 데이터 도구
 
 ```text
 ripgrep
@@ -54,7 +82,7 @@ JSON/YAML/TOML 설정 확인
 
 참고: Ubuntu에서는 `fd` 실행 파일명이 `fdfind`일 수 있다.
 
-## 3. 압축 파일 도구
+## 4. 압축 파일 도구
 
 ```text
 zip
@@ -75,7 +103,7 @@ xz-utils
 zip, 7z, rar, tar.gz, tar.xz 등 첨부/문서 묶음 처리
 ```
 
-## 4. PDF 도구
+## 5. PDF 도구
 
 ```text
 poppler-utils
@@ -100,7 +128,7 @@ PDF 메타데이터 확인
 PDF 분할/병합/복구
 ```
 
-## 5. OCR/이미지 도구
+## 6. OCR/이미지 도구
 
 ```text
 tesseract-ocr
@@ -119,7 +147,7 @@ ffmpeg
 동영상/이미지 프레임 처리
 ```
 
-## 6. Office 문서 도구
+## 7. Office 문서 도구
 
 ```text
 libreoffice
@@ -141,7 +169,7 @@ doc/docx/xls/xlsx/ppt/pptx 변환
 Office 문서를 PDF/HTML/TXT로 변환
 ```
 
-## 7. CSV/Excel 도구
+## 8. CSV/Excel 도구
 
 ```text
 xlsx2csv
@@ -166,7 +194,7 @@ Excel/CSV 읽기
 대량 행/열 분석 전처리
 ```
 
-## 8. Python 런타임
+## 9. Python 런타임
 
 ```text
 python3
@@ -190,6 +218,7 @@ beautifulsoup4
 python-docx
 openpyxl
 python-pptx
+pyhwp
 pandas
 pypdf
 pdfplumber
@@ -199,7 +228,7 @@ markdown
 pyyaml
 ```
 
-## 9. Node/ClawHub 도구
+## 10. Node/ClawHub 도구
 
 ```text
 nodejs
@@ -219,7 +248,7 @@ OpenClaw의 native skills search/install은 clawhub CLI 없이도 동작할 수 
 clawhub CLI는 publish, whoami, sync, registry 관리 흐름에 필요하다.
 ```
 
-## 10. HWP/HWPX
+## 11. HWP/HWPX
 
 ClawHub 검색 결과 기준 주요 후보:
 
@@ -238,9 +267,12 @@ openclaw skills install hwp-reader
 openclaw skills install hwp-extract-pipeline
 ```
 
+컨테이너 이미지에는 skill의 Python fallback이 사용할 수 있도록 `pyhwp`도
+포함한다. `hwp5txt`, `hwp5proc` 명령이 컨테이너 안에서 보여야 한다.
+
 Windows COM 자동화가 필요한 batch convert 계열은 리눅스 서버 기본값에서 제외한다.
 
-## 11. OpenClaw Skill 기본 설치 후보
+## 12. OpenClaw Skill 기본 설치 후보
 
 문서 읽기 기본 세트:
 
@@ -261,7 +293,7 @@ session-logs
 skill-creator
 ```
 
-## 12. 최소 검증 명령
+## 13. 최소 검증 명령
 
 ```bash
 python3 --version
@@ -281,7 +313,7 @@ xlsx2csv --help
 openclaw skills check
 ```
 
-## 13. 현재 서버에서 확인된 상태
+## 14. 현재 서버에서 확인된 상태
 
 확인된 설치 항목:
 

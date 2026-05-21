@@ -12,6 +12,9 @@ apt-get update
 
 apt-get install -y --no-install-recommends \
   ca-certificates \
+  locales \
+  fontconfig \
+  fonts-noto-cjk \
   curl \
   wget \
   git \
@@ -66,7 +69,28 @@ apt-get install -y --no-install-recommends \
   npm
 
 python3 -m pip install --no-cache-dir --break-system-packages \
-  python-pptx
+  python-pptx \
+  pyhwp \
+  pypdf \
+  pdfplumber \
+  pymupdf
+
+if grep -q '^# *ko_KR.UTF-8 UTF-8' /etc/locale.gen; then
+  sed -i 's/^# *ko_KR.UTF-8 UTF-8/ko_KR.UTF-8 UTF-8/' /etc/locale.gen
+elif ! grep -q '^ko_KR.UTF-8 UTF-8' /etc/locale.gen; then
+  echo 'ko_KR.UTF-8 UTF-8' >> /etc/locale.gen
+fi
+
+locale-gen ko_KR.UTF-8
+update-locale LANG=ko_KR.UTF-8 LANGUAGE=ko_KR:ko
+
+for package_name in fonts-noto-cjk-extra fonts-nanum; do
+  if apt-cache show "$package_name" >/dev/null 2>&1; then
+    apt-get install -y --no-install-recommends "$package_name"
+  fi
+done
+
+fc-cache -f
 
 if apt-cache show 7zip >/dev/null 2>&1; then
   apt-get install -y --no-install-recommends 7zip
