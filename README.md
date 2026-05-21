@@ -155,6 +155,9 @@ openclaw-nas-mount --reset-credential
 openclaw-nas-mount --status
 ```
 
+`--status`는 mount 대상 SMB 공유 경로, fstab 등록 여부, 저장된 NAS username,
+실제 mount 상태를 같이 보여준다.
+
 root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
 운영자는 full sudo가 아니라 `svcops` wrapper만 사용한다. root 접근자는
 break-glass 권한으로 관리한다.

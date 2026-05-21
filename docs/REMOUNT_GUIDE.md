@@ -49,6 +49,8 @@ openclaw-nas-mount --remount
 openclaw-nas-mount --status
 ```
 
+여기서 `fstab_source`가 고객 계정이 mount하려는 SMB 공유 경로다.
+
 ## gateway 다시 시작
 
 관리자 계정에서 실행한다.

@@ -82,13 +82,31 @@ case "$credentials" in
 esac
 
 status() {
-  local current_target
+  local current_target fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user
   echo "user=$(whoami)"
   echo "home=$HOME"
   echo "mountpoint=$mountpoint"
   echo "credentials=$credentials"
+  fstab_entry="$(awk -v mp="$mountpoint" '
+    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print; exit }
+  ' /etc/fstab 2>/dev/null || true)"
+  if [[ -n "$fstab_entry" ]]; then
+    read -r fstab_source fstab_target fstab_type fstab_options _ <<<"$fstab_entry"
+    echo "fstab_rule=present"
+    echo "fstab_source=$fstab_source"
+    fstab_credentials="$(printf '%s' "$fstab_options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
+    if [[ -n "$fstab_credentials" ]]; then
+      echo "fstab_credentials=$fstab_credentials"
+    fi
+  else
+    echo "fstab_rule=missing"
+  fi
   if [[ -s "$credentials" ]]; then
     echo "credential_file=present"
+    nas_user="$(awk -F= '$1 == "username" { print $2; exit }' "$credentials" 2>/dev/null || true)"
+    if [[ -n "$nas_user" ]]; then
+      echo "credential_username=$nas_user"
+    fi
   else
     echo "credential_file=missing"
   fi
@@ -151,7 +169,15 @@ if [[ "$current_target" == "$mountpoint" ]]; then
   fi
 fi
 
-mount "$mountpoint"
+if mount "$mountpoint"; then
+  :
+else
+  rc=$?
+  echo "mount=failed" >&2
+  status >&2
+  echo "hint=If fstab_rule is present but mount fails with error(13), check the NAS username/password or NAS share permission." >&2
+  exit "$rc"
+fi
 
 current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
 fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
