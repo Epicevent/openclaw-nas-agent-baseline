@@ -71,22 +71,6 @@ cd "$TMP_REPO"
 sudo bash install.sh
 ```
 
-공용 bootstrap에 이 저장소의 설치 hook을 패치한다.
-
-```bash
-PATCH_REPO=/opt/openclaw-nas-agent-baseline
-
-sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh"
-sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" --check
-```
-
-정상 출력:
-
-```text
-bootstrap_install_env=ok
-bootstrap_customer_mode=ok
-```
-
 운영자가 full sudo를 쓰지 않게 하려면 제한 운영계정 `svcops`를 만든다.
 
 ```bash
@@ -220,16 +204,8 @@ sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read
 test "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o FSTYPE)" = cifs && echo customer_nas_mounted_cifs
 ```
 
-이 모델에서는 bootstrap이 NAS를 다시 unmount/remount하면 안 된다. 7번
-bootstrap 명령에서 `OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT=1`을 반드시 유지한다.
-
-내부 실험처럼 운영자가 root-owned global credential로 직접 mount해야 하는
-경우에만 아래 legacy 값을 사용한다. 고객 운영 기본값으로 쓰지 않는다.
-
-```bash
-OPENCLAW_CUSTOMER_SHARE='//NAS_HOST/SHARE_NAME' \
-OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/root-owned.cifs.cred \
-```
+7번 빠른 설치는 NAS를 unmount/remount하지 않는다. 고객 계정이 mount한
+`$TARGET_HOME/nas_docs`를 컨테이너에 read-only bind mount로 붙인다.
 
 ## 5. 선택: Fresh Install 재검증 시작점
 
@@ -237,7 +213,7 @@ OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/root-owned.cifs.cred \
 
 이미 설치된 계정을 일부러 지우고 fresh install을 검증할 때만 실행한다.
 이 블록을 실행하면 OpenClaw 설치물과 컨테이너가 삭제된다. 따라서 실행한
-뒤에는 반드시 6번 이미지 빌드와 7번 bootstrap을 다시 실행해야 한다.
+뒤에는 반드시 6번 이미지 빌드와 7번 빠른 설치를 다시 실행해야 한다.
 
 이 블록은 NAS, proxy, `.openclaw-install.env`, CIFS credential은 지우지
 않는다.
@@ -277,7 +253,7 @@ sudo docker image inspect openclaw-nas-agent:baseline >/dev/null 2>&1 \
 ```
 
 정상적으로 지워졌다면 `*_deleted` 출력이 보인다. 이 상태는 OpenClaw가
-없는 상태이므로, 반드시 6번 이미지 빌드와 7번 bootstrap을 이어서 실행한다.
+없는 상태이므로, 반드시 6번 이미지 빌드와 7번 빠른 설치를 이어서 실행한다.
 
 ## 6. Baseline 이미지 빌드
 
@@ -293,42 +269,29 @@ sudo env \
   bash scripts/build-container-baseline.sh
 ```
 
-## 7. Customer Mode Bootstrap
+## 7. Image 기반 빠른 설치
 
-관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, 런타임(rt) 계정 구성,
-권한 잠금을 한 번에 수행한다. 기본 운영 모델에서는 4번에서 고객 계정이 이미
-NAS를 mount했으므로 bootstrap은 NAS를 다시 mount하지 않는다.
+관리자 계정에서 실행한다. 이 단계는 이미 빌드된
+`openclaw-nas-agent:baseline` 이미지로 `TARGET_USER` 전용 compose,
+OpenClaw 상태, runtime env, rt 계정 권한을 만든 뒤 gateway를 띄운다.
 
-고객 계정이 직접 mount한 NAS를 유지하는 경우:
+4번에서 고객 계정이 이미 NAS를 mount한 상태여야 한다.
 
 ```bash
-sudo env \
-  OPENCLAW_CUSTOMER_MODE=1 \
-  OPENCLAW_TARGET_USER="$TARGET_USER" \
-  OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT=1 \
-  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
-  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
-  OPENCLAW_PROXY_PUBLIC_ORIGIN="https://$CONTROL_UI_HOST" \
-  OPENCLAW_PROXY_ALLOWED_ORIGINS="https://$CONTROL_UI_HOST" \
-  openclaw-bootstrap < /dev/null
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-image.sh \
+  --user "$TARGET_USER" \
+  --host "$CONTROL_UI_HOST" \
+  --image openclaw-nas-agent:baseline
 ```
 
-운영자가 root-owned credential로 NAS를 직접 mount해야 하는 legacy/internal
-경우:
+부분 설치물을 덮어써야 할 때만 `--force`를 붙인다.
 
 ```bash
-sudo env \
-  OPENCLAW_CUSTOMER_MODE=1 \
-  OPENCLAW_TARGET_USER="$TARGET_USER" \
-  OPENCLAW_CUSTOMER_SHARE='//NAS_HOST/SHARE_NAME' \
-  OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/root-owned.cifs.cred \
-  OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
-  OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
-  OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
-  OPENCLAW_PROXY_PUBLIC_ORIGIN="https://$CONTROL_UI_HOST" \
-  OPENCLAW_PROXY_ALLOWED_ORIGINS="https://$CONTROL_UI_HOST" \
-  openclaw-bootstrap < /dev/null
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-image.sh \
+  --user "$TARGET_USER" \
+  --host "$CONTROL_UI_HOST" \
+  --image openclaw-nas-agent:baseline \
+  --force
 ```
 
 ## 8. Subdomain Proxy 적용

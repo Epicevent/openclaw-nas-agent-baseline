@@ -92,12 +92,10 @@ fi
 
 target_uid="$(id -u "$target_user")"
 data_group="${target_user}_data"
-if getent group "$data_group" >/dev/null; then
-  target_gid="$(getent group "$data_group" | cut -d: -f3)"
-else
-  target_gid="$(id -g "$target_user")"
-  echo "warn: data group not found: $data_group; using primary gid=$target_gid" >&2
+if ! getent group "$data_group" >/dev/null; then
+  groupadd "$data_group"
 fi
+target_gid="$(getent group "$data_group" | cut -d: -f3)"
 
 mountpoint="${mountpoint:-$target_home/nas_docs}"
 credentials_path="${credentials_path:-$target_home/.nas-cifs.cred}"
