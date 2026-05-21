@@ -84,6 +84,8 @@ esac
 status() {
   local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
   echo "== NAS 연결 상태 =="
+  echo "scope=customer_account_only"
+  echo "note=OpenClaw container visibility requires operator nas-verify"
   echo "linux_user=$(whoami)"
   echo "home=$HOME"
   echo "mountpoint=$mountpoint"
@@ -123,7 +125,8 @@ status() {
       echo "next_action=openclaw-nas-mount --remount"
     else
       echo "mount_matches_registered_share=yes"
-      echo "next_action=none"
+      echo "next_action=shell_ok"
+      echo "openclaw_next_action=if OpenClaw cannot see NAS, ask operator to run nas-verify $(whoami)"
     fi
   else
     echo "mount_state=not_mounted"

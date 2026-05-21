@@ -8,8 +8,11 @@ Usage:
   svcops-control.sh check-all START END BASE_DOMAIN
   svcops-control.sh nas-status USER
   svcops-control.sh nas-status-all START END
+  svcops-control.sh nas-verify USER
+  svcops-control.sh nas-verify-all START END
   svcops-control.sh nas-register USER SHARE
   svcops-control.sh nas-register-all START END SHARE
+  svcops-control.sh gateway-refresh USER
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
   svcops-control.sh subdomain USER HOST
@@ -116,6 +119,91 @@ customer_next_steps:
 EOF
 }
 
+gateway_container() {
+  local target_user="$1"
+  printf 'openclaw-%s-openclaw-gateway-1' "$target_user"
+}
+
+compose_files() {
+  local compose_dir="$1"
+  printf '%s\n' -f docker-compose.yml
+  [[ -f "$compose_dir/docker-compose.extra.yml" ]] && printf '%s\n' -f docker-compose.extra.yml
+  [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
+  [[ -f "$compose_dir/docker-compose.sandbox.yml" ]] && printf '%s\n' -f docker-compose.sandbox.yml
+}
+
+refresh_gateway() {
+  local target_user="$1" target_home compose_dir container
+  target_home="$(customer_home "$target_user")"
+  compose_dir="$target_home/openclaw"
+  container="$(gateway_container "$target_user")"
+  [[ -d "$compose_dir" ]] || { echo "FAIL compose_dir_missing=$compose_dir"; return 1; }
+
+  echo "action=gateway_refresh"
+  (
+    cd "$compose_dir"
+    mapfile -t args < <(compose_files "$compose_dir")
+    docker compose "${args[@]}" up -d --force-recreate openclaw-gateway
+  )
+  docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
+}
+
+verify_nas_visibility() {
+  local target_user="$1" target_home mountpoint container host_source host_fstype container_source container_fstype sample_count failed=0
+  target_home="$(customer_home "$target_user")"
+  mountpoint="$(nas_mountpoint "$target_home")"
+  container="$(gateway_container "$target_user")"
+
+  echo "target_user=$target_user"
+  host_source="$(findmnt -T "$mountpoint" -n -o SOURCE 2>/dev/null | head -1 || true)"
+  host_fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+  if [[ "$host_fstype" == "cifs" ]]; then
+    echo "PASS host_nas_mounted_cifs"
+    echo "INFO host_nas_source=$host_source"
+  else
+    echo "FAIL host_nas_mounted_cifs"
+    echo "INFO host_nas_fstype=${host_fstype:-missing} source=${host_source:-missing}"
+    failed=1
+  fi
+
+  if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
+    echo "FAIL gateway_container_running"
+    return 1
+  fi
+
+  container_source="$(docker exec "$container" findmnt -T /home/node/nas_docs -n -o SOURCE 2>/dev/null | head -1 || true)"
+  container_fstype="$(docker exec "$container" findmnt -T /home/node/nas_docs -n -o FSTYPE 2>/dev/null | head -1 || true)"
+  if [[ "$container_fstype" == "cifs" ]]; then
+    echo "PASS container_nas_mounted_cifs"
+    echo "INFO container_nas_source=$container_source"
+  else
+    echo "FAIL container_nas_mounted_cifs"
+    echo "INFO container_nas_fstype=${container_fstype:-missing} source=${container_source:-missing}"
+    failed=1
+  fi
+
+  sample_count="$(docker exec "$container" sh -lc 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' 2>/dev/null || true)"
+  echo "INFO container_nas_sample=${sample_count:-0}"
+  return "$failed"
+}
+
+verify_nas_and_refresh_if_needed() {
+  local target_user="$1" output
+  output="$(verify_nas_visibility "$target_user")"
+  printf '%s\n' "$output"
+  if printf '%s\n' "$output" | grep -qx 'PASS host_nas_mounted_cifs' \
+    && printf '%s\n' "$output" | grep -qx 'FAIL container_nas_mounted_cifs'; then
+    echo "decision=host_mount_ok_container_stale"
+    refresh_gateway "$target_user"
+    echo "== after gateway refresh =="
+    verify_nas_visibility "$target_user"
+    return $?
+  fi
+  if printf '%s\n' "$output" | grep -q '^FAIL '; then
+    return 1
+  fi
+}
+
 command_name="${1:-}"
 shift || true
 
@@ -200,6 +288,35 @@ case "$command_name" in
     done
     ;;
 
+  nas-verify)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    verify_nas_and_refresh_if_needed "$target_user"
+    ;;
+
+  nas-verify-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        verify_nas_and_refresh_if_needed "$target_user" || failed=1
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
+    ;;
+
   nas-register|nas-prepare)
     [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
@@ -242,6 +359,13 @@ case "$command_name" in
       fi
     done
     exit "$failed"
+    ;;
+
+  gateway-refresh)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    refresh_gateway "$target_user"
     ;;
 
   nas-fstab)

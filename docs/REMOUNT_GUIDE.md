@@ -51,6 +51,8 @@ openclaw-nas-mount --status
 
 여기서 `registered_share`가 고객 계정이 mount하려는 SMB 공유 경로다.
 `next_action`은 현재 상태에서 다음에 실행할 명령을 가리킨다.
+이 상태는 고객 Linux 계정 기준이며, OpenClaw 컨테이너가 같은 NAS를 보는지는
+운영계정의 `nas-verify`로 확인한다.
 
 ## gateway 다시 시작
 

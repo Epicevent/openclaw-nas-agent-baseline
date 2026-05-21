@@ -142,6 +142,16 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all
   "$NAS_SHARE"
 ```
 
+NAS가 고객 계정에서 mount된 뒤 OpenClaw 컨테이너가 같은 NAS를 보고 있는지 실제로
+확인할 때:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-verify "$TARGET_USER"
+```
+
+호스트 mount는 정상인데 컨테이너가 아직 빈 디렉터리를 보고 있으면 이 명령이
+gateway만 재생성한 뒤 다시 확인한다.
+
 ## 4. 고객 NAS credential 작성과 mount
 
 실행 주체: **[고객 계정: `$TARGET_USER`]**
@@ -165,9 +175,10 @@ openclaw-nas-mount --reset-credential
 openclaw-nas-mount --status
 ```
 
-`--status`는 mount 대상 SMB 공유 경로, fstab 등록 여부, 저장된 NAS username,
-실제 mount 상태, 다음 행동을 같이 보여준다. mount 실행 시에도 credential 입력
-전에 등록된 공유 경로를 먼저 출력한다.
+`--status`는 고객 Linux 계정 기준의 상태다. mount 대상 SMB 공유 경로, fstab
+등록 여부, 저장된 NAS username, 실제 mount 상태, 다음 행동을 같이 보여준다.
+OpenClaw 컨테이너가 같은 NAS를 보고 있는지는 운영계정의 `nas-verify`로 확인한다.
+mount 실행 시에도 credential 입력 전에 등록된 공유 경로를 먼저 출력한다.
 
 root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
 운영자는 full sudo가 아니라 `svcops` wrapper만 사용한다. root 접근자는
