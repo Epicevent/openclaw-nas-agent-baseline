@@ -47,15 +47,17 @@ docker build \
 
 ```yaml
 services:
-  openclaw-oc14:
+  openclaw-gateway:
     image: openclaw-nas-agent:baseline
-    user: "1020:1020"
+    user: "<runtime_uid>:<runtime_gid>"
+    group_add:
+      - "<data_gid>"
     environment:
-      HOME: /home/oc14
+      HOME: /home/node
     volumes:
-      - /home/oc14/.openclaw:/home/oc14/.openclaw
-      - /home/oc14/nas_docs:/home/oc14/nas_docs:ro
-    working_dir: /home/oc14
+      - /home/ocN/.openclaw:/home/node/.openclaw
+      - /home/ocN/nas_docs:/home/node/nas_docs:ro
+    working_dir: /home/node
 ```
 
 중요한 점:
@@ -91,7 +93,7 @@ hwp5txt/hwp5proc -> pyhwp fallback 명령
 ```bash
 whoami
 id
-ls /home/oc14/nas_docs
+ls /home/node/nas_docs
 locale charmap
 locale -a | grep -Ei '^ko_KR(\.utf8|\.UTF-8)?$'
 fc-list :lang=ko | head

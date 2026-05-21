@@ -609,10 +609,9 @@ docker ps
 
 ## 참고 문서
 
-- [Customer mode runtime isolation](docs/CUSTOMER_MODE_RUNTIME_ISOLATION.md)
-- [Bootstrap compatibility](docs/BOOTSTRAP_COMPATIBILITY.md)
+- [Operation model](docs/OPERATION_MODEL.md)
+- [Slot turnover](docs/SLOT_TURNOVER.md)
+- [Updates](docs/UPDATES.md)
 - [Container baseline](docs/CONTAINER_BASELINE.md)
-- [Install settings](docs/INSTALL_SETTINGS.md)
-- [Install package](docs/INSTALL_PACKAGE.md)
 - [Recovery](docs/OPENCLAW_RECOVERY.md)
 - [Remount guide](docs/REMOUNT_GUIDE.md)

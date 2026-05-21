@@ -64,7 +64,10 @@ sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read
 ## busy 처리
 
 ```bash
-sudo fuser -vm /home/oc14/nas_docs
+TARGET_USER=oc14
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+
+sudo fuser -vm "$TARGET_HOME/nas_docs"
 ```
 
 실서비스에서는 원인을 먼저 정리한 뒤 unmount한다. `umount -l`은 마지막 수단으로만
