@@ -42,6 +42,10 @@ svcops가 하지 않는 것:
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status oc1
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-prepare \
+  oc1 \
+  '//NAS_HOST/SHARE_NAME'
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
   oc1 \
   oc1.ji-tech.co.kr
@@ -56,6 +60,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh subdomain \
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh isolation oc1
 ```
+
+`nas-prepare`는 fstab user-mount 규칙을 등록하고, 고객 계정에서 실행할 다음
+명령을 같이 출력한다. `nas-status`는 mount 대상 공유경로와 mount 상태를 보여주지만
+고객 NAS password는 출력하지 않는다.
 
 ## 작업 범위
 

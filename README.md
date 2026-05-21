@@ -124,13 +124,14 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TAR
 ```bash
 NAS_SHARE='//NAS_HOST/SHARE_NAME'
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-fstab \
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-prepare \
   "$TARGET_USER" \
   "$NAS_SHARE"
 ```
 
-이 단계는 고객의 NAS username/password를 받지 않는다. 고객 credential은 다음
-단계에서 고객 계정 안에 생성된다.
+이 단계는 고객의 NAS username/password를 받지 않는다. 실행 후 고객 계정에서
+입력할 명령까지 같이 출력한다. 고객 credential은 다음 단계에서 고객 계정 안에
+생성된다.
 
 ## 4. 고객 NAS credential 작성과 mount
 

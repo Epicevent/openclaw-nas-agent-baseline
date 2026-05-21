@@ -7,6 +7,7 @@ Usage:
   svcops-control.sh check USER HOST
   svcops-control.sh check-all START END BASE_DOMAIN
   svcops-control.sh nas-status USER
+  svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
   svcops-control.sh subdomain USER HOST
   svcops-control.sh isolation USER
@@ -50,6 +51,58 @@ validate_share() {
 
 customer_home() {
   getent passwd "$1" | cut -d: -f6
+}
+
+nas_mountpoint() {
+  local target_home="$1"
+  printf '%s/nas_docs' "$target_home"
+}
+
+print_nas_status() {
+  local target_user="$1" target_home="$2" mountpoint entry source target fstype options creds_path current_target current_fstype
+  mountpoint="$(nas_mountpoint "$target_home")"
+  echo "target_user=$target_user"
+  echo "target_home=$target_home"
+  echo "mountpoint=$mountpoint"
+
+  entry="$(awk -v mp="$mountpoint" '
+    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print; exit }
+  ' /etc/fstab 2>/dev/null || true)"
+  if [[ -n "$entry" ]]; then
+    read -r source target fstype options _ <<<"$entry"
+    echo "fstab_rule=present"
+    echo "fstab_source=$source"
+    creds_path="$(printf '%s' "$options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
+    [[ -n "$creds_path" ]] && echo "fstab_credentials=$creds_path"
+  else
+    echo "fstab_rule=missing"
+  fi
+
+  if [[ -s "$target_home/.nas-cifs.cred" ]]; then
+    echo "credential_file=present"
+  else
+    echo "credential_file=missing"
+  fi
+
+  current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+  current_fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+  if [[ "$current_target" == "$mountpoint" ]]; then
+    echo "mount=present"
+    echo "mount_fstype=$current_fstype"
+    findmnt -T "$mountpoint" -o TARGET,SOURCE,FSTYPE,OPTIONS || true
+  else
+    echo "mount=missing"
+  fi
+}
+
+print_customer_nas_next_steps() {
+  local target_user="$1"
+  cat <<EOF
+customer_next_steps:
+  after logging in as $target_user:
+  openclaw-nas-mount --status
+  openclaw-nas-mount --reset-credential
+EOF
 }
 
 command_name="${1:-}"
@@ -113,19 +166,23 @@ case "$command_name" in
     target_user="$1"
     validate_user "$target_user"
     target_home="$(customer_home "$target_user")"
-    echo "target_user=$target_user"
-    echo "target_home=$target_home"
-    findmnt -T "$target_home/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS || true
-    if [[ -s "$target_home/.nas-cifs.cred" ]]; then
-      echo "credential_file=present"
-    else
-      echo "credential_file=missing"
-    fi
-    if grep -q "[[:space:]]$target_home/nas_docs[[:space:]]" /etc/fstab; then
-      echo "fstab_rule=present"
-    else
-      echo "fstab_rule=missing"
-    fi
+    print_nas_status "$target_user" "$target_home"
+    ;;
+
+  nas-prepare)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    share="$2"
+    validate_user "$target_user"
+    validate_share "$share"
+    bash "$script_dir/write-user-nas-fstab-entry.sh" \
+      --user "$target_user" \
+      --share "$share"
+    target_home="$(customer_home "$target_user")"
+    echo
+    print_nas_status "$target_user" "$target_home"
+    echo
+    print_customer_nas_next_steps "$target_user"
     ;;
 
   nas-fstab)
