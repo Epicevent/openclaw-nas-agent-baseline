@@ -355,14 +355,22 @@ refresh_gateway() {
 
 verify_nas_visibility() {
   local target_user="$1" target_home mountpoint container sample_count failed=0
-  local host_source host_fstype host_target container_source container_fstype container_target container_mp nas_mp
+  local host_source host_fstype host_target container_source container_fstype container_target container_mp nas_mp share_name
+  local host_failed=0 container_failed=0
+  local -a visible_nas_mountpoints=()
   target_home="$(customer_home "$target_user")"
   mountpoint="$(nas_mountpoint "$target_home")"
   container="$(gateway_container "$target_user")"
 
   echo "target_user=$target_user"
+  echo "== NAS visibility map =="
+  echo "+ account: $target_user"
+  echo "+ host root:      $mountpoint"
+  echo "+ container root: /home/node/nas_docs"
+  echo "+ rule:           host_root/SHARE_NAME -> container_root/SHARE_NAME"
   mapfile -t nas_mountpoints < <(registered_nas_mountpoints "$mountpoint")
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
+    echo "+ mounted shares: none"
     echo "FAIL host_nas_mounted_cifs"
     echo "INFO host_nas_registered_mounts=none"
     failed=1
@@ -374,15 +382,26 @@ verify_nas_visibility() {
       host_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
       if [[ "$host_target" == "$nas_mp" && "$host_fstype" == "cifs" ]]; then
         echo "INFO host_nas_mount=$nas_mp source=$host_source"
+        share_name="${nas_mp#$mountpoint/}"
+        echo "+ share:          ${share_name:-primary}"
+        echo "| source:         $host_source"
+        echo "| host path:      $nas_mp"
+        echo "| host state:     mounted cifs"
+        visible_nas_mountpoints+=("$nas_mp")
+      elif [[ "$nas_mp" == "$mountpoint" && "${#nas_mountpoints[@]}" -gt 1 ]]; then
+        :
       else
         echo "INFO host_nas_mount_bad=$nas_mp target=${host_target:-missing} fstype=${host_fstype:-missing} source=${host_source:-missing}"
-        failed=1
+        echo "+ share problem:  $nas_mp"
+        echo "| host state:     not mounted as cifs"
+        host_failed=1
       fi
     done
-    if [[ "$failed" -eq 0 ]]; then
+    if [[ "${#visible_nas_mountpoints[@]}" -gt 0 && "$host_failed" -eq 0 ]]; then
       echo "PASS host_nas_mounted_cifs"
     else
       echo "FAIL host_nas_mounted_cifs"
+      failed=1
     fi
   fi
 
@@ -391,20 +410,23 @@ verify_nas_visibility() {
     return 1
   fi
 
-  container_failed=0
-  if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
+  if [[ "${#visible_nas_mountpoints[@]}" -eq 0 ]]; then
     container_failed=1
-    echo "INFO container_nas_registered_mounts=none"
+    echo "INFO container_nas_visible_mounts=none"
   else
-    for nas_mp in "${nas_mountpoints[@]}"; do
+    for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$mountpoint" "$nas_mp")"
       container_source="$(docker exec "$container" findmnt -T "$container_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
       container_target="$(docker exec "$container" findmnt -T "$container_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
       container_fstype="$(docker exec "$container" findmnt -T "$container_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
       if [[ "$container_target" == "$container_mp" && "$container_fstype" == "cifs" ]]; then
         echo "INFO container_nas_mount=$container_mp source=$container_source"
+        echo "| container path: $container_mp"
+        echo "| container state: mounted cifs"
       else
         echo "INFO container_nas_mount_bad=$container_mp target=${container_target:-missing} fstype=${container_fstype:-missing} source=${container_source:-missing}"
+        echo "| container path: $container_mp"
+        echo "| container state: not mounted as cifs"
         container_failed=1
       fi
     done

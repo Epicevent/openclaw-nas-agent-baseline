@@ -120,12 +120,14 @@ fi
 
 check "customer_nas_read_ok" sudo -u "$target_user" test -r "$nas_mountpoint"
 
+visible_nas_mountpoints=()
 mapfile -t nas_mountpoints < <(registered_nas_mountpoints "$nas_mountpoint")
 if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
   fail "customer_nas_mounted_cifs"
   echo "INFO customer_nas_registered_mounts=none"
 else
   customer_nas_failed=0
+  visible_nas_mountpoints=()
   echo "INFO customer_nas_registered_mount_count=${#nas_mountpoints[@]}"
   for nas_mp in "${nas_mountpoints[@]}"; do
     nas_target="$(findmnt -T "$nas_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
@@ -133,18 +135,21 @@ else
     nas_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
     if [[ "$nas_target" == "$nas_mp" && "$nas_fstype" == "cifs" ]]; then
       echo "INFO customer_nas_mount=$nas_mp source=$nas_source"
+      visible_nas_mountpoints+=("$nas_mp")
       if sudo -u "$target_user" test -r "$nas_mp"; then
         :
       else
         customer_nas_failed=1
         echo "INFO customer_nas_mount_unreadable=$nas_mp"
       fi
+    elif [[ "$nas_mp" == "$nas_mountpoint" && "${#nas_mountpoints[@]}" -gt 1 ]]; then
+      :
     else
       customer_nas_failed=1
       echo "INFO customer_nas_mount_bad=$nas_mp target=${nas_target:-missing} fstype=${nas_fstype:-missing} source=${nas_source:-missing}"
     fi
   done
-  if [[ "$customer_nas_failed" -eq 0 ]]; then
+  if [[ "${#visible_nas_mountpoints[@]}" -gt 0 && "$customer_nas_failed" -eq 0 ]]; then
     pass "customer_nas_mounted_cifs"
   else
     fail "customer_nas_mounted_cifs"
@@ -265,12 +270,12 @@ if docker inspect "$container" >/dev/null 2>&1; then
     fail "container_nas_read_ok"
   fi
 
-  if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
+  if [[ "${#visible_nas_mountpoints[@]}" -eq 0 ]]; then
     fail "container_nas_mounted_cifs"
-    echo "INFO container_nas_registered_mounts=none"
+    echo "INFO container_nas_visible_mounts=none"
   else
     container_nas_failed=0
-    for nas_mp in "${nas_mountpoints[@]}"; do
+    for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$nas_mountpoint" "$nas_mp")"
       if docker exec "$container" sh -lc 'test -r "$1"' sh "$container_mp"; then
         :
