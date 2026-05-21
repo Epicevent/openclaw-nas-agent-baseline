@@ -472,11 +472,13 @@ PASS public_url_openclaw_page_ok
 추가로 확인한다.
 
 ```bash
+UNKNOWN_ORIGIN_TO_TEST="https://UNKNOWN_CONTROL_UI_HOST"
+
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-deployment.sh \
   --user "$TARGET_USER" \
   --expected-basepath / \
   --expected-origin "https://$CONTROL_UI_HOST" \
-  --expect-unknown-origin-rejected "https://xn--ok0b5a690d.ji-tech.co.kr"
+  --expect-unknown-origin-rejected "$UNKNOWN_ORIGIN_TO_TEST"
 ```
 
 현재 운영 정책상 알 수 없는 서브도메인이 default vhost의 Control UI 껍데기까지
