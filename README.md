@@ -157,34 +157,63 @@ sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$TARGET_
 
 ## 4. NAS 준비와 전달 방식
 
-이 단계는 NAS를 직접 마운트하는 단계가 아니다. bootstrap이 마운트할 수
-있도록 디렉터리와 credential 파일 존재만 확인한다.
+기본 운영 모델은 **고객 계정이 자기 NAS credential을 보유하고, sudo 없이
+정해진 mountpoint만 mount**하는 방식이다.
+
+관리자는 credential을 입력받지 않는다. 관리자는 `/etc/fstab`에 “이 계정은 이
+NAS share를 이 mountpoint에만 mount할 수 있다”는 규칙만 등록한다.
 
 ```bash
-sudo mkdir -p "$TARGET_HOME/nas_docs"
-sudo chown "$TARGET_USER:$TARGET_USER" "$TARGET_HOME/nas_docs"
-sudo test -f /etc/samba/hanpass.cred && echo cifs_cred_ok
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-user-nas-fstab-entry.sh \
+  --user "$TARGET_USER" \
+  --share '//192.168.0.222/hanpass'
 ```
 
-기본 NAS 값은 bootstrap patch 안에 들어 있다.
+고객 계정 셸에서 NAS credential 파일을 만들고 mount한다. 이 블록은 고객
+계정으로 실행한다.
 
-```text
-OPENCLAW_CUSTOMER_SHARE=//192.168.0.222/hanpass
-OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred
+```bash
+umask 077
+
+printf "NAS username: "
+read NAS_USER
+
+printf "NAS password: "
+stty -echo
+read NAS_PASS
+stty echo
+printf "\n"
+
+{
+  printf "username=%s\n" "$NAS_USER"
+  printf "password=%s\n" "$NAS_PASS"
+} > "$HOME/.nas-cifs.cred"
+
+chmod 600 "$HOME/.nas-cifs.cred"
+unset NAS_USER NAS_PASS
+
+mount "$HOME/nas_docs"
+findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
+ls "$HOME/nas_docs" | head
 ```
 
-기본값을 쓸 때는 bootstrap 명령에 NAS 값을 따로 적지 않아도 된다.
+관리자 계정에서 mount 결과를 확인한다.
 
-NAS share나 credential 파일이 기본값과 다르면, bootstrap 실행 명령의
-`sudo env` 블록에 아래 두 줄을 추가해서 전달한다.
+```bash
+findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
+sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read_ok
+```
+
+이 모델에서는 bootstrap이 NAS를 다시 unmount/remount하면 안 된다. 7번
+bootstrap 명령에서 `OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT=1`을 반드시 유지한다.
+
+내부 실험처럼 운영자가 root-owned global credential로 직접 mount해야 하는
+경우에만 아래 legacy 값을 사용한다. 고객 운영 기본값으로 쓰지 않는다.
 
 ```bash
 OPENCLAW_CUSTOMER_SHARE='//192.168.0.222/hanpass' \
 OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred \
 ```
-
-실제 마운트는 customer-mode bootstrap이 수행한다. 최종 마운트 권한은
-`ocN`과 `ocN_rt`만 읽을 수 있는 형태다.
 
 ## 5. 선택: Fresh Install 재검증 시작점
 
@@ -250,15 +279,17 @@ sudo env \
 
 ## 7. Customer Mode Bootstrap
 
-관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, NAS 마운트, 런타임(rt)
-계정 구성, 권한 잠금을 한 번에 수행한다.
+관리자 계정에서 실행한다. 이 명령이 OpenClaw 설치, 런타임(rt) 계정 구성,
+권한 잠금을 한 번에 수행한다. 기본 운영 모델에서는 4번에서 고객 계정이 이미
+NAS를 mount했으므로 bootstrap은 NAS를 다시 mount하지 않는다.
 
-기본 NAS를 쓰는 경우:
+고객 계정이 직접 mount한 NAS를 유지하는 경우:
 
 ```bash
 sudo env \
   OPENCLAW_CUSTOMER_MODE=1 \
   OPENCLAW_TARGET_USER="$TARGET_USER" \
+  OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT=1 \
   OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
   OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
   OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \
@@ -267,7 +298,8 @@ sudo env \
   openclaw-bootstrap < /dev/null
 ```
 
-NAS 값을 직접 전달해야 하는 경우:
+운영자가 root-owned credential로 NAS를 직접 mount해야 하는 legacy/internal
+경우:
 
 ```bash
 sudo env \
@@ -364,6 +396,9 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-subdomain-mode.sh \
   --user "$TARGET_USER" \
   --host "$CONTROL_UI_HOST"
 ```
+
+이미 설치된 계정에서 NAS만 다시 mount한 뒤 gateway 컨테이너를 다시 띄울 때도
+같은 블록을 사용한다.
 
 고객 배포에서 `/ocN` path mode를 쓰지 않는다.
 
