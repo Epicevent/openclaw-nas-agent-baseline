@@ -40,15 +40,29 @@ sudo docker inspect "$CONTAINER" \
 sudo docker exec "$CONTAINER" sh -lc 'openclaw --version'
 ```
 
-baseline image를 빌드한다.
+base image를 먼저 갱신하고 버전을 확인한다. base image가 그대로면 baseline을
+다시 빌드해도 OpenClaw 버전은 바뀌지 않는다.
 
 ```bash
 cd /opt/openclaw-nas-agent-baseline
 
+BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
+
+sudo docker pull "$BASE_IMAGE"
+sudo docker run --rm "$BASE_IMAGE" sh -lc 'openclaw --version'
+```
+
+baseline image를 빌드한다. 운영 업데이트에서는 이전 cache를 믿지 않는다.
+
+```bash
 sudo env \
-  BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
+  BASE_IMAGE="$BASE_IMAGE" \
   IMAGE_TAG=openclaw-nas-agent:baseline \
+  DOCKER_BUILD_PULL=1 \
+  DOCKER_BUILD_NO_CACHE=1 \
   bash scripts/build-container-baseline.sh
+
+sudo docker run --rm openclaw-nas-agent:baseline sh -lc 'openclaw --version'
 ```
 
 staging slot gateway를 재생성한다.
