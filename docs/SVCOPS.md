@@ -61,6 +61,8 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all
   20 \
   '//NAS_HOST/SHARE_NAME'
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-unregister-all 10 19
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
   oc1 \
   oc1.ji-tech.co.kr

@@ -14,6 +14,8 @@ Usage:
   svcops-control.sh nas-verify-all START END
   svcops-control.sh nas-register USER SHARE
   svcops-control.sh nas-register-all START END SHARE
+  svcops-control.sh nas-unregister USER
+  svcops-control.sh nas-unregister-all START END
   svcops-control.sh gateway-refresh USER
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
@@ -459,6 +461,39 @@ case "$command_name" in
         if ! bash "$script_dir/write-user-nas-fstab-entry.sh" \
           --user "$target_user" \
           --share "$share" | sed -n '/^target_user=/p;/^mountpoint=/p;/^share=/p;/^fstab_user_mount=/p'; then
+          failed=1
+        fi
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
+    ;;
+
+  nas-unregister)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    bash "$script_dir/remove-user-nas-fstab-entry.sh" \
+      --user "$target_user"
+    ;;
+
+  nas-unregister-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        if ! bash "$script_dir/remove-user-nas-fstab-entry.sh" \
+          --user "$target_user" | sed -n '/^target_user=/p;/^mountpoint=/p;/^fstab_user_mount=/p;/^note=/p'; then
           failed=1
         fi
       else
