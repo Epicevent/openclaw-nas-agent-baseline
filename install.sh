@@ -91,6 +91,10 @@ chmod +x "$prefix/install.sh" "$prefix"/scripts/*.sh "$prefix"/container/*.sh 2>
 
 if [[ "$(id -u)" -eq 0 ]]; then
   chown -R root:root "$prefix"
+  if [[ -x "$prefix/scripts/customer-nas-mount.sh" ]]; then
+    mkdir -p /usr/local/bin
+    ln -sfn "$prefix/scripts/customer-nas-mount.sh" /usr/local/bin/openclaw-nas-mount
+  fi
 fi
 
 echo "installed: $prefix"
@@ -115,6 +119,7 @@ cat <<EOF
 Next useful commands:
   cd $prefix
   sudo bash scripts/install-svcops-account.sh
+  openclaw-nas-mount --help
   sudo bash scripts/install-customer-slot-from-image.sh --user oc1 --host oc1.ji-tech.co.kr --image openclaw-nas-agent:baseline
   sudo bash scripts/check-customer-mode-isolation.sh --user oc1
   sudo bash scripts/check-customer-deployment.sh --user oc1 --expected-basepath / --expected-origin https://oc1.ji-tech.co.kr

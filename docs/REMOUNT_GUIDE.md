@@ -32,24 +32,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-user-nas-fstab-entry.sh
 고객 계정에서 실행한다.
 
 ```bash
-umask 077
-
-printf "NAS username: "
-read NAS_USER
-
-printf "NAS password: "
-stty -echo
-read NAS_PASS
-stty echo
-printf "\n"
-
-{
-  printf "username=%s\n" "$NAS_USER"
-  printf "password=%s\n" "$NAS_PASS"
-} > "$HOME/.nas-cifs.cred"
-
-chmod 600 "$HOME/.nas-cifs.cred"
-unset NAS_USER NAS_PASS
+openclaw-nas-mount --reset-credential
 ```
 
 ## 고객 계정에서 리마운트
@@ -57,10 +40,13 @@ unset NAS_USER NAS_PASS
 고객 계정에서 실행한다.
 
 ```bash
-umount "$HOME/nas_docs" 2>/dev/null || true
-mount "$HOME/nas_docs"
-findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-ls "$HOME/nas_docs" | head
+openclaw-nas-mount --remount
+```
+
+상태만 볼 때:
+
+```bash
+openclaw-nas-mount --status
 ```
 
 ## gateway 다시 시작

@@ -136,31 +136,23 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-fstab \
 
 실행 주체: **[고객 계정: `$TARGET_USER`]**
 
-고객이 자기 계정으로 SSH 접속한 뒤 실행한다.
+고객이 자기 계정으로 SSH 접속한 뒤 실행한다. 최초 실행 때만 NAS
+username/password를 묻고, 이후에는 저장된 `~/.nas-cifs.cred`로 바로 mount한다.
 
 ```bash
-umask 077
+openclaw-nas-mount
+```
 
-printf "NAS username: "
-read NAS_USER
+다시 입력해야 할 때:
 
-printf "NAS password: "
-stty -echo
-read NAS_PASS
-stty echo
-printf "\n"
+```bash
+openclaw-nas-mount --reset-credential
+```
 
-{
-  printf "username=%s\n" "$NAS_USER"
-  printf "password=%s\n" "$NAS_PASS"
-} > "$HOME/.nas-cifs.cred"
+현재 상태만 볼 때:
 
-chmod 600 "$HOME/.nas-cifs.cred"
-unset NAS_USER NAS_PASS
-
-mount "$HOME/nas_docs"
-findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-ls "$HOME/nas_docs" | head
+```bash
+openclaw-nas-mount --status
 ```
 
 root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
