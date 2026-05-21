@@ -7,6 +7,9 @@ Usage:
   svcops-control.sh check USER HOST
   svcops-control.sh check-all START END BASE_DOMAIN
   svcops-control.sh nas-status USER
+  svcops-control.sh nas-status-all START END
+  svcops-control.sh nas-register USER SHARE
+  svcops-control.sh nas-register-all START END SHARE
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
   svcops-control.sh subdomain USER HOST
@@ -59,7 +62,7 @@ nas_mountpoint() {
 }
 
 print_nas_status() {
-  local target_user="$1" target_home="$2" mountpoint entry source target fstype options creds_path current_target current_fstype
+  local target_user="$1" target_home="$2" mountpoint entry source target fstype options creds_path current_target current_fstype current_source
   mountpoint="$(nas_mountpoint "$target_home")"
   echo "target_user=$target_user"
   echo "target_home=$target_home"
@@ -85,10 +88,18 @@ print_nas_status() {
   fi
 
   current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+  current_source="$(findmnt -T "$mountpoint" -n -o SOURCE 2>/dev/null | head -1 || true)"
   current_fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
   if [[ "$current_target" == "$mountpoint" ]]; then
     echo "mount=present"
+    echo "mount_source=$current_source"
     echo "mount_fstype=$current_fstype"
+    if [[ -n "${source:-}" && "$current_source" == "$source" ]]; then
+      echo "mount_matches_fstab=yes"
+    elif [[ -n "${source:-}" ]]; then
+      echo "mount_matches_fstab=no"
+      echo "remount_required=yes"
+    fi
     findmnt -T "$mountpoint" -o TARGET,SOURCE,FSTYPE,OPTIONS || true
   else
     echo "mount=missing"
@@ -169,7 +180,27 @@ case "$command_name" in
     print_nas_status "$target_user" "$target_home"
     ;;
 
-  nas-prepare)
+  nas-status-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        target_home="$(customer_home "$target_user")"
+        print_nas_status "$target_user" "$target_home"
+      else
+        echo "user=missing"
+      fi
+    done
+    ;;
+
+  nas-register|nas-prepare)
     [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
     share="$2"
@@ -183,6 +214,34 @@ case "$command_name" in
     print_nas_status "$target_user" "$target_home"
     echo
     print_customer_nas_next_steps "$target_user"
+    ;;
+
+  nas-register-all)
+    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    share="$3"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    validate_share "$share"
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        if ! bash "$script_dir/write-user-nas-fstab-entry.sh" \
+          --user "$target_user" \
+          --share "$share" | sed -n '/^target_user=/p;/^mountpoint=/p;/^share=/p;/^fstab_user_mount=/p'; then
+          failed=1
+        fi
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
     ;;
 
   nas-fstab)

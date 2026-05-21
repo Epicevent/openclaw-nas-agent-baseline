@@ -124,7 +124,7 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TAR
 ```bash
 NAS_SHARE='//NAS_HOST/SHARE_NAME'
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-prepare \
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register \
   "$TARGET_USER" \
   "$NAS_SHARE"
 ```
@@ -132,6 +132,15 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-prepare \
 이 단계는 고객의 NAS username/password를 받지 않는다. 실행 후 고객 계정에서
 입력할 명령까지 같이 출력한다. 고객 credential은 다음 단계에서 고객 계정 안에
 생성된다.
+
+여러 슬롯에 같은 공유 경로를 등록할 때:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all \
+  1 \
+  20 \
+  "$NAS_SHARE"
+```
 
 ## 4. 고객 NAS credential 작성과 mount
 
@@ -157,7 +166,8 @@ openclaw-nas-mount --status
 ```
 
 `--status`는 mount 대상 SMB 공유 경로, fstab 등록 여부, 저장된 NAS username,
-실제 mount 상태를 같이 보여준다.
+실제 mount 상태, 다음 행동을 같이 보여준다. mount 실행 시에도 credential 입력
+전에 등록된 공유 경로를 먼저 출력한다.
 
 root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
 운영자는 full sudo가 아니라 `svcops` wrapper만 사용한다. root 접근자는

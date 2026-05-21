@@ -82,24 +82,25 @@ case "$credentials" in
 esac
 
 status() {
-  local current_target fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user
-  echo "user=$(whoami)"
+  local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
+  echo "== NAS 연결 상태 =="
+  echo "linux_user=$(whoami)"
   echo "home=$HOME"
   echo "mountpoint=$mountpoint"
-  echo "credentials=$credentials"
   fstab_entry="$(awk -v mp="$mountpoint" '
     $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print; exit }
   ' /etc/fstab 2>/dev/null || true)"
   if [[ -n "$fstab_entry" ]]; then
     read -r fstab_source fstab_target fstab_type fstab_options _ <<<"$fstab_entry"
     echo "fstab_rule=present"
-    echo "fstab_source=$fstab_source"
+    echo "registered_share=$fstab_source"
     fstab_credentials="$(printf '%s' "$fstab_options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
     if [[ -n "$fstab_credentials" ]]; then
-      echo "fstab_credentials=$fstab_credentials"
+      echo "registered_credentials_file=$fstab_credentials"
     fi
   else
     echo "fstab_rule=missing"
+    echo "registered_share=missing"
   fi
   if [[ -s "$credentials" ]]; then
     echo "credential_file=present"
@@ -111,10 +112,56 @@ status() {
     echo "credential_file=missing"
   fi
   current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+  current_source="$(findmnt -T "$mountpoint" -n -o SOURCE 2>/dev/null | head -1 || true)"
+  current_fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
   if [[ "$current_target" == "$mountpoint" ]]; then
-    findmnt -T "$mountpoint" -o TARGET,SOURCE,FSTYPE,OPTIONS
+    echo "mount_state=mounted"
+    echo "mounted_source=$current_source"
+    echo "mounted_fstype=$current_fstype"
+    if [[ -n "${fstab_source:-}" && "$current_source" != "$fstab_source" ]]; then
+      echo "mount_matches_registered_share=no"
+      echo "next_action=openclaw-nas-mount --remount"
+    else
+      echo "mount_matches_registered_share=yes"
+      echo "next_action=none"
+    fi
   else
-    echo "mount=missing"
+    echo "mount_state=not_mounted"
+    if [[ -z "$fstab_entry" ]]; then
+      next_action="ask operator to register the NAS share"
+    elif [[ ! -s "$credentials" ]]; then
+      next_action="openclaw-nas-mount --reset-credential"
+    else
+      next_action="openclaw-nas-mount --remount"
+    fi
+    echo "next_action=$next_action"
+  fi
+}
+
+configured_share() {
+  awk -v mp="$mountpoint" '
+    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print $1; exit }
+  ' /etc/fstab 2>/dev/null || true
+}
+
+require_registered_share() {
+  local share
+  share="$(configured_share)"
+  if [[ -z "$share" ]]; then
+    echo "error: no registered NAS share for $mountpoint" >&2
+    echo "hint: ask the operator to register this account's NAS share first." >&2
+    status >&2
+    exit 1
+  fi
+  echo "== NAS 연결 대상 =="
+  echo "registered_share=$share"
+  echo "mountpoint=$mountpoint"
+  if [[ -s "$credentials" ]]; then
+    local nas_user
+    nas_user="$(awk -F= '$1 == "username" { print $2; exit }' "$credentials" 2>/dev/null || true)"
+    [[ -n "$nas_user" ]] && echo "credential_username=$nas_user"
+  else
+    echo "credential_file=missing"
   fi
 }
 
@@ -147,10 +194,12 @@ if [[ "$mode" == "status" ]]; then
 fi
 
 mkdir -p "$mountpoint" 2>/dev/null || true
+require_registered_share
 
 if [[ "$mode" == "remount" ]]; then
   current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
   if [[ "$current_target" == "$mountpoint" ]]; then
+    echo "action=unmount_existing"
     umount "$mountpoint"
   fi
 fi
@@ -169,6 +218,7 @@ if [[ "$current_target" == "$mountpoint" ]]; then
   fi
 fi
 
+echo "action=mount_registered_share"
 if mount "$mountpoint"; then
   :
 else

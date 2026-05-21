@@ -42,8 +42,15 @@ svcops가 하지 않는 것:
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status oc1
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-prepare \
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status-all 1 20
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register \
   oc1 \
+  '//NAS_HOST/SHARE_NAME'
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all \
+  1 \
+  20 \
   '//NAS_HOST/SHARE_NAME'
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
@@ -61,9 +68,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh subdomain \
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh isolation oc1
 ```
 
-`nas-prepare`는 fstab user-mount 규칙을 등록하고, 고객 계정에서 실행할 다음
-명령을 같이 출력한다. `nas-status`는 mount 대상 공유경로와 mount 상태를 보여주지만
-고객 NAS password는 출력하지 않는다.
+`nas-register`는 fstab user-mount 규칙을 등록하고, 고객 계정에서 실행할 다음
+명령을 같이 출력한다. `nas-register-all`은 여러 슬롯에 같은 공유 경로를 일괄
+등록한다. `nas-status`와 `nas-status-all`은 mount 대상 공유경로와 mount 상태를
+보여주지만 고객 NAS password는 출력하지 않는다.
 
 ## 작업 범위
 
