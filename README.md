@@ -4,19 +4,26 @@
 컨테이너를 만들고, 각 계정 전용 NAS 경로를 컨테이너에 붙이기 위한 설치
 패키지다.
 
-기본 목표는 **customer mode**다.
+운영 기준은 아래와 같다.
 
-고객 배포용 Web UI는 **subdomain mode**를 기본으로 한다.
+```text
+고객은 자기 Linux 계정으로 접속한다.
+고객은 자기 NAS만 읽을 수 있다.
+고객은 Docker, API key, OpenClaw 원본 설정 파일을 볼 수 없다.
+OpenClaw는 계정별 컨테이너에서 실행한다.
+계정별 Web UI는 서로 다른 subdomain으로 분리한다.
+```
+
+고객에게 전달하는 URL은 계정별 subdomain을 사용한다.
 
 ```text
 권장: https://oc13.ji-tech.co.kr/
 비권장: https://www.ji-tech.co.kr/oc13/
 ```
 
-`/ocN` path 방식은 Apache 라우팅은 분리할 수 있지만 브라우저
-`localStorage`가 같은 origin(`https://www.ji-tech.co.kr`)을 공유한다.
-따라서 같은 브라우저에서 여러 계정을 테스트하면 Gateway URL/token 설정이
-서로 섞일 수 있다. 고객에게 넘기는 구조는 `ocN.ji-tech.co.kr`처럼 origin을
+`https://www.ji-tech.co.kr/oc13/`처럼 path로 나누는 방식은 브라우저 저장소를
+같이 쓰기 때문에 여러 계정의 Gateway URL/token 설정이 섞일 수 있다.
+그래서 고객에게 넘기는 구조에서는 `oc13.ji-tech.co.kr`처럼 브라우저 origin을
 계정별로 분리한다.
 
 여기서 `rt`는 `runtime`의 약자다. `ocN_rt`는 고객에게 알려주거나 SSH로
@@ -25,7 +32,7 @@ Linux 시스템 계정이다. 예를 들어 `TARGET_USER=oc13`이면 고객 계�
 `oc13`, 런타임 계정은 `oc13_rt`, NAS 공유용 그룹은 `oc13_data`가 된다.
 
 이 분리가 필요한 이유는 고객 계정 `ocN`은 NAS를 읽을 수 있어야 하지만,
-API key가 들어 있는 runtime env나 OpenClaw raw config는 읽으면 안 되기
+API key가 들어 있는 실행 환경 파일이나 OpenClaw 원본 설정 파일은 읽으면 안 되기
 때문이다. 그래서 고객이 SSH로 접속하는 계정과 OpenClaw 프로세스가 실제로
 도는 계정을 분리한다.
 
@@ -34,20 +41,20 @@ API key가 들어 있는 runtime env나 OpenClaw raw config는 읽으면 안 되
   SSH 접속 가능
   /home/ocN/nas_docs CIFS mount 읽기 가능
   Docker 사용 불가
-  API key/runtime env 읽기 불가
-  OpenClaw raw config 읽기 불가
+  API key가 들어 있는 실행 환경 파일 읽기 불가
+  OpenClaw 원본 설정 파일 읽기 불가
 
 런타임(rt) 계정 ocN_rt:
   사람이 로그인하지 않는 시스템 계정
   OpenClaw gateway 컨테이너의 실행 UID/GID로 사용
-  API key/runtime env 읽기 가능
+  API key가 들어 있는 실행 환경 파일 읽기 가능
   ocN_data 그룹을 통해 NAS 읽기 가능
 
 NAS 공유 그룹 ocN_data:
   ocN과 ocN_rt가 같은 NAS 마운트를 읽기 위한 계정별 그룹
 ```
 
-고객에게 계정을 넘기기 전에 반드시 customer-mode check가 통과해야 한다.
+고객에게 계정을 넘기기 전에 반드시 설치 확인 스크립트가 통과해야 한다.
 
 실행 순서는 아래처럼 읽으면 된다.
 
@@ -55,11 +62,11 @@ NAS 공유 그룹 ocN_data:
 일반 신규 설치:
   1 -> 2 -> 3 -> 4 -> 6 -> 7 -> 8 -> 9
 
-기존 계정을 일부러 지우고 fresh install 재검증:
+기존 계정을 일부러 지우고 신규 설치 재검증:
   1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9
 ```
 
-## 1. Host Setup
+## 1. 호스트 준비
 
 sudo 가능한 관리자 계정에서 한 번 실행한다.
 
@@ -207,11 +214,11 @@ test "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o FSTYPE)" = cifs && echo custome
 7번 빠른 설치는 NAS를 unmount/remount하지 않는다. 고객 계정이 mount한
 `$TARGET_HOME/nas_docs`를 컨테이너에 read-only bind mount로 붙인다.
 
-## 5. 선택: Fresh Install 재검증 시작점
+## 5. 선택: 신규 설치 재검증 시작점
 
 새 계정에 처음 설치하는 경우에는 이 단계는 건너뛴다.
 
-이미 설치된 계정을 일부러 지우고 fresh install을 검증할 때만 실행한다.
+이미 설치된 계정을 일부러 지우고 신규 설치를 검증할 때만 실행한다.
 이 블록을 실행하면 OpenClaw 설치물과 컨테이너가 삭제된다. 따라서 실행한
 뒤에는 반드시 6번 이미지 빌드와 7번 빠른 설치를 다시 실행해야 한다.
 
@@ -269,11 +276,11 @@ sudo env \
   bash scripts/build-container-baseline.sh
 ```
 
-## 7. Image 기반 빠른 설치
+## 7. 이미지 기반 빠른 설치
 
 관리자 계정에서 실행한다. 이 단계는 이미 빌드된
 `openclaw-nas-agent:baseline` 이미지로 `TARGET_USER` 전용 compose,
-OpenClaw 상태, runtime env, rt 계정 권한을 만든 뒤 gateway를 띄운다.
+OpenClaw 상태, 실행 환경 파일, rt 계정 권한을 만든 뒤 gateway를 띄운다.
 
 4번에서 고객 계정이 이미 NAS를 mount한 상태여야 한다.
 
@@ -294,7 +301,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-im
   --force
 ```
 
-## 8. Subdomain Proxy 적용
+## 8. 계정별 Web UI 프록시 적용
 
 관리자 계정에서 실행한다. 이 단계는 Apache가
 `https://ocN.ji-tech.co.kr/...` 요청을 해당 계정 gateway의 root(`/`)로
@@ -366,8 +373,8 @@ curl -k -I "https://$CONTROL_UI_HOST/"
 DNS와 TLS 준비가 끝나기 전에는 deploy 폴더에 파일만 둬도 된다. 다만 고객에게
 전달하는 실제 접속 URL은 Apache 사이트 활성화까지 끝난 뒤에만 정상 동작한다.
 
-이미 설치된 계정을 subdomain mode로 전환할 때는 아래 helper를 사용한다. 이
-명령은 `openclaw.json`, `openclaw/.env`, deploy conf를 맞춘 뒤 gateway
+이미 설치된 계정을 계정별 subdomain 구조로 전환할 때는 아래 스크립트를 사용한다.
+이 명령은 `openclaw.json`, `openclaw/.env`, deploy conf를 맞춘 뒤 gateway
 컨테이너를 force-recreate한다.
 
 ```bash
@@ -379,12 +386,12 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-subdomain-mode.sh \
 이미 설치된 계정에서 NAS만 다시 mount한 뒤 gateway 컨테이너를 다시 띄울 때도
 같은 블록을 사용한다.
 
-고객 배포에서 `/ocN` path mode를 쓰지 않는다.
+고객 배포에서는 `/ocN` path 방식을 쓰지 않는다.
 
 ## 9. 설치 확인
 
-관리자 계정에서 실행한다. 최종 완료 판정은 `deployment` 체크로 한다. 이
-스크립트는 내부에서 customer-mode 격리 체크를 먼저 실행한 뒤, Apache
+관리자 계정에서 실행한다. 최종 완료 판정은 배포 확인 스크립트로 한다. 이
+스크립트는 내부에서 고객 계정 격리 체크를 먼저 실행한 뒤, Apache
 VirtualHost 등록과 실제 공개 URL 응답까지 확인한다.
 
 ```bash
@@ -468,7 +475,7 @@ sudo docker logs --tail=200 "openclaw-$TARGET_USER-openclaw-gateway-1"
 
 ## 10. 고객에게 전달할 Web UI 정보
 
-고객 계정은 Docker나 raw config를 읽을 수 없으므로, 최초 접속 정보는
+고객 계정은 Docker나 OpenClaw 원본 설정 파일을 읽을 수 없으므로, 최초 접속 정보는
 관리자가 확인해서 전달한다.
 
 Gateway token 출력:
