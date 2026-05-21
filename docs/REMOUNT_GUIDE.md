@@ -1,78 +1,71 @@
 # NAS 리마운트 가이드
 
-## 전체 oc1~oc20 리마운트
+기본 운영 모델에서는 고객 계정이 자기 NAS credential 파일을 보유하고, sudo 없이
+정해진 mountpoint만 mount한다.
+
+## fstab 규칙 등록
+
+관리자 계정에서 실행한다.
 
 ```bash
-for i in $(seq 1 20); do
-  u="oc$i"
+TARGET_USER=oc14
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+NAS_SHARE='//NAS_HOST/SHARE_NAME'
 
-  echo "remounting $u"
-
-  sudo umount "/home/$u/nas_docs" 2>/dev/null || true
-
-  sudo mkdir -p "/home/$u/nas_docs"
-  sudo chown "$u:$u" "/home/$u/nas_docs"
-  sudo chmod 700 "/home/$u/nas_docs"
-
-  sudo mount -t cifs //192.168.0.222/hanpass "/home/$u/nas_docs" \
-    -o credentials=/etc/samba/hanpass.cred,uid=$(id -u "$u"),gid=$(id -g "$u"),forceuid,forcegid,ro,file_mode=0400,dir_mode=0700,iocharset=utf8,vers=3.1.1,sec=ntlmssp
-done
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-user-nas-fstab-entry.sh \
+  --user "$TARGET_USER" \
+  --share "$NAS_SHARE"
 ```
 
-## 특정 계정만 리마운트
+## 고객 계정에서 리마운트
+
+고객 계정에서 실행한다.
 
 ```bash
-u="oc14"
-
-sudo umount "/home/$u/nas_docs" 2>/dev/null || true
-
-sudo mkdir -p "/home/$u/nas_docs"
-sudo chown "$u:$u" "/home/$u/nas_docs"
-sudo chmod 700 "/home/$u/nas_docs"
-
-sudo mount -t cifs //192.168.0.222/hanpass "/home/$u/nas_docs" \
-  -o credentials=/etc/samba/hanpass.cred,uid=$(id -u "$u"),gid=$(id -g "$u"),forceuid,forcegid,ro,file_mode=0400,dir_mode=0700,iocharset=utf8,vers=3.1.1,sec=ntlmssp
+umount "$HOME/nas_docs" 2>/dev/null || true
+mount "$HOME/nas_docs"
+findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
+ls "$HOME/nas_docs" | head
 ```
 
-## 확인
+credential 파일을 다시 만들어야 하면 고객 계정에서 실행한다.
 
 ```bash
-findmnt -T /home/oc14/nas_docs
-stat -c '%a %A %U:%G %n' /home/oc14/nas_docs
-sudo su - oc14
-cd ~/nas_docs
-ls
-exit
+umask 077
+
+printf "NAS username: "
+read NAS_USER
+
+printf "NAS password: "
+stty -echo
+read NAS_PASS
+stty echo
+printf "\n"
+
+{
+  printf "username=%s\n" "$NAS_USER"
+  printf "password=%s\n" "$NAS_PASS"
+} > "$HOME/.nas-cifs.cred"
+
+chmod 600 "$HOME/.nas-cifs.cred"
+unset NAS_USER NAS_PASS
 ```
 
-## 다른 계정 접근 차단 확인
+## 관리자 확인
 
 ```bash
-sudo su - oc15
-ls /home/oc14/nas_docs
-exit
-```
+TARGET_USER=oc14
+TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
-정상이라면 `Permission denied`가 나와야 한다.
+findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
+sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read_ok
+```
 
 ## busy 처리
 
 ```bash
 sudo fuser -vm /home/oc14/nas_docs
-sudo umount -l /home/oc14/nas_docs
 ```
 
-## credentials 재입력
-
-```bash
-sudo bash -c '
-install -d -m 0755 /etc/samba
-umask 077
-read -rp "CIFS username: " u
-read -rsp "CIFS password: " p
-echo
-printf "username=%s\npassword=%s\n" "$u" "$p" > /etc/samba/hanpass.cred
-chown root:root /etc/samba/hanpass.cred
-chmod 600 /etc/samba/hanpass.cred
-'
-```
+실서비스에서는 원인을 먼저 정리한 뒤 unmount한다. `umount -l`은 마지막 수단으로만
+쓴다.

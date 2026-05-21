@@ -18,8 +18,8 @@ Options:
   --user USER             Customer Linux account, for example oc1.
   --runtime-user USER     Runtime account. Default: <user>_rt.
   --data-group GROUP      NAS shared group. Default: <user>_data.
-  --share UNC             CIFS share. Default: //192.168.0.222/hanpass.
-  --credentials FILE      CIFS credentials file. Default: /etc/samba/hanpass.cred.
+  --share UNC             CIFS share path. Required unless --no-remount is used.
+  --credentials FILE      CIFS credentials file. Required unless --no-remount is used.
   --mountpoint DIR        NAS mountpoint. Default: /home/<user>/nas_docs.
   --compose-dir DIR       OpenClaw compose dir. Default: /home/<user>/openclaw.
   --no-remount            Do not unmount/remount NAS; only adjust users/files/compose.
@@ -33,8 +33,8 @@ USAGE
 target_user=""
 runtime_user=""
 data_group=""
-share="//192.168.0.222/hanpass"
-credentials="/etc/samba/hanpass.cred"
+share=""
+credentials=""
 mountpoint=""
 compose_dir=""
 remount=1
@@ -118,6 +118,17 @@ mountpoint="${mountpoint:-$target_home/nas_docs}"
 compose_dir="${compose_dir:-$target_home/openclaw}"
 container="openclaw-${target_user}-openclaw-gateway-1"
 cli_container="openclaw-${target_user}-openclaw-cli-1"
+
+if [[ "$remount" -eq 1 ]]; then
+  if [[ -z "$share" ]]; then
+    echo "error: --share is required unless --no-remount is used" >&2
+    exit 2
+  fi
+  if [[ -z "$credentials" ]]; then
+    echo "error: --credentials is required unless --no-remount is used" >&2
+    exit 2
+  fi
+fi
 
 compose_args() {
   printf '%s\n' -f docker-compose.yml

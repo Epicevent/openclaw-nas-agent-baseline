@@ -163,14 +163,20 @@ sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$TARGET_
 관리자는 credential을 입력받지 않는다. 관리자는 `/etc/fstab`에 “이 계정은 이
 NAS share를 이 mountpoint에만 mount할 수 있다”는 규칙만 등록한다.
 
+`NAS_SHARE`는 NAS 계정명이 아니라 SMB 공유 경로다. 설치 현장에서 받은 값을
+넣는다.
+
 ```bash
+NAS_SHARE='//NAS_HOST/SHARE_NAME'
+
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-user-nas-fstab-entry.sh \
   --user "$TARGET_USER" \
-  --share '//192.168.0.222/hanpass'
+  --share "$NAS_SHARE"
 ```
 
 고객 계정 셸에서 NAS credential 파일을 만들고 mount한다. 이 블록은 고객
-계정으로 실행한다.
+계정으로 실행한다. 여기서 입력하는 `NAS username`과 `NAS password`가 고객의
+NAS 로그인 credential이다.
 
 ```bash
 umask 077
@@ -211,8 +217,8 @@ bootstrap 명령에서 `OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT=1`을 반드시 유�
 경우에만 아래 legacy 값을 사용한다. 고객 운영 기본값으로 쓰지 않는다.
 
 ```bash
-OPENCLAW_CUSTOMER_SHARE='//192.168.0.222/hanpass' \
-OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred \
+OPENCLAW_CUSTOMER_SHARE='//NAS_HOST/SHARE_NAME' \
+OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/root-owned.cifs.cred \
 ```
 
 ## 5. 선택: Fresh Install 재검증 시작점
@@ -305,8 +311,8 @@ sudo env \
 sudo env \
   OPENCLAW_CUSTOMER_MODE=1 \
   OPENCLAW_TARGET_USER="$TARGET_USER" \
-  OPENCLAW_CUSTOMER_SHARE='//192.168.0.222/hanpass' \
-  OPENCLAW_CUSTOMER_CREDENTIALS=/etc/samba/hanpass.cred \
+  OPENCLAW_CUSTOMER_SHARE='//NAS_HOST/SHARE_NAME' \
+  OPENCLAW_CUSTOMER_CREDENTIALS=/path/to/root-owned.cifs.cred \
   OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
   OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
   OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \

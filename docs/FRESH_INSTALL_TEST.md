@@ -40,7 +40,9 @@ The host already has:
 
 - Linux user `$TARGET_USER`
 - Docker access for the admin account running the test
-- CIFS credentials at `/etc/samba/hanpass.cred`
+- NAS fstab user-mount rule for `$TARGET_HOME/nas_docs`
+- customer-owned NAS credential at `$TARGET_HOME/.nas-cifs.cred`
+- mounted NAS at `$TARGET_HOME/nas_docs`
 - shared bootstrap at `/usr/local/bin/openclaw-bootstrap`
 - DNS/TLS for `$CONTROL_UI_HOST`
 - reverse proxy routing `$CONTROL_UI_HOST/` to the account gateway root
@@ -89,8 +91,8 @@ baseline package in `/opt`.
 Run as admin.
 
 This intentionally deletes per-user OpenClaw state. It must not delete NAS,
-proxy, fstab, CIFS credentials, `$TARGET_HOME/.openclaw-install.env`, or
-`/opt/openclaw-bootstrap`.
+proxy, fstab, customer-owned NAS credentials,
+`$TARGET_HOME/.openclaw-install.env`, or `/opt/openclaw-bootstrap`.
 
 ```bash
 set -eu
@@ -108,7 +110,8 @@ sudo rm -rf "$TARGET_HOME/openclaw-nas-agent-baseline-fresh"
 sudo docker rmi openclaw-nas-agent:baseline 2>/dev/null || true
 
 sudo test -f "$TARGET_HOME/.openclaw-install.env"
-sudo test -f /etc/samba/hanpass.cred
+sudo test -f "$TARGET_HOME/.nas-cifs.cred"
+findmnt -T "$TARGET_HOME/nas_docs"
 ```
 
 At this point the account is empty from OpenClaw's point of view.
@@ -134,6 +137,7 @@ Run as admin. The customer account does not need Docker group membership.
 sudo env \
   OPENCLAW_CUSTOMER_MODE=1 \
   OPENCLAW_TARGET_USER="$TARGET_USER" \
+  OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT=1 \
   OPENCLAW_IMAGE=openclaw-nas-agent:baseline \
   OPENCLAW_INSTALL_ENV_FILE="$TARGET_HOME/.openclaw-install.env" \
   OPENCLAW_BASELINE_DIR=/opt/openclaw-nas-agent-baseline \

@@ -220,8 +220,16 @@ if openclaw_customer_mode_truthy "${{OPENCLAW_CUSTOMER_MODE:-0}}"; then
 
   if ! openclaw_customer_mode_truthy "${{OPENCLAW_CUSTOMER_SKIP_NAS_REMOUNT:-0}}" \
     && ! openclaw_customer_mode_truthy "${{OPENCLAW_BOOTSTRAP_SKIP_NAS:-0}}"; then
-    OPENCLAW_CUSTOMER_SHARE="${{OPENCLAW_CUSTOMER_SHARE:-//192.168.0.222/hanpass}}"
-    OPENCLAW_CUSTOMER_CREDENTIALS="${{OPENCLAW_CUSTOMER_CREDENTIALS:-/etc/samba/hanpass.cred}}"
+    OPENCLAW_CUSTOMER_SHARE="${{OPENCLAW_CUSTOMER_SHARE:-}}"
+    OPENCLAW_CUSTOMER_CREDENTIALS="${{OPENCLAW_CUSTOMER_CREDENTIALS:-}}"
+    if [[ -z "$OPENCLAW_CUSTOMER_SHARE" ]]; then
+      echo "error: OPENCLAW_CUSTOMER_SHARE is required when NAS remount is enabled" >&2
+      exit 1
+    fi
+    if [[ -z "$OPENCLAW_CUSTOMER_CREDENTIALS" ]]; then
+      echo "error: OPENCLAW_CUSTOMER_CREDENTIALS is required when NAS remount is enabled" >&2
+      exit 1
+    fi
     if [[ ! -f "$OPENCLAW_CUSTOMER_CREDENTIALS" ]]; then
       echo "error: CIFS credentials not found: $OPENCLAW_CUSTOMER_CREDENTIALS" >&2
       exit 1

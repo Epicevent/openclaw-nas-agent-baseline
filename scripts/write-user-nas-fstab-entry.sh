@@ -12,7 +12,8 @@ or read by this script.
 
 Options:
   --user USER              Target account, for example oc20. Required.
-  --share SHARE            CIFS share. Default: //192.168.0.222/hanpass.
+  --share SHARE            CIFS share path, for example //nas.example.com/share.
+                            Required unless OPENCLAW_USER_NAS_SHARE is set.
   --mountpoint DIR         Mountpoint. Default: /home/USER/nas_docs.
   --credentials-path FILE  Credential file. Default: /home/USER/.nas-cifs.cred.
   --no-daemon-reload       Do not run systemctl daemon-reload after fstab update.
@@ -22,7 +23,7 @@ USAGE
 }
 
 target_user=""
-share="${OPENCLAW_USER_NAS_SHARE:-//192.168.0.222/hanpass}"
+share="${OPENCLAW_USER_NAS_SHARE:-}"
 mountpoint=""
 credentials_path=""
 daemon_reload=1
@@ -63,6 +64,12 @@ done
 
 if [[ -z "$target_user" ]]; then
   echo "error: --user is required" >&2
+  usage >&2
+  exit 2
+fi
+
+if [[ -z "$share" ]]; then
+  echo "error: --share is required unless OPENCLAW_USER_NAS_SHARE is set" >&2
   usage >&2
   exit 2
 fi
