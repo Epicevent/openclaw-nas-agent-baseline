@@ -114,11 +114,14 @@ sudo env \
 
 실행 주체: **[root 관리자]**
 
-먼저 고객 계정이 `/home/ocN/nas_docs`를 CIFS로 mount했는지 확인한다.
+먼저 고객 계정이 `/home/ocN/nas_docs/SHARE_NAME` 형태의 하위 폴더를 CIFS로
+mount했는지 확인한다.
 
 ```bash
-findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-test "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs
+MOUNT_NAME=SHARE_NAME
+
+findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -o TARGET,SOURCE,FSTYPE,OPTIONS
+test "$(findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs
 ```
 
 설치한다.

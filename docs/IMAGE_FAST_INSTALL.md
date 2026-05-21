@@ -7,7 +7,7 @@
 ```text
 1. ocN Linux 계정이 있다.
 2. /home/ocN/.openclaw-install.env가 있다.
-3. /home/ocN/nas_docs가 고객 NAS credential로 CIFS mount되어 있다.
+3. /home/ocN/nas_docs/SHARE_NAME 하위 폴더가 고객 NAS credential로 CIFS mount되어 있다.
 4. openclaw-nas-agent:baseline 이미지가 이미 빌드되어 있다.
 ```
 

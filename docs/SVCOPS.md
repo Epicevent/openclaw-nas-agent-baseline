@@ -83,6 +83,11 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh isolation oc1
 등록한다. `nas-status`와 `nas-status-all`은 mount 대상 공유경로와 mount 상태를
 보여주지만 고객 NAS password는 출력하지 않는다.
 
+이때 공유 경로는 원격 SMB source다. 붙는 위치는 공유 이름에서 자동으로 정한다.
+예를 들어 `//192.168.0.222/hanpass`는 `/home/ocN/nas_docs/hanpass`에 붙고,
+OpenClaw 컨테이너에서는 `/home/node/nas_docs/hanpass`로 보인다. 여러 NAS 공유도
+같은 방식으로 공유 이름별 폴더를 추가한다.
+
 `nas-verify`는 고객 계정의 NAS mount와 OpenClaw 컨테이너 안의 NAS mount를 실제로
 비교한다. 고객 계정은 CIFS로 mounted인데 컨테이너가 아직 일반 디렉터리를 보고
 있으면 gateway 컨테이너만 재생성하고 다시 확인한다.

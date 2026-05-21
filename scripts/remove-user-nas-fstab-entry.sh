@@ -6,12 +6,14 @@ usage() {
 Usage:
   remove-user-nas-fstab-entry.sh --user USER [options]
 
-Removes the managed /etc/fstab CIFS user-mount rule for USER. It does not
+Removes managed /etc/fstab CIFS user-mount rules for USER. It does not
 unmount an existing mount and does not delete the user's NAS credential file.
 
 Options:
   --user USER         Target account, for example oc20. Required.
-  --mountpoint DIR    Mountpoint. Default: /home/USER/nas_docs.
+  --mount-name NAME   Remove only /home/USER/nas_docs/NAME.
+  --mountpoint DIR    Remove only this mountpoint. Default: all under
+                      /home/USER/nas_docs.
   --no-daemon-reload  Do not run systemctl daemon-reload after fstab update.
 
 Run as root/admin.
@@ -19,6 +21,7 @@ USAGE
 }
 
 target_user=""
+mount_name=""
 mountpoint=""
 daemon_reload=1
 
@@ -26,6 +29,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --user)
       target_user="${2:?missing --user value}"
+      shift 2
+      ;;
+    --mount-name)
+      mount_name="${2:?missing --mount-name value}"
       shift 2
       ;;
     --mountpoint)
@@ -59,6 +66,11 @@ if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+if [[ -n "$mount_name" && ( "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ) ]]; then
+  echo "error: invalid mount name: $mount_name" >&2
+  exit 2
+fi
+
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
   exit 1
@@ -70,7 +82,15 @@ if [[ -z "$target_home" ]]; then
   exit 1
 fi
 
-mountpoint="${mountpoint:-$target_home/nas_docs}"
+remove_all=0
+if [[ -z "$mountpoint" ]]; then
+  if [[ -n "$mount_name" ]]; then
+    mountpoint="$target_home/nas_docs/$mount_name"
+  else
+    mountpoint="$target_home/nas_docs"
+    remove_all=1
+  fi
+fi
 if [[ "$mountpoint" != "$target_home/"* && "$mountpoint" != "$target_home" ]]; then
   echo "error: mountpoint must stay under $target_home: $mountpoint" >&2
   exit 1
@@ -80,14 +100,27 @@ backup="/etc/fstab.$(date +%Y%m%d%H%M%S).bak"
 tmp="$(mktemp)"
 cp /etc/fstab "$backup"
 
-begin="# BEGIN managed openclaw user NAS mount $target_user"
-end="# END managed openclaw user NAS mount $target_user"
+if [[ "$remove_all" -eq 1 ]]; then
+  begin="# BEGIN managed openclaw user NAS mount $target_user"
+  end="# END managed openclaw user NAS mount $target_user"
+elif [[ -n "$mount_name" ]]; then
+  begin="# BEGIN managed openclaw user NAS mount $target_user $mount_name"
+  end="# END managed openclaw user NAS mount $target_user $mount_name"
+else
+  begin="# BEGIN managed openclaw user NAS mount $target_user"
+  end="# END managed openclaw user NAS mount $target_user"
+fi
 
-awk -v begin="$begin" -v end="$end" -v mp="$mountpoint" '
-  $0 == begin { removed = 1; skip = 1; next }
-  $0 == end { skip = 0; next }
+awk -v begin="$begin" -v end="$end" -v mp="$mountpoint" -v remove_all="$remove_all" '
+  remove_all && ($0 == begin || index($0, begin " ") == 1) {
+    removed = 1
+    skip = 1
+    next
+  }
+  !remove_all && $0 == begin { removed = 1; skip = 1; next }
+  skip && ($0 == end || index($0, end " ") == 1) { skip = 0; next }
   skip { next }
-  $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" {
+  $0 !~ /^[[:space:]]*#/ && $3 == "cifs" && ((remove_all && ($2 == mp || index($2, mp "/") == 1)) || (!remove_all && $2 == mp)) {
     removed = 1
     print "# disabled by openclaw user NAS unregister: " $0
     next
@@ -106,6 +139,7 @@ if [[ "$rc" -eq 3 ]]; then
   rm -f "$tmp"
   echo "target_user=$target_user"
   echo "target_home=$target_home"
+  echo "mount_name=${mount_name:-primary}"
   echo "mountpoint=$mountpoint"
   echo "fstab_backup=$backup"
   echo "fstab_user_mount=already_absent"
@@ -125,6 +159,7 @@ fi
 
 echo "target_user=$target_user"
 echo "target_home=$target_home"
+echo "mount_name=${mount_name:-primary}"
 echo "mountpoint=$mountpoint"
 echo "fstab_backup=$backup"
 echo "fstab_user_mount=removed"

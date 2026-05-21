@@ -14,8 +14,11 @@ Options:
   --user USER              Target account, for example oc20. Required.
   --share SHARE            CIFS share path, for example //nas.example.com/share.
                             Required unless OPENCLAW_USER_NAS_SHARE is set.
-  --mountpoint DIR         Mountpoint. Default: /home/USER/nas_docs.
-  --credentials-path FILE  Credential file. Default: /home/USER/.nas-cifs.cred.
+  --mount-name NAME        Local folder name under /home/USER/nas_docs.
+                            Default: derived from SHARE_NAME.
+  --mountpoint DIR         Mountpoint. Default: /home/USER/nas_docs/SHARE_NAME.
+  --credentials-path FILE  Credential file. Default:
+                            /home/USER/.openclaw-nas/credentials/SHARE_NAME.cred.
   --no-daemon-reload       Do not run systemctl daemon-reload after fstab update.
 
 Run as root/admin.
@@ -24,6 +27,7 @@ USAGE
 
 target_user=""
 share="${OPENCLAW_USER_NAS_SHARE:-}"
+mount_name=""
 mountpoint=""
 credentials_path=""
 daemon_reload=1
@@ -36,6 +40,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --share)
       share="${2:?missing --share value}"
+      shift 2
+      ;;
+    --mount-name)
+      mount_name="${2:?missing --mount-name value}"
       shift 2
       ;;
     --mountpoint)
@@ -79,6 +87,23 @@ if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
   exit 2
 fi
 
+if [[ -n "$mount_name" && ( "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ) ]]; then
+  echo "error: invalid mount name: $mount_name" >&2
+  exit 2
+fi
+
+mount_name_from_share() {
+  local unc="$1" rest name
+  rest="${unc#//}"
+  rest="${rest#*/}"
+  name="${rest%%/*}"
+  if [[ -z "$name" || "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+    echo "error: could not derive safe mount name from share: $unc" >&2
+    exit 2
+  fi
+  printf '%s' "$name"
+}
+
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
   exit 1
@@ -97,8 +122,21 @@ if ! getent group "$data_group" >/dev/null; then
 fi
 target_gid="$(getent group "$data_group" | cut -d: -f3)"
 
-mountpoint="${mountpoint:-$target_home/nas_docs}"
-credentials_path="${credentials_path:-$target_home/.nas-cifs.cred}"
+if [[ -z "$mount_name" && -z "$mountpoint" ]]; then
+  mount_name="$(mount_name_from_share "$share")"
+fi
+
+if [[ -z "$mountpoint" ]]; then
+  mountpoint="$target_home/nas_docs/$mount_name"
+fi
+
+if [[ -z "$credentials_path" ]]; then
+  if [[ -n "$mount_name" ]]; then
+    credentials_path="$target_home/.openclaw-nas/credentials/$mount_name.cred"
+  else
+    credentials_path="$target_home/.nas-cifs.cred"
+  fi
+fi
 
 if [[ "$mountpoint" != "$target_home/"* && "$mountpoint" != "$target_home" ]]; then
   echo "error: mountpoint must stay under $target_home: $mountpoint" >&2
@@ -128,13 +166,22 @@ if [[ ! -u "$mount_cifs" ]]; then
   exit 1
 fi
 
-mkdir -p "$mountpoint"
+credentials_dir="$(dirname "$credentials_path")"
+credentials_root="$(dirname "$credentials_dir")"
+mkdir -p "$mountpoint" "$credentials_dir"
 current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
 if [[ "$current_mount_target" == "$mountpoint" ]]; then
   echo "warn: mountpoint is already mounted; skipping ownership fix: $mountpoint" >&2
   echo "warn: unmount it before changing mountpoint ownership" >&2
 else
+  chown "$target_user:$data_group" "$(dirname "$mountpoint")" 2>/dev/null || true
   chown "$target_user:$data_group" "$mountpoint" 2>/dev/null || chown "$target_user:$target_user" "$mountpoint"
+  if [[ "$credentials_path" == "$target_home/.openclaw-nas/credentials/"* ]]; then
+    chown "$target_user:$target_user" "$credentials_root" "$credentials_dir" 2>/dev/null || true
+    chmod 0700 "$credentials_root" "$credentials_dir" 2>/dev/null || true
+  else
+    chown "$target_user:$target_user" "$credentials_dir" 2>/dev/null || true
+  fi
   chmod 0550 "$mountpoint"
 fi
 
@@ -142,8 +189,13 @@ backup="/etc/fstab.$(date +%Y%m%d%H%M%S).bak"
 tmp="$(mktemp)"
 cp /etc/fstab "$backup"
 
-begin="# BEGIN managed openclaw user NAS mount $target_user"
-end="# END managed openclaw user NAS mount $target_user"
+if [[ -n "$mount_name" ]]; then
+  begin="# BEGIN managed openclaw user NAS mount $target_user $mount_name"
+  end="# END managed openclaw user NAS mount $target_user $mount_name"
+else
+  begin="# BEGIN managed openclaw user NAS mount $target_user"
+  end="# END managed openclaw user NAS mount $target_user"
+fi
 
 awk -v begin="$begin" -v end="$end" -v mp="$mountpoint" '
   $0 == begin { skip = 1; next }
@@ -172,6 +224,7 @@ fi
 
 echo "target_user=$target_user"
 echo "target_home=$target_home"
+echo "mount_name=${mount_name:-primary}"
 echo "mountpoint=$mountpoint"
 echo "credentials_path=$credentials_path"
 echo "share=$share"
@@ -179,5 +232,9 @@ echo "mount_cifs=$mount_cifs"
 echo "fstab_backup=$backup"
 echo "fstab_user_mount=ok"
 echo
-echo "Next, run as $target_user and create $credentials_path, then:"
-echo "  mount \"$mountpoint\""
+echo "Next, run as $target_user:"
+if [[ -n "$mount_name" ]]; then
+  echo "  openclaw-nas-mount --mount-name \"$mount_name\" --reset-credential"
+else
+  echo "  openclaw-nas-mount --reset-credential"
+fi

@@ -10,9 +10,8 @@
 컨테이너를 만들고, 각 계정 전용 NAS 경로를 컨테이너에 붙이기 위한 설치
 패키지다.
 
-기본 목표는 **customer mode**다.
-
-고객 배포용 Web UI는 **subdomain mode**를 기본으로 한다.
+이 호환 절차도 고객 계정은 Docker와 secret을 직접 다루지 않는 구조로 맞춘다.
+Web UI는 계정별 subdomain으로 분리한다.
 
 ```text
 권장: https://oc13.ji-tech.co.kr/
@@ -38,7 +37,7 @@ API key가 들어 있는 runtime env나 OpenClaw raw config는 읽으면 안 되
 ```text
 고객 계정 ocN:
   SSH 접속 가능
-  /home/ocN/nas_docs CIFS mount 읽기 가능
+  /home/ocN/nas_docs 아래의 CIFS 공유 폴더 읽기 가능
   Docker 사용 불가
   API key/runtime env 읽기 불가
   OpenClaw raw config 읽기 불가
@@ -183,47 +182,28 @@ NAS share를 이 mountpoint에만 mount할 수 있다”는 규칙만 등록한�
 
 ```bash
 NAS_SHARE='//NAS_HOST/SHARE_NAME'
+MOUNT_NAME="${NAS_SHARE##*/}"
 
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-user-nas-fstab-entry.sh \
   --user "$TARGET_USER" \
   --share "$NAS_SHARE"
 ```
 
-고객 계정 셸에서 NAS credential 파일을 만들고 mount한다. 이 블록은 고객
+고객 계정 셸에서 NAS credential 파일을 만들고 mount한다. 이 명령은 고객
 계정으로 실행한다. 여기서 입력하는 `NAS username`과 `NAS password`가 고객의
 NAS 로그인 credential이다.
 
 ```bash
-umask 077
-
-printf "NAS username: "
-read NAS_USER
-
-printf "NAS password: "
-stty -echo
-read NAS_PASS
-stty echo
-printf "\n"
-
-{
-  printf "username=%s\n" "$NAS_USER"
-  printf "password=%s\n" "$NAS_PASS"
-} > "$HOME/.nas-cifs.cred"
-
-chmod 600 "$HOME/.nas-cifs.cred"
-unset NAS_USER NAS_PASS
-
-mount "$HOME/nas_docs"
-findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-ls "$HOME/nas_docs" | head
+openclaw-nas-mount --mount-name SHARE_NAME --reset-credential
+openclaw-nas-mount --mount-name SHARE_NAME --status
 ```
 
 관리자 계정에서 mount 결과를 확인한다.
 
 ```bash
-findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read_ok
-test "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o FSTYPE)" = cifs && echo customer_nas_mounted_cifs
+findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -o TARGET,SOURCE,FSTYPE,OPTIONS
+sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs/$MOUNT_NAME" && echo customer_nas_read_ok
+test "$(findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && echo customer_nas_mounted_cifs
 ```
 
 이 모델에서는 bootstrap이 NAS를 다시 unmount/remount하면 안 된다. 7번

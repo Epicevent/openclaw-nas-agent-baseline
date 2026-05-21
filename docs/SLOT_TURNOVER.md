@@ -20,7 +20,7 @@ baseline image
 
 ```text
 SSH 비밀번호 또는 authorized_keys
-고객 NAS credential: /home/ocN/.nas-cifs.cred
+고객 NAS credential: /home/ocN/.openclaw-nas/credentials/*.cred
 NAS mount 세션
 OpenClaw 사용자 상태: /home/ocN/.openclaw
 OpenClaw auth/profile/cache 상태
@@ -43,7 +43,7 @@ TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 sudo docker ps --filter "name=openclaw-$TARGET_USER-openclaw-gateway-1" \
   --format 'container={{.Names}} status={{.Status}}'
 
-findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS || true
+findmnt -R "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS || true
 ```
 
 gateway를 멈춘다.
@@ -56,10 +56,14 @@ sudo docker rm -f "openclaw-$TARGET_USER-openclaw-cli-1" 2>/dev/null || true
 NAS mount를 내리고 이전 고객 credential을 제거한다.
 
 ```bash
-if [ "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o TARGET 2>/dev/null | head -1)" = "$TARGET_HOME/nas_docs" ]; then
-  sudo umount "$TARGET_HOME/nas_docs"
-fi
+findmnt -R "$TARGET_HOME/nas_docs" -n -o TARGET 2>/dev/null \
+  | sort -r \
+  | while read -r mp; do
+      [ "$mp" = "$TARGET_HOME/nas_docs" ] && continue
+      sudo umount "$mp" 2>/dev/null || true
+    done
 
+sudo rm -rf "$TARGET_HOME/.openclaw-nas/credentials"
 sudo rm -f "$TARGET_HOME/.nas-cifs.cred"
 ```
 
@@ -80,31 +84,12 @@ sudo passwd "$TARGET_USER"
 
 SSH key 방식이면 운영 정책에 맞게 `$TARGET_HOME/.ssh/authorized_keys`를 교체한다.
 
-새 사용자가 고객 계정으로 접속해 NAS credential을 만들고 mount한다.
+새 사용자가 고객 계정으로 접속해 NAS credential을 만들고 mount한다. 운영자가
+등록한 공유 경로가 `//NAS_HOST/SHARE_NAME`이면 mount 이름은 `SHARE_NAME`이다.
 
 ```bash
-umask 077
-
-printf "NAS username: "
-read NAS_USER
-
-printf "NAS password: "
-stty -echo
-read NAS_PASS
-stty echo
-printf "\n"
-
-{
-  printf "username=%s\n" "$NAS_USER"
-  printf "password=%s\n" "$NAS_PASS"
-} > "$HOME/.nas-cifs.cred"
-
-chmod 600 "$HOME/.nas-cifs.cred"
-unset NAS_USER NAS_PASS
-
-mount "$HOME/nas_docs"
-findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-ls "$HOME/nas_docs" | head
+openclaw-nas-mount --mount-name SHARE_NAME --reset-credential
+openclaw-nas-mount --mount-name SHARE_NAME --status
 ```
 
 관리자 계정에서 OpenClaw 상태를 다시 만든다. 이 단계는 재설치가 아니라 기존

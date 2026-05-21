@@ -10,7 +10,7 @@ Checks customer-mode isolation without printing secret values.
 
 Expected pass state:
   - USER is not in the docker group
-  - /home/USER/nas_docs is a readable CIFS mount
+  - /home/USER/nas_docs is readable and contains registered CIFS share mounts
   - USER cannot read /home/USER/openclaw/.env
   - USER cannot read /home/USER/.openclaw/openclaw.json
   - USER cannot see GEMINI_API_KEY through /proc
@@ -93,6 +93,25 @@ check() {
   fi
 }
 
+registered_nas_mountpoints() {
+  local root="$1"
+  awk -v root="$root" '
+    $0 !~ /^[[:space:]]*#/ && $3 == "cifs" && ($2 == root || index($2, root "/") == 1) {
+      print $2
+    }
+  ' /etc/fstab 2>/dev/null
+}
+
+container_path_for_nas_mountpoint() {
+  local root="$1" mountpoint="$2" suffix
+  if [[ "$mountpoint" == "$root" ]]; then
+    printf '%s' "/home/node/nas_docs"
+  else
+    suffix="${mountpoint#$root/}"
+    printf '/home/node/nas_docs/%s' "$suffix"
+  fi
+}
+
 if id -nG "$target_user" | tr ' ' '\n' | grep -qx docker; then
   fail "customer_not_in_docker_group"
 else
@@ -101,20 +120,35 @@ fi
 
 check "customer_nas_read_ok" sudo -u "$target_user" test -r "$nas_mountpoint"
 
-if findmnt -T "$nas_mountpoint" >/dev/null 2>&1; then
-  nas_target="$(findmnt -T "$nas_mountpoint" -n -o TARGET | head -1)"
-  nas_source="$(findmnt -T "$nas_mountpoint" -n -o SOURCE | head -1)"
-  nas_fstype="$(findmnt -T "$nas_mountpoint" -n -o FSTYPE | head -1)"
-  if [[ "$nas_target" == "$nas_mountpoint" && "$nas_fstype" == "cifs" ]]; then
+mapfile -t nas_mountpoints < <(registered_nas_mountpoints "$nas_mountpoint")
+if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
+  fail "customer_nas_mounted_cifs"
+  echo "INFO customer_nas_registered_mounts=none"
+else
+  customer_nas_failed=0
+  echo "INFO customer_nas_registered_mount_count=${#nas_mountpoints[@]}"
+  for nas_mp in "${nas_mountpoints[@]}"; do
+    nas_target="$(findmnt -T "$nas_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
+    nas_source="$(findmnt -T "$nas_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
+    nas_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+    if [[ "$nas_target" == "$nas_mp" && "$nas_fstype" == "cifs" ]]; then
+      echo "INFO customer_nas_mount=$nas_mp source=$nas_source"
+      if sudo -u "$target_user" test -r "$nas_mp"; then
+        :
+      else
+        customer_nas_failed=1
+        echo "INFO customer_nas_mount_unreadable=$nas_mp"
+      fi
+    else
+      customer_nas_failed=1
+      echo "INFO customer_nas_mount_bad=$nas_mp target=${nas_target:-missing} fstype=${nas_fstype:-missing} source=${nas_source:-missing}"
+    fi
+  done
+  if [[ "$customer_nas_failed" -eq 0 ]]; then
     pass "customer_nas_mounted_cifs"
-    echo "INFO customer_nas_source=$nas_source"
   else
     fail "customer_nas_mounted_cifs"
-    echo "INFO customer_nas_target=${nas_target:-missing} fstype=${nas_fstype:-missing} source=${nas_source:-missing}"
   fi
-else
-  fail "customer_nas_mounted_cifs"
-  echo "INFO customer_nas_mount_missing=$nas_mountpoint"
 fi
 
 if [[ -f "$runtime_env_path" ]]; then
@@ -231,19 +265,34 @@ if docker inspect "$container" >/dev/null 2>&1; then
     fail "container_nas_read_ok"
   fi
 
-  container_mount_line="$(docker exec "$container" sh -lc "awk '\$2 == \"/home/node/nas_docs\" { print; exit }' /proc/mounts" || true)"
-  if [[ -n "$container_mount_line" ]]; then
-    container_nas_source="$(printf '%s\n' "$container_mount_line" | awk '{ print $1 }')"
-    container_nas_fstype="$(printf '%s\n' "$container_mount_line" | awk '{ print $3 }')"
-    if [[ "$container_nas_fstype" == "cifs" ]]; then
+  if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
+    fail "container_nas_mounted_cifs"
+    echo "INFO container_nas_registered_mounts=none"
+  else
+    container_nas_failed=0
+    for nas_mp in "${nas_mountpoints[@]}"; do
+      container_mp="$(container_path_for_nas_mountpoint "$nas_mountpoint" "$nas_mp")"
+      if docker exec "$container" sh -lc 'test -r "$1"' sh "$container_mp"; then
+        :
+      else
+        container_nas_failed=1
+        echo "INFO container_nas_mount_unreadable=$container_mp"
+      fi
+      container_nas_source="$(docker exec "$container" findmnt -T "$container_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
+      container_nas_target="$(docker exec "$container" findmnt -T "$container_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
+      container_nas_fstype="$(docker exec "$container" findmnt -T "$container_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+      if [[ "$container_nas_target" == "$container_mp" && "$container_nas_fstype" == "cifs" ]]; then
+        echo "INFO container_nas_mount=$container_mp source=$container_nas_source"
+      else
+        container_nas_failed=1
+        echo "INFO container_nas_mount_bad=$container_mp target=${container_nas_target:-missing} fstype=${container_nas_fstype:-missing} source=${container_nas_source:-missing}"
+      fi
+    done
+    if [[ "$container_nas_failed" -eq 0 ]]; then
       pass "container_nas_mounted_cifs"
-      echo "INFO container_nas_source=$container_nas_source"
     else
       fail "container_nas_mounted_cifs"
-      echo "INFO container_nas_fstype=${container_nas_fstype:-missing} source=${container_nas_source:-missing}"
     fi
-  else
-    fail "container_nas_mounted_cifs"
   fi
 
   sample="$(docker exec "$container" sh -lc 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' || echo 0)"

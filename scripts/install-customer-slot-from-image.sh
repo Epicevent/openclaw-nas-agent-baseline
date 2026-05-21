@@ -12,7 +12,7 @@ image. This is the fast fresh-install path for a prepared ocN slot.
 Prerequisites:
   - USER exists.
   - /home/USER/.openclaw-install.env exists.
-  - /home/USER/nas_docs is already mounted by the customer NAS credential.
+  - at least one registered /home/USER/nas_docs/SHARE_NAME CIFS mount exists.
   - OPENCLAW_IMAGE, or --image, points at a ready OpenClaw baseline image.
 
 Options:
@@ -24,7 +24,7 @@ Options:
   --compose-dir DIR     Compose dir. Default: /home/USER/openclaw.
   --runtime-user USER   Runtime account. Default: USER_rt.
   --data-group GROUP    NAS shared group. Default: USER_data.
-  --skip-nas-check      Do not require /home/USER/nas_docs to be a CIFS mount.
+  --skip-nas-check      Do not require a CIFS mount under /home/USER/nas_docs.
   --no-apache-conf      Do not write /home/USER/openclaw/deploy/apache-subdomain-USER.conf.
   --force               Replace existing compose files and target containers.
   --check               Run deployment check after starting.
@@ -157,13 +157,27 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
 fi
 
 if [[ "$skip_nas_check" -eq 0 ]]; then
-  nas_target="$(findmnt -T "$nas_mount" -n -o TARGET 2>/dev/null | head -1 || true)"
-  nas_fstype="$(findmnt -T "$nas_mount" -n -o FSTYPE 2>/dev/null | head -1 || true)"
-  if [[ "$nas_target" != "$nas_mount" || "$nas_fstype" != "cifs" ]]; then
-    echo "error: NAS is not mounted as CIFS at $nas_mount" >&2
-    echo "hint: create the user credential and run: mount \"$nas_mount\"" >&2
+  mapfile -t nas_mountpoints < <(awk -v root="$nas_mount" '
+    $0 !~ /^[[:space:]]*#/ && $3 == "cifs" && ($2 == root || index($2, root "/") == 1) {
+      print $2
+    }
+  ' /etc/fstab 2>/dev/null)
+  if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
+    echo "error: no registered NAS CIFS mount under $nas_mount" >&2
+    echo "hint: svcops should register a share, then the customer runs openclaw-nas-mount --mount-name SHARE_NAME --reset-credential" >&2
     exit 1
   fi
+  nas_check_failed=0
+  for nas_mp in "${nas_mountpoints[@]}"; do
+    nas_target="$(findmnt -T "$nas_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
+    nas_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+    if [[ "$nas_target" != "$nas_mp" || "$nas_fstype" != "cifs" ]]; then
+      echo "error: NAS is not mounted as CIFS at $nas_mp" >&2
+      echo "hint: customer should run openclaw-nas-mount --mount-name \"${nas_mp##*/}\" --reset-credential" >&2
+      nas_check_failed=1
+    fi
+  done
+  [[ "$nas_check_failed" -eq 0 ]] || exit 1
 fi
 
 if [[ -f "$compose_dir/docker-compose.yml" && "$force" -ne 1 ]]; then

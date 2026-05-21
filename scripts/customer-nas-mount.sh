@@ -7,16 +7,21 @@ Usage:
   openclaw-nas-mount [options]
   customer-nas-mount.sh [options]
 
-Creates the customer's NAS credential file if needed and mounts ~/nas_docs
-through the fstab user-mount rule prepared by the operator.
+Creates the customer's NAS credential file if needed and mounts the registered
+share-name folder under ~/nas_docs through the fstab user-mount rule prepared
+by the operator.
 
 Options:
   --status              Show mount/credential status only.
   --request-share SHARE Create an operator approval request for a new NAS share.
+  --request-mount SHARE Create an operator approval request for a named NAS
+                        mount under ~/nas_docs/SHARE_NAME.
+  --mount-name NAME     Use an already registered named mount under
+                        ~/nas_docs/NAME.
   --remount             Unmount first, then mount again.
   --reset-credential    Re-enter NAS username/password before mounting.
-  --mountpoint DIR      Default: ~/nas_docs.
-  --credentials FILE    Default: ~/.nas-cifs.cred.
+  --mountpoint DIR      Override mountpoint.
+  --credentials FILE    Override credentials file.
 
 Run as the customer Linux account, for example oc20. Do not run with sudo.
 USAGE
@@ -24,8 +29,9 @@ USAGE
 
 mode="mount"
 reset_credential=0
-mountpoint="${OPENCLAW_NAS_MOUNTPOINT:-$HOME/nas_docs}"
-credentials="${OPENCLAW_NAS_CREDENTIALS:-$HOME/.nas-cifs.cred}"
+mountpoint="${OPENCLAW_NAS_MOUNTPOINT:-}"
+credentials="${OPENCLAW_NAS_CREDENTIALS:-}"
+mount_name=""
 requested_share=""
 
 while [[ $# -gt 0 ]]; do
@@ -37,6 +43,15 @@ while [[ $# -gt 0 ]]; do
     --request-share)
       mode="request_share"
       requested_share="${2:?missing --request-share value}"
+      shift 2
+      ;;
+    --request-mount)
+      mode="request_mount"
+      requested_share="${2:?missing --request-mount value}"
+      shift 2
+      ;;
+    --mount-name)
+      mount_name="${2:?missing --mount-name value}"
       shift 2
       ;;
     --remount)
@@ -72,6 +87,58 @@ if [[ "$(id -u)" -eq 0 ]]; then
   exit 1
 fi
 
+validate_mount_name() {
+  local name="$1"
+  if [[ "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+    echo "error: invalid mount name: $name" >&2
+    echo "hint: use letters, numbers, dot, dash, or underscore" >&2
+    exit 2
+  fi
+}
+
+validate_share() {
+  local share="$1"
+  if [[ ! "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]; then
+    echo "error: invalid CIFS share path: $share" >&2
+    echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
+    exit 2
+  fi
+}
+
+mount_name_from_share() {
+  local share="$1" rest name
+  rest="${share#//}"
+  rest="${rest#*/}"
+  name="${rest%%/*}"
+  validate_mount_name "$name"
+  printf '%s' "$name"
+}
+
+if [[ "$mode" == "request_mount" || "$mode" == "request_share" ]] && [[ -z "$mount_name" ]]; then
+  validate_share "$requested_share"
+  mount_name="$(mount_name_from_share "$requested_share")"
+fi
+
+if [[ -n "$mount_name" ]]; then
+  validate_mount_name "$mount_name"
+fi
+
+if [[ -z "$mountpoint" ]]; then
+  if [[ -n "$mount_name" ]]; then
+    mountpoint="$HOME/nas_docs/$mount_name"
+  else
+    mountpoint="$HOME/nas_docs"
+  fi
+fi
+
+if [[ -z "$credentials" ]]; then
+  if [[ -n "$mount_name" ]]; then
+    credentials="$HOME/.openclaw-nas/credentials/$mount_name.cred"
+  else
+    credentials="$HOME/.nas-cifs.cred"
+  fi
+fi
+
 case "$mountpoint" in
   "$HOME"|"$HOME"/*) ;;
   *)
@@ -88,15 +155,6 @@ case "$credentials" in
     ;;
 esac
 
-validate_share() {
-  local share="$1"
-  if [[ ! "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]; then
-    echo "error: invalid CIFS share path: $share" >&2
-    echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
-    exit 2
-  fi
-}
-
 status() {
   local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
   echo "== NAS 연결 상태 =="
@@ -104,6 +162,7 @@ status() {
   echo "note=OpenClaw container visibility requires operator nas-verify"
   echo "linux_user=$(whoami)"
   echo "home=$HOME"
+  echo "mount_name=${mount_name:-primary}"
   echo "mountpoint=$mountpoint"
   fstab_entry="$(awk -v mp="$mountpoint" '
     $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print; exit }
@@ -155,6 +214,25 @@ status() {
     fi
     echo "next_action=$next_action"
   fi
+
+  if [[ "$mountpoint" == "$HOME/nas_docs" ]]; then
+    awk -v root="$mountpoint/" '
+      $0 !~ /^[[:space:]]*#/ && $2 ~ "^" root && $3 == "cifs" {
+        count += 1
+        name = $2
+        sub("^" root, "", name)
+        sub("/.*$", "", name)
+        printf "registered_child_mount_%d=%s\n", count, $2
+        printf "registered_child_share_%d=%s\n", count, $1
+        printf "child_mount_command_%d=openclaw-nas-mount --mount-name %s --status\n", count, name
+      }
+      END {
+        if (!count) {
+          print "registered_child_mounts=none"
+        }
+      }
+    ' /etc/fstab 2>/dev/null || true
+  fi
 }
 
 configured_share() {
@@ -164,27 +242,36 @@ configured_share() {
 }
 
 write_share_request() {
-  local share="$1" request_dir request_file current_share requested_at
+  local share="$1" request_dir request_file current_share requested_at request_kind
   validate_share "$share"
   request_dir="$HOME/.openclaw-nas"
   request_file="$request_dir/share-request.env"
+  if [[ -n "$mount_name" ]]; then
+    request_kind="nas_mount"
+  else
+    request_kind="nas_share"
+  fi
   current_share="$(configured_share)"
   requested_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 
   umask 077
   mkdir -p "$request_dir"
   {
-    printf 'REQUEST_KIND=nas_share\n'
+    printf 'REQUEST_KIND=%s\n' "$request_kind"
     printf 'REQUESTED_BY=%s\n' "$(whoami)"
     printf 'REQUESTED_AT=%s\n' "$requested_at"
+    printf 'MOUNT_NAME=%s\n' "${mount_name:-primary}"
     printf 'REQUESTED_SHARE=%s\n' "$share"
     printf 'CURRENT_REGISTERED_SHARE=%s\n' "${current_share:-missing}"
     printf 'MOUNTPOINT=%s\n' "$mountpoint"
+    printf 'CREDENTIALS_PATH=%s\n' "$credentials"
   } > "$request_file"
   chmod 600 "$request_file"
 
   echo "== NAS share 변경 요청 =="
   echo "request_file=$request_file"
+  echo "mount_name=${mount_name:-primary}"
+  echo "mountpoint=$mountpoint"
   echo "requested_share=$share"
   echo "current_registered_share=${current_share:-missing}"
   echo "next_action=ask operator to approve this request"
@@ -239,7 +326,7 @@ if [[ "$mode" == "status" ]]; then
   exit 0
 fi
 
-if [[ "$mode" == "request_share" ]]; then
+if [[ "$mode" == "request_share" || "$mode" == "request_mount" ]]; then
   write_share_request "$requested_share"
   exit 0
 fi

@@ -54,7 +54,7 @@ URL/token 설정이 섞일 수 있다. 고객 배포에서는 `oc13.ji-tech.co.k
 ```text
 고객 계정 ocN:
   SSH 접속 가능
-  /home/ocN/nas_docs CIFS mount 읽기 가능
+  /home/ocN/nas_docs 아래의 CIFS 공유 폴더 읽기 가능
   Docker 사용 불가
   API key가 들어 있는 실행 환경 파일 읽기 불가
   OpenClaw 원본 설정 파일 읽기 불가
@@ -121,6 +121,18 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TAR
 `NAS_SHARE`는 NAS 계정명이 아니라 SMB 공유 경로다. 설치 현장에서 확인한 공유
 경로를 넣는다.
 
+이 레포의 기본 운영 흐름에서 `nas_docs`는 고객에게 보이는 NAS 루트 폴더이고,
+실제 CIFS mountpoint는 SMB 공유 이름으로 만든 하위 폴더다.
+
+```text
+원격 NAS source/share: //NAS_HOST/SHARE_NAME
+호스트 mountpoint:     /home/ocN/nas_docs/SHARE_NAME
+컨테이너 경로:          /home/node/nas_docs/SHARE_NAME
+```
+
+`nas-register`와 `--request-share`에서 말하는 `share`는 첫 줄의 원격 SMB 공유
+경로를 뜻한다. 붙는 폴더명은 이 공유 경로에서 자동으로 정한다.
+
 ```bash
 NAS_SHARE='//NAS_HOST/SHARE_NAME'
 
@@ -156,23 +168,23 @@ gateway만 재생성한 뒤 다시 확인한다.
 
 실행 주체: **[고객 계정: `$TARGET_USER`]**
 
-고객이 자기 계정으로 SSH 접속한 뒤 실행한다. 최초 실행 때만 NAS
-username/password를 묻고, 이후에는 저장된 `~/.nas-cifs.cred`로 바로 mount한다.
+고객이 자기 계정으로 SSH 접속한 뒤 실행한다. 운영자가 `nas-register` 또는
+`nas-approve-share`를 실행하면 고객에게 줄 명령이 같이 출력된다.
 
 ```bash
-openclaw-nas-mount
+openclaw-nas-mount --mount-name SHARE_NAME --reset-credential
 ```
 
-다시 입력해야 할 때:
+예를 들어 `//192.168.0.222/hanpass`를 등록했다면:
 
 ```bash
-openclaw-nas-mount --reset-credential
+openclaw-nas-mount --mount-name hanpass --reset-credential
 ```
 
 현재 상태만 볼 때:
 
 ```bash
-openclaw-nas-mount --status
+openclaw-nas-mount --mount-name SHARE_NAME --status
 ```
 
 다른 NAS 공유 경로가 필요할 때 고객 계정에서 요청만 생성한다:
@@ -185,6 +197,16 @@ openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'
 등록 여부, 저장된 NAS username, 실제 mount 상태, 다음 행동을 같이 보여준다.
 OpenClaw 컨테이너가 같은 NAS를 보고 있는지는 운영계정의 `nas-verify`로 확인한다.
 mount 실행 시에도 credential 입력 전에 등록된 공유 경로를 먼저 출력한다.
+
+여러 NAS 공유가 필요하면 같은 방식으로 공유 이름별 폴더가 추가된다.
+
+```text
+//NAS_HOST/hanpass   -> /home/ocN/nas_docs/hanpass
+//NAS_HOST/project-a -> /home/ocN/nas_docs/project-a
+```
+
+공유 이름이 같은 두 NAS를 같은 계정에 동시에 붙이는 경우는 아직 자동 충돌 처리를
+하지 않는다. 그런 경우에는 운영자가 별도 mountpoint를 명시해서 등록한다.
 
 root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
 운영자는 full sudo가 아니라 `svcops` wrapper만 사용한다. root 접근자는
@@ -207,14 +229,16 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-approve-shar
 
 `nas-requests`는 승인할 요청이 있으면 `approve_command`를 함께 출력한다.
 
-정상 상태의 핵심은 아래 두 가지다.
+`nas-status`를 기본 경로로 보면 등록된 공유가 하위 mount로 보여야 한다.
 
 ```text
-credential_file=present
-fstab_rule=present
+registered_child_mount_1=/home/ocN/nas_docs/SHARE_NAME
+registered_child_share_1=//NAS_HOST/SHARE_NAME
 ```
 
-`findmnt` 출력에서 `/home/ocN/nas_docs`가 `cifs`로 잡혀 있어야 한다.
+개별 mount의 credential과 mount 상태는 고객 계정에서
+`openclaw-nas-mount --mount-name SHARE_NAME --status`로 본다. 실제 CIFS 여부는
+`nas-verify`가 고객 계정과 OpenClaw 컨테이너 양쪽에서 확인한다.
 
 ## 6. OpenClaw 설치 요청
 
