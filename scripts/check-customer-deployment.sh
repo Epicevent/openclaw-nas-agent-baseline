@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  check-customer-deployment.sh --user USER --expected-origin ORIGIN [--expected-basepath PATH] [--skip-public-url-check]
+  check-customer-deployment.sh --user USER --expected-origin ORIGIN [--expected-basepath PATH] [--skip-public-url-check] [--expect-unknown-origin-rejected ORIGIN]
 
 Checks the full hosted customer deployment without printing secret values.
 
@@ -14,12 +14,11 @@ and the public URL.
 
 Expected pass state:
   - customer-mode isolation passes
-  - account deploy conf exists under /home/USER/openclaw/deploy
-  - Apache site is installed under /etc/apache2/sites-available
-  - Apache site is enabled under /etc/apache2/sites-enabled
   - Apache vhost is registered by apache2ctl -S
-  - Apache site points at the expected gateway port
+  - Apache registered vhost config file exists
+  - Apache registered vhost config points at the expected gateway port
   - public URL returns an OpenClaw page, not the default site
+  - optionally, an unknown origin does not return an OpenClaw page
 
 Run as root/admin.
 USAGE
@@ -29,6 +28,7 @@ target_user=""
 expected_origin=""
 expected_basepath="/"
 skip_public_url_check=0
+expect_unknown_origin_rejected=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +47,10 @@ while [[ $# -gt 0 ]]; do
     --skip-public-url-check)
       skip_public_url_check=1
       shift
+      ;;
+    --expect-unknown-origin-rejected)
+      expect_unknown_origin_rejected="${2:?missing origin}"
+      shift 2
       ;;
     -h|--help)
       usage
@@ -99,6 +103,21 @@ check() {
   else
     fail "$name"
   fi
+}
+
+apache_vhost_config_path() {
+  local host="$1"
+
+  apache2ctl -S 2>&1 | awk -v host="$host" '
+    index($0, "namevhost " host " ") || index($0, "default server " host " ") {
+      if (match($0, /\([^()]+:[0-9]+\)/)) {
+        path = substr($0, RSTART + 1, RLENGTH - 2)
+        sub(/:[0-9]+$/, "", path)
+        print path
+        exit
+      }
+    }
+  '
 }
 
 origin_host() {
@@ -210,18 +229,21 @@ if [[ -z "$expected_host" ]]; then
   fail "apache_expected_host_parse_ok"
 else
   pass "apache_expected_host_parse_ok"
-  apache_available_path="/etc/apache2/sites-available/${expected_host}.conf"
-  apache_enabled_path="/etc/apache2/sites-enabled/${expected_host}.conf"
 
-  check "apache_deploy_conf_exists" test -f "$deploy_subdomain_config_path"
-  check "apache_site_available_ok" test -f "$apache_available_path"
-  check "apache_site_enabled_ok" test -e "$apache_enabled_path"
+  if [[ -f "$deploy_subdomain_config_path" ]]; then
+    pass "apache_account_deploy_conf_exists"
+  else
+    echo "INFO account_deploy_conf_missing=$deploy_subdomain_config_path"
+  fi
 
+  apache_vhost_path=""
   if command -v apache2ctl >/dev/null 2>&1; then
     check "apache_syntax_ok" apache2ctl -t
 
-    if apache2ctl -S 2>&1 | grep -Fq "$expected_host"; then
+    apache_vhost_path="$(apache_vhost_config_path "$expected_host" || true)"
+    if [[ -n "$apache_vhost_path" ]]; then
       pass "apache_vhost_registered_ok"
+      echo "INFO apache_vhost_config=$apache_vhost_path"
     else
       fail "apache_vhost_registered_ok"
       echo "INFO missing_apache_vhost=$expected_host"
@@ -232,19 +254,26 @@ else
     echo "INFO missing_command=apache2ctl"
   fi
 
+  if [[ -n "$apache_vhost_path" && -f "$apache_vhost_path" ]]; then
+    pass "apache_vhost_config_exists"
+  else
+    fail "apache_vhost_config_exists"
+    echo "INFO apache_vhost_config=${apache_vhost_path:-unknown}"
+  fi
+
   expected_port="$(expected_gateway_port || true)"
-  if [[ -n "$expected_port" && -f "$apache_available_path" ]]; then
-    if grep -Fq "127.0.0.1:${expected_port}" "$apache_available_path"; then
+  if [[ -n "$expected_port" && -n "$apache_vhost_path" && -f "$apache_vhost_path" ]]; then
+    if grep -Fq "127.0.0.1:${expected_port}" "$apache_vhost_path"; then
       pass "apache_backend_port_ok"
     else
       fail "apache_backend_port_ok"
       echo "INFO expected_backend=127.0.0.1:${expected_port}"
-      echo "INFO apache_site=$apache_available_path"
+      echo "INFO apache_vhost_config=$apache_vhost_path"
     fi
   else
     fail "apache_backend_port_ok"
     echo "INFO expected_backend_port=${expected_port:-unknown}"
-    echo "INFO apache_site=$apache_available_path"
+    echo "INFO apache_vhost_config=${apache_vhost_path:-unknown}"
   fi
 
   if [[ "$skip_public_url_check" -eq 1 ]]; then
@@ -255,6 +284,16 @@ else
       pass "public_url_openclaw_page_ok"
     else
       fail "public_url_openclaw_page_ok"
+    fi
+  fi
+
+  if [[ -n "$expect_unknown_origin_rejected" ]]; then
+    unknown_url="$(public_url_for "$expect_unknown_origin_rejected" "/")"
+    if check_public_openclaw_page "$unknown_url"; then
+      fail "unknown_origin_rejected_ok"
+      echo "INFO unknown_origin_returned_openclaw=$unknown_url"
+    else
+      pass "unknown_origin_rejected_ok"
     fi
   fi
 fi

@@ -400,19 +400,34 @@ PASS container_nas_read_ok
 PASS customer_isolation_ok
 PASS apache_subdomain_basepath_ok
 PASS apache_expected_host_parse_ok
-PASS apache_deploy_conf_exists
-PASS apache_site_available_ok
-PASS apache_site_enabled_ok
 PASS apache_syntax_ok
 PASS apache_vhost_registered_ok
+PASS apache_vhost_config_exists
 PASS apache_backend_port_ok
 PASS public_url_openclaw_page_ok
 ```
 
-`apache_site_available_ok`, `apache_site_enabled_ok`,
-`apache_vhost_registered_ok`, `public_url_openclaw_page_ok` 중 하나가
-실패하면 아직 `/etc/apache2` 운영 반영이 끝난 것이 아니다. 이 상태에서는
-브라우저가 OpenClaw가 아니라 기본 회사 홈페이지를 볼 수 있다.
+`apache_vhost_registered_ok`, `apache_vhost_config_exists`,
+`apache_backend_port_ok`, `public_url_openclaw_page_ok` 중 하나가 실패하면 아직
+`/etc/apache2` 운영 반영이 끝난 것이 아니다. 이 체크는
+`sites-available/sites-enabled`에 개별 파일이 있는 방식뿐 아니라,
+`/etc/apache2/openclaw/*.conf`처럼 별도 디렉터리를 Apache가 include하는 방식도
+정상으로 인정한다. 이 상태가 맞지 않으면 브라우저가 OpenClaw가 아니라 기본
+회사 홈페이지를 볼 수 있다.
+
+알 수 없는 서브도메인이 OpenClaw UI를 보여주면 안 되는 정책이라면 아래처럼
+추가로 확인한다.
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-deployment.sh \
+  --user "$TARGET_USER" \
+  --expected-basepath / \
+  --expected-origin "https://$CONTROL_UI_HOST" \
+  --expect-unknown-origin-rejected "https://xn--ok0b5a690d.ji-tech.co.kr"
+```
+
+현재 운영 정책상 알 수 없는 서브도메인이 default vhost의 Control UI 껍데기까지
+보여도 괜찮다면 이 옵션은 쓰지 않는다.
 
 `container_env_gemini_present` 또는 `container_nas_read_ok`가 실패하고
 컨테이너가 `restarting/unhealthy`면 먼저 로그를 본다.
