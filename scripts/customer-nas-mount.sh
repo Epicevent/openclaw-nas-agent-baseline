@@ -12,6 +12,7 @@ through the fstab user-mount rule prepared by the operator.
 
 Options:
   --status              Show mount/credential status only.
+  --request-share SHARE Create an operator approval request for a new NAS share.
   --remount             Unmount first, then mount again.
   --reset-credential    Re-enter NAS username/password before mounting.
   --mountpoint DIR      Default: ~/nas_docs.
@@ -25,12 +26,18 @@ mode="mount"
 reset_credential=0
 mountpoint="${OPENCLAW_NAS_MOUNTPOINT:-$HOME/nas_docs}"
 credentials="${OPENCLAW_NAS_CREDENTIALS:-$HOME/.nas-cifs.cred}"
+requested_share=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --status)
       mode="status"
       shift
+      ;;
+    --request-share)
+      mode="request_share"
+      requested_share="${2:?missing --request-share value}"
+      shift 2
       ;;
     --remount)
       mode="remount"
@@ -80,6 +87,15 @@ case "$credentials" in
     exit 2
     ;;
 esac
+
+validate_share() {
+  local share="$1"
+  if [[ ! "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]; then
+    echo "error: invalid CIFS share path: $share" >&2
+    echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
+    exit 2
+  fi
+}
 
 status() {
   local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
@@ -147,6 +163,33 @@ configured_share() {
   ' /etc/fstab 2>/dev/null || true
 }
 
+write_share_request() {
+  local share="$1" request_dir request_file current_share requested_at
+  validate_share "$share"
+  request_dir="$HOME/.openclaw-nas"
+  request_file="$request_dir/share-request.env"
+  current_share="$(configured_share)"
+  requested_at="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+  umask 077
+  mkdir -p "$request_dir"
+  {
+    printf 'REQUEST_KIND=nas_share\n'
+    printf 'REQUESTED_BY=%s\n' "$(whoami)"
+    printf 'REQUESTED_AT=%s\n' "$requested_at"
+    printf 'REQUESTED_SHARE=%s\n' "$share"
+    printf 'CURRENT_REGISTERED_SHARE=%s\n' "${current_share:-missing}"
+    printf 'MOUNTPOINT=%s\n' "$mountpoint"
+  } > "$request_file"
+  chmod 600 "$request_file"
+
+  echo "== NAS share 변경 요청 =="
+  echo "request_file=$request_file"
+  echo "requested_share=$share"
+  echo "current_registered_share=${current_share:-missing}"
+  echo "next_action=ask operator to approve this request"
+}
+
 require_registered_share() {
   local share
   share="$(configured_share)"
@@ -193,6 +236,11 @@ write_credentials() {
 
 if [[ "$mode" == "status" ]]; then
   status
+  exit 0
+fi
+
+if [[ "$mode" == "request_share" ]]; then
+  write_share_request "$requested_share"
   exit 0
 fi
 

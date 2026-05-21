@@ -8,6 +8,8 @@ Usage:
   svcops-control.sh check-all START END BASE_DOMAIN
   svcops-control.sh nas-status USER
   svcops-control.sh nas-status-all START END
+  svcops-control.sh nas-requests START END
+  svcops-control.sh nas-approve-share USER
   svcops-control.sh nas-verify USER
   svcops-control.sh nas-verify-all START END
   svcops-control.sh nas-register USER SHARE
@@ -117,6 +119,83 @@ customer_next_steps:
   openclaw-nas-mount --status
   openclaw-nas-mount --reset-credential
 EOF
+}
+
+share_request_file() {
+  local target_home="$1"
+  printf '%s/.openclaw-nas/share-request.env' "$target_home"
+}
+
+request_value() {
+  local key="$1" file="$2"
+  awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$file" 2>/dev/null || true
+}
+
+print_share_request() {
+  local target_user="$1" target_home="$2" request_file requested_share requested_at requested_by current_share owner
+  request_file="$(share_request_file "$target_home")"
+  echo "target_user=$target_user"
+  if [[ ! -f "$request_file" ]]; then
+    echo "share_request=missing"
+    return 0
+  fi
+  if [[ -L "$request_file" ]]; then
+    echo "share_request=invalid_symlink"
+    return 1
+  fi
+  owner="$(stat -c '%U' "$request_file" 2>/dev/null || true)"
+  if [[ "$owner" != "$target_user" ]]; then
+    echo "share_request=invalid_owner"
+    echo "request_owner=${owner:-unknown}"
+    return 1
+  fi
+  requested_share="$(request_value REQUESTED_SHARE "$request_file")"
+  requested_at="$(request_value REQUESTED_AT "$request_file")"
+  requested_by="$(request_value REQUESTED_BY "$request_file")"
+  current_share="$(request_value CURRENT_REGISTERED_SHARE "$request_file")"
+  echo "share_request=present"
+  echo "requested_by=${requested_by:-unknown}"
+  echo "requested_at=${requested_at:-unknown}"
+  echo "current_registered_share=${current_share:-unknown}"
+  echo "requested_share=${requested_share:-missing}"
+}
+
+approve_share_request() {
+  local target_user="$1" target_home target_group request_file requested_share approved_dir approved_file stamp
+  target_home="$(customer_home "$target_user")"
+  target_group="$(id -gn "$target_user")"
+  request_file="$(share_request_file "$target_home")"
+  [[ -f "$request_file" ]] || { echo "FAIL share_request_missing"; return 1; }
+  [[ ! -L "$request_file" ]] || { echo "FAIL share_request_symlink"; return 1; }
+  [[ "$(stat -c '%U' "$request_file" 2>/dev/null || true)" == "$target_user" ]] || {
+    echo "FAIL share_request_owner"
+    return 1
+  }
+  requested_share="$(request_value REQUESTED_SHARE "$request_file")"
+  validate_share "$requested_share"
+
+  echo "approving_share_request_for=$target_user"
+  echo "requested_share=$requested_share"
+  bash "$script_dir/write-user-nas-fstab-entry.sh" \
+    --user "$target_user" \
+    --share "$requested_share"
+
+  stamp="$(date +%Y%m%d%H%M%S)"
+  approved_dir="$target_home/.openclaw-nas/approved"
+  approved_file="$approved_dir/share-request.$stamp.env"
+  mkdir -p "$approved_dir"
+  cp -a "$request_file" "$approved_file"
+  {
+    printf 'APPROVED_AT=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'APPROVED_BY=svcops\n'
+  } >> "$approved_file"
+  chown -R "$target_user:$target_group" "$target_home/.openclaw-nas"
+  rm -f "$request_file"
+
+  echo
+  print_nas_status "$target_user" "$target_home"
+  echo
+  print_customer_nas_next_steps "$target_user"
 }
 
 gateway_container() {
@@ -286,6 +365,35 @@ case "$command_name" in
         echo "user=missing"
       fi
     done
+    ;;
+
+  nas-requests)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        target_home="$(customer_home "$target_user")"
+        print_share_request "$target_user" "$target_home" || failed=1
+      else
+        echo "user=missing"
+      fi
+    done
+    exit "$failed"
+    ;;
+
+  nas-approve-share)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    approve_share_request "$target_user"
     ;;
 
   nas-verify)

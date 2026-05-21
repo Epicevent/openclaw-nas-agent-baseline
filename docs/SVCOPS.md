@@ -44,6 +44,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status oc1
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status-all 1 20
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-requests 1 20
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-approve-share oc1
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-verify oc1
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-verify-all 1 20
@@ -80,6 +84,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh isolation oc1
 `nas-verify`는 고객 계정의 NAS mount와 OpenClaw 컨테이너 안의 NAS mount를 실제로
 비교한다. 고객 계정은 CIFS로 mounted인데 컨테이너가 아직 일반 디렉터리를 보고
 있으면 gateway 컨테이너만 재생성하고 다시 확인한다.
+
+고객이 `openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'`로 요청을
+만들면 `nas-requests`로 확인하고 `nas-approve-share`로 승인한다. 승인 시 fstab
+user-mount 규칙만 바뀌며 고객 NAS credential은 읽거나 만들지 않는다.
 
 ## 작업 범위
 

@@ -175,6 +175,12 @@ openclaw-nas-mount --reset-credential
 openclaw-nas-mount --status
 ```
 
+다른 NAS 공유 경로가 필요할 때 고객 계정에서 요청만 생성한다:
+
+```bash
+openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'
+```
+
 `--status`는 고객 Linux 계정 기준의 상태다. mount 대상 SMB 공유 경로, fstab
 등록 여부, 저장된 NAS username, 실제 mount 상태, 다음 행동을 같이 보여준다.
 OpenClaw 컨테이너가 같은 NAS를 보고 있는지는 운영계정의 `nas-verify`로 확인한다.
@@ -190,6 +196,13 @@ break-glass 권한으로 관리한다.
 
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TARGET_USER"
+```
+
+고객이 share 변경 요청을 만든 경우:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-requests 1 20
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-approve-share "$TARGET_USER"
 ```
 
 정상 상태의 핵심은 아래 두 가지다.
