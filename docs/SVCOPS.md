@@ -2,7 +2,8 @@
 
 `svcops`는 고객 계정이 아니라 운영자가 쓰는 제한 계정이다. full sudo 계정이
 아니며, `/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh`만 sudo로
-실행한다.
+실행한다. Linux 계정 생성, API key 입력, Docker 이미지 설치, Apache 운영 반영처럼
+root가 필요한 작업은 [root 관리자 작업](ROOT_ADMIN_TASKS.md)에서 처리한다.
 
 ## 생성
 
@@ -54,6 +55,26 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh subdomain \
   oc1.ji-tech.co.kr
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh isolation oc1
+```
+
+## 작업 범위
+
+```text
+svcops가 직접 처리:
+  고객 배포 상태 점검
+  fstab user-mount 규칙 등록
+  고객 NAS mount 상태 확인
+  subdomain 설정 재적용
+  customer-mode 격리 재적용
+
+root 관리자에게 요청:
+  서버 최초 설치
+  고객 Linux 계정 생성과 비밀번호 설정
+  .openclaw-install.env 작성
+  baseline 이미지 빌드
+  계정별 OpenClaw 설치
+  Apache 운영 site 반영
+  Gateway token 출력
 ```
 
 ## 한계
