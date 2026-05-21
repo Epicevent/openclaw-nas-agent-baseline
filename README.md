@@ -87,6 +87,15 @@ bootstrap_install_env=ok
 bootstrap_customer_mode=ok
 ```
 
+운영자가 full sudo를 쓰지 않게 하려면 제한 운영계정 `svcops`를 만든다.
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password
+```
+
+`svcops`는 `/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh`만 sudo로
+실행한다. 자세한 내용은 `docs/SVCOPS.md`를 본다.
+
 ## 2. 계정 준비
 
 관리자 계정에서 실행한다. 바꿀 값은 `TARGET_USER` 하나다. subdomain은
@@ -613,6 +622,7 @@ docker ps
 ## 참고 문서
 
 - [Operation model](docs/OPERATION_MODEL.md)
+- [svcops operating account](docs/SVCOPS.md)
 - [Slot turnover](docs/SLOT_TURNOVER.md)
 - [Updates](docs/UPDATES.md)
 - [Container baseline](docs/CONTAINER_BASELINE.md)

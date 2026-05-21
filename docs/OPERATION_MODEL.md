@@ -18,6 +18,11 @@ ocN_rt:
 
 ocN_data:
   ocN과 ocN_rt가 같은 NAS mount를 읽기 위한 그룹
+
+svcops:
+  운영자가 사용하는 제한 운영계정
+  full sudo 아님
+  허용된 운영 wrapper만 sudo 실행
 ```
 
 ## NAS
@@ -60,6 +65,9 @@ OpenClaw 설치물과 runtime env는 운영자가 관리한다.
 ```text
 신규 설치:
   README 절차
+
+제한 운영계정:
+  docs/SVCOPS.md
 
 슬롯 인계:
   docs/SLOT_TURNOVER.md

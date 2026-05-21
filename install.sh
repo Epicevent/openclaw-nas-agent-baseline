@@ -116,6 +116,7 @@ Next useful commands:
   cd $prefix
   sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
   sudo bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+  sudo bash scripts/install-svcops-account.sh
   sudo bash scripts/check-customer-mode-isolation.sh --user oc1
   sudo bash scripts/check-customer-deployment.sh --user oc1 --expected-basepath / --expected-origin https://oc1.ji-tech.co.kr
   less README.md
