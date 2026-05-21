@@ -90,6 +90,7 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh isolation oc1
 고객이 `openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'`로 요청을
 만들면 `nas-requests`로 확인하고 `nas-approve-share`로 승인한다. 승인 시 fstab
 user-mount 규칙만 바뀌며 고객 NAS credential은 읽거나 만들지 않는다.
+요청이 있으면 `nas-requests` 출력에 바로 실행할 `approve_command`가 함께 나온다.
 
 ## 작업 범위
 

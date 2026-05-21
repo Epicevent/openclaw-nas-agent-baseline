@@ -51,9 +51,14 @@ validate_host() {
   fi
 }
 
+cifs_share_is_valid() {
+  local share="$1"
+  [[ "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]
+}
+
 validate_share() {
   local share="$1"
-  if [[ ! "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]; then
+  if ! cifs_share_is_valid "$share"; then
     echo "error: invalid CIFS share path: $share" >&2
     exit 2
   fi
@@ -139,16 +144,19 @@ print_share_request() {
   echo "target_user=$target_user"
   if [[ ! -f "$request_file" ]]; then
     echo "share_request=missing"
+    echo "next_action=none"
     return 0
   fi
   if [[ -L "$request_file" ]]; then
     echo "share_request=invalid_symlink"
+    echo "next_action=reject; inspect account state with root"
     return 1
   fi
   owner="$(stat -c '%U' "$request_file" 2>/dev/null || true)"
   if [[ "$owner" != "$target_user" ]]; then
     echo "share_request=invalid_owner"
     echo "request_owner=${owner:-unknown}"
+    echo "next_action=reject; inspect account state with root"
     return 1
   fi
   requested_share="$(request_value REQUESTED_SHARE "$request_file")"
@@ -160,6 +168,13 @@ print_share_request() {
   echo "requested_at=${requested_at:-unknown}"
   echo "current_registered_share=${current_share:-unknown}"
   echo "requested_share=${requested_share:-missing}"
+  if cifs_share_is_valid "$requested_share"; then
+    echo "next_action=approve_or_decline_request"
+    echo "approve_command=sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-approve-share $target_user"
+  else
+    echo "next_action=reject; invalid requested_share"
+    return 1
+  fi
 }
 
 approve_share_request() {

@@ -205,6 +205,8 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-requests 1 2
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-approve-share "$TARGET_USER"
 ```
 
+`nas-requests`는 승인할 요청이 있으면 `approve_command`를 함께 출력한다.
+
 정상 상태의 핵심은 아래 두 가지다.
 
 ```text
