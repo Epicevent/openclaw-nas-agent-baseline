@@ -174,7 +174,8 @@ docker rm -f "$cli_container" >/dev/null 2>&1 || true
 
 if [[ "$remount" -eq 1 ]]; then
   echo "== remount NAS for owner $target_user + group $data_group =="
-  if findmnt -T "$mountpoint" >/dev/null 2>&1; then
+  current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+  if [[ "$current_mount_target" == "$mountpoint" ]]; then
     umount "$mountpoint"
   fi
   mkdir -p "$mountpoint"

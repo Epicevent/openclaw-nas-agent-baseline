@@ -131,8 +131,14 @@ if [[ ! -u "$mount_cifs" ]]; then
 fi
 
 mkdir -p "$mountpoint"
-chown "$target_user:$data_group" "$mountpoint" 2>/dev/null || chown "$target_user:$target_user" "$mountpoint"
-chmod 0550 "$mountpoint"
+current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+if [[ "$current_mount_target" == "$mountpoint" ]]; then
+  echo "warn: mountpoint is already mounted; skipping ownership fix: $mountpoint" >&2
+  echo "warn: unmount it before changing mountpoint ownership" >&2
+else
+  chown "$target_user:$data_group" "$mountpoint" 2>/dev/null || chown "$target_user:$target_user" "$mountpoint"
+  chmod 0550 "$mountpoint"
+fi
 
 backup="/etc/fstab.$(date +%Y%m%d%H%M%S).bak"
 tmp="$(mktemp)"

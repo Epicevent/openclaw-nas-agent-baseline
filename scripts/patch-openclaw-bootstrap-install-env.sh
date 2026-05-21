@@ -236,7 +236,8 @@ if openclaw_customer_mode_truthy "${{OPENCLAW_CUSTOMER_MODE:-0}}"; then
     fi
 
     mkdir -p "$OPENCLAW_CUSTOMER_MOUNTPOINT"
-    if findmnt -T "$OPENCLAW_CUSTOMER_MOUNTPOINT" >/dev/null 2>&1; then
+    OPENCLAW_CURRENT_MOUNT_TARGET="$(findmnt -T "$OPENCLAW_CUSTOMER_MOUNTPOINT" -n -o TARGET 2>/dev/null | head -1 || true)"
+    if [[ "$OPENCLAW_CURRENT_MOUNT_TARGET" == "$OPENCLAW_CUSTOMER_MOUNTPOINT" ]]; then
       umount "$OPENCLAW_CUSTOMER_MOUNTPOINT"
     fi
     chown "$OPENCLAW_TARGET_USER:$OPENCLAW_DATA_GROUP" "$OPENCLAW_CUSTOMER_MOUNTPOINT"

@@ -7,28 +7,29 @@
 
 관리자 계정에서 실행한다.
 
+이미 `nas_docs`가 마운트되어 있으면 먼저 gateway를 멈추고 unmount한다. CIFS가
+read-only로 올라와 있는 상태에서는 mountpoint 소유권을 바꿀 수 없고, 그 상태를
+완료로 보면 안 된다.
+
 ```bash
 TARGET_USER=oc14
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 NAS_SHARE='//NAS_HOST/SHARE_NAME'
+
+sudo docker rm -f "openclaw-$TARGET_USER-openclaw-gateway-1" 2>/dev/null || true
+
+if [ "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o TARGET 2>/dev/null | head -1)" = "$TARGET_HOME/nas_docs" ]; then
+  sudo umount "$TARGET_HOME/nas_docs"
+fi
 
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/write-user-nas-fstab-entry.sh \
   --user "$TARGET_USER" \
   --share "$NAS_SHARE"
 ```
 
-## 고객 계정에서 리마운트
+## 고객 계정 credential
 
 고객 계정에서 실행한다.
-
-```bash
-umount "$HOME/nas_docs" 2>/dev/null || true
-mount "$HOME/nas_docs"
-findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
-ls "$HOME/nas_docs" | head
-```
-
-credential 파일을 다시 만들어야 하면 고객 계정에서 실행한다.
 
 ```bash
 umask 077
@@ -51,6 +52,30 @@ chmod 600 "$HOME/.nas-cifs.cred"
 unset NAS_USER NAS_PASS
 ```
 
+## 고객 계정에서 리마운트
+
+고객 계정에서 실행한다.
+
+```bash
+umount "$HOME/nas_docs" 2>/dev/null || true
+mount "$HOME/nas_docs"
+findmnt -T "$HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
+ls "$HOME/nas_docs" | head
+```
+
+## gateway 다시 시작
+
+관리자 계정에서 실행한다.
+
+```bash
+TARGET_USER=oc14
+CONTROL_UI_HOST="${CONTROL_UI_HOST:-$TARGET_USER.ji-tech.co.kr}"
+
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-subdomain-mode.sh \
+  --user "$TARGET_USER" \
+  --host "$CONTROL_UI_HOST"
+```
+
 ## 관리자 확인
 
 ```bash
@@ -59,6 +84,7 @@ TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 
 findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
 sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read_ok
+test "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o FSTYPE)" = cifs && echo customer_nas_mounted_cifs
 ```
 
 ## busy 처리

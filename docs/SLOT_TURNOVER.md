@@ -56,7 +56,7 @@ sudo docker rm -f "openclaw-$TARGET_USER-openclaw-cli-1" 2>/dev/null || true
 NAS mount를 내리고 이전 고객 credential을 제거한다.
 
 ```bash
-if findmnt -T "$TARGET_HOME/nas_docs" >/dev/null 2>&1; then
+if [ "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o TARGET 2>/dev/null | head -1)" = "$TARGET_HOME/nas_docs" ]; then
   sudo umount "$TARGET_HOME/nas_docs"
 fi
 

@@ -32,7 +32,7 @@ API key가 들어 있는 runtime env나 OpenClaw raw config는 읽으면 안 되
 ```text
 고객 계정 ocN:
   SSH 접속 가능
-  /home/ocN/nas_docs 읽기 가능
+  /home/ocN/nas_docs CIFS mount 읽기 가능
   Docker 사용 불가
   API key/runtime env 읽기 불가
   OpenClaw raw config 읽기 불가
@@ -208,6 +208,7 @@ ls "$HOME/nas_docs" | head
 ```bash
 findmnt -T "$TARGET_HOME/nas_docs" -o TARGET,SOURCE,FSTYPE,OPTIONS
 sudo -u "$TARGET_USER" test -r "$TARGET_HOME/nas_docs" && echo customer_nas_read_ok
+test "$(findmnt -T "$TARGET_HOME/nas_docs" -n -o FSTYPE)" = cifs && echo customer_nas_mounted_cifs
 ```
 
 이 모델에서는 bootstrap이 NAS를 다시 unmount/remount하면 안 된다. 7번
@@ -426,6 +427,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-deployment.sh 
 ```text
 PASS customer_not_in_docker_group
 PASS customer_nas_read_ok
+PASS customer_nas_mounted_cifs
 PASS runtime_env_exists
 PASS config_exists
 PASS customer_runtime_env_blocked
@@ -438,6 +440,7 @@ PASS customer_docker_blocked
 PASS customer_proc_env_gemini_blocked
 PASS container_env_gemini_present
 PASS container_nas_read_ok
+PASS container_nas_mounted_cifs
 PASS customer_isolation_ok
 PASS container_exists_for_document_baseline
 PASS container_locale_utf8

@@ -10,12 +10,12 @@ Checks customer-mode isolation without printing secret values.
 
 Expected pass state:
   - USER is not in the docker group
-  - USER can read /home/USER/nas_docs
+  - /home/USER/nas_docs is a readable CIFS mount
   - USER cannot read /home/USER/openclaw/.env
   - USER cannot read /home/USER/.openclaw/openclaw.json
   - USER cannot see GEMINI_API_KEY through /proc
   - Control UI device pairing is disabled for this hosted customer flow
-  - gateway container has GEMINI_API_KEY and can read NAS
+  - gateway container has GEMINI_API_KEY and sees the NAS as a CIFS mount
 
 Run as root/admin.
 USAGE
@@ -71,6 +71,7 @@ fi
 container="openclaw-${target_user}-openclaw-gateway-1"
 runtime_env_path="$target_home/openclaw/.env"
 config_path="$target_home/.openclaw/openclaw.json"
+nas_mountpoint="$target_home/nas_docs"
 failed=0
 
 pass() {
@@ -98,7 +99,23 @@ else
   pass "customer_not_in_docker_group"
 fi
 
-check "customer_nas_read_ok" sudo -u "$target_user" test -r "$target_home/nas_docs"
+check "customer_nas_read_ok" sudo -u "$target_user" test -r "$nas_mountpoint"
+
+if findmnt -T "$nas_mountpoint" >/dev/null 2>&1; then
+  nas_target="$(findmnt -T "$nas_mountpoint" -n -o TARGET | head -1)"
+  nas_source="$(findmnt -T "$nas_mountpoint" -n -o SOURCE | head -1)"
+  nas_fstype="$(findmnt -T "$nas_mountpoint" -n -o FSTYPE | head -1)"
+  if [[ "$nas_target" == "$nas_mountpoint" && "$nas_fstype" == "cifs" ]]; then
+    pass "customer_nas_mounted_cifs"
+    echo "INFO customer_nas_source=$nas_source"
+  else
+    fail "customer_nas_mounted_cifs"
+    echo "INFO customer_nas_target=${nas_target:-missing} fstype=${nas_fstype:-missing} source=${nas_source:-missing}"
+  fi
+else
+  fail "customer_nas_mounted_cifs"
+  echo "INFO customer_nas_mount_missing=$nas_mountpoint"
+fi
 
 if [[ -f "$runtime_env_path" ]]; then
   pass "runtime_env_exists"
@@ -212,6 +229,21 @@ if docker inspect "$container" >/dev/null 2>&1; then
     pass "container_nas_read_ok"
   else
     fail "container_nas_read_ok"
+  fi
+
+  container_mount_line="$(docker exec "$container" sh -lc "awk '\$2 == \"/home/node/nas_docs\" { print; exit }' /proc/mounts" || true)"
+  if [[ -n "$container_mount_line" ]]; then
+    container_nas_source="$(printf '%s\n' "$container_mount_line" | awk '{ print $1 }')"
+    container_nas_fstype="$(printf '%s\n' "$container_mount_line" | awk '{ print $3 }')"
+    if [[ "$container_nas_fstype" == "cifs" ]]; then
+      pass "container_nas_mounted_cifs"
+      echo "INFO container_nas_source=$container_nas_source"
+    else
+      fail "container_nas_mounted_cifs"
+      echo "INFO container_nas_fstype=${container_nas_fstype:-missing} source=${container_nas_source:-missing}"
+    fi
+  else
+    fail "container_nas_mounted_cifs"
   fi
 
   sample="$(docker exec "$container" sh -lc 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' || echo 0)"
