@@ -109,7 +109,16 @@ case "$prefix" in
     ;;
 esac
 
+prefix_abs="$(realpath -m "$prefix")"
+case "$prefix_abs" in
+  /|/opt|/home|/usr|/var|/tmp)
+    echo "error: refusing to install into unsafe prefix: $prefix_abs" >&2
+    exit 1
+    ;;
+esac
+
 mkdir -p "$prefix"
+find "$prefix" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 
 tmp_exclude="$(mktemp)"
 cleanup() {
