@@ -99,6 +99,9 @@ NAS 리마운트:
 OpenClaw 업데이트:
   docs/UPDATES.md
 
+테스트 운영:
+  docs/TEST_OPERATIONS.md
+
 손상 복구:
   docs/OPENCLAW_RECOVERY.md
 ```

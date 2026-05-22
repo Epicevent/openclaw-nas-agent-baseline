@@ -112,6 +112,10 @@ root가 해야 하는 1, 2, 6, 7, 9번의 실제 명령은
 root 관리자가 6, 7, 8, 9번처럼 고객 홈 안의 OpenClaw 상태를 쓰거나 gateway를
 재생성하는 작업을 할 때는 먼저 고객 세션이 없는지 확인한다.
 
+다음 주 고객 테스트처럼 여러 slot을 넘기기 전에는
+[테스트 운영 절차](docs/TEST_OPERATIONS.md)에 따라 baseline commit, 공통 image
+tag, private slot 원장, release gate를 먼저 고정한다.
+
 ## 1. 대상 계정 지정
 
 실행 주체: **[운영계정: svcops]**
