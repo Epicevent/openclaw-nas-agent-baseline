@@ -251,6 +251,10 @@ read-only drift checker:
   --report /srv/openclaw-ops/reports/drift-latest.txt
 ```
 
+`install.sh`는 `/opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest`를 쓴다.
+drift checker는 이 manifest의 `source_commit`과 `slots.yaml`의 `baseline_commit`도
+비교한다. 즉 원장의 기준 commit과 서버에 실제 설치된 `/opt` 배포본이 다르면 fail이다.
+
 PM2 상시 감시는 `svcops` 계정으로 실행한다. root PM2가 아니라 `svcops` PM2가
 `svcops-control.sh` wrapper를 호출하는 구조다.
 

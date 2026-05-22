@@ -60,6 +60,45 @@ while [[ $# -gt 0 ]]; do
 done
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source_commit="${OPENCLAW_BASELINE_COMMIT:-}"
+source_dirty="unknown"
+source_remote=""
+
+if [[ -z "$source_commit" ]] && command -v git >/dev/null 2>&1 && git -C "$script_dir" rev-parse --verify HEAD >/dev/null 2>&1; then
+  source_commit="$(git -C "$script_dir" rev-parse HEAD)"
+  source_remote="$(git -C "$script_dir" config --get remote.origin.url 2>/dev/null || true)"
+  if [[ -n "$(git -C "$script_dir" status --porcelain --untracked-files=no 2>/dev/null || true)" ]]; then
+    source_dirty="dirty"
+  else
+    source_dirty="clean"
+  fi
+fi
+
+source_commit="${source_commit:-unknown}"
+source_remote="${source_remote:-unknown}"
+
+write_baseline_manifest() {
+  local manifest="$prefix/.openclaw-baseline-manifest"
+  local tmp installed_at installed_by
+  installed_at="$(date -Iseconds)"
+  installed_by="$(id -un 2>/dev/null || echo unknown)"
+  tmp="$(mktemp)"
+  cat > "$tmp" <<EOF
+schema_version=1
+source_commit=$source_commit
+source_dirty=$source_dirty
+source_remote=$source_remote
+installed_at=$installed_at
+installed_by=$installed_by
+install_prefix=$prefix
+EOF
+  if [[ "$(id -u)" -eq 0 ]]; then
+    install -o root -g root -m 0644 "$tmp" "$manifest"
+  else
+    install -m 0644 "$tmp" "$manifest"
+  fi
+  rm -f "$tmp"
+}
 
 case "$prefix" in
   /opt/*)
@@ -98,7 +137,11 @@ if [[ "$(id -u)" -eq 0 ]]; then
   fi
 fi
 
+write_baseline_manifest
+
 echo "installed: $prefix"
+echo "baseline_manifest=$prefix/.openclaw-baseline-manifest"
+echo "baseline_commit=$source_commit"
 
 for user in "${repair_users[@]}"; do
   [[ -n "$user" ]] || continue

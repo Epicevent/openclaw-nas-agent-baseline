@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  openclaw-ops-drift-check.sh [--registry PATH] [--control PATH] [--report PATH]
+  openclaw-ops-drift-check.sh [--registry PATH] [--control PATH] [--manifest PATH] [--report PATH]
 
 Compares /srv/openclaw-ops/slots.yaml with live slot state.
 
@@ -17,6 +17,7 @@ USAGE
 
 registry="/srv/openclaw-ops/slots.yaml"
 control="/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh"
+manifest="/opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest"
 report=""
 
 while [[ $# -gt 0 ]]; do
@@ -27,6 +28,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --control)
       control="${2:?missing control path}"
+      shift 2
+      ;;
+    --manifest)
+      manifest="${2:?missing manifest path}"
       shift 2
       ;;
     --report)
@@ -45,7 +50,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-python3 - "$registry" "$control" "$report" <<'PY'
+python3 - "$registry" "$control" "$manifest" "$report" <<'PY'
 from __future__ import annotations
 
 import os
@@ -58,7 +63,8 @@ from pathlib import Path
 
 registry = Path(sys.argv[1])
 control = sys.argv[2]
-report = sys.argv[3]
+manifest = Path(sys.argv[3])
+report = sys.argv[4]
 
 
 def unquote(value: str) -> str:
@@ -118,6 +124,12 @@ def parse_key_values(text: str) -> dict[str, str]:
     return result
 
 
+def parse_key_value_file(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    return parse_key_values(path.read_text(encoding="utf-8", errors="replace"))
+
+
 def extract_mount_sources(text: str):
     customer = []
     container = []
@@ -137,6 +149,9 @@ def extract_mount_sources(text: str):
 
 meta, slots = parse_registry(registry)
 expected_image_id = meta.get("image_id", "")
+expected_baseline_commit = meta.get("baseline_commit", "")
+installed_manifest = parse_key_value_file(manifest)
+installed_baseline_commit = installed_manifest.get("source_commit", "")
 started = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 lines: list[str] = []
 failures = 0
@@ -144,7 +159,18 @@ warnings = 0
 
 lines.append(f"drift_check_started={started}")
 lines.append(f"registry={registry}")
+lines.append(f"manifest={manifest}")
 lines.append(f"slot_count={len(slots)}")
+lines.append(f"registry_baseline_commit={expected_baseline_commit or 'missing'}")
+lines.append(f"installed_baseline_commit={installed_baseline_commit or 'missing'}")
+if not installed_baseline_commit:
+    failures += 1
+    lines.append("baseline_manifest=fail missing_or_unreadable")
+elif expected_baseline_commit and installed_baseline_commit != expected_baseline_commit:
+    failures += 1
+    lines.append("baseline_manifest=fail commit_mismatch")
+else:
+    lines.append("baseline_manifest=pass")
 lines.append("")
 
 for slot in slots:
