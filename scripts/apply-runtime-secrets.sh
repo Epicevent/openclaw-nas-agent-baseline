@@ -142,6 +142,7 @@ echo "env_file=$env_file"
 
 openclaw_assert_managed_slot_prewrite "$target_user"
 openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
+openclaw_assert_safe_openclaw_config_file "$target_user" "$target_home/.openclaw/openclaw.json"
 
 OPENCLAW_SECRET_ENV_FILE="$env_file" \
 OPENCLAW_SECRET_RUNTIME_ENV_PATH="$compose_dir/.env" \
@@ -151,6 +152,7 @@ import json
 import os
 import re
 import shlex
+import stat
 import sys
 from pathlib import Path
 
@@ -209,6 +211,24 @@ def quote_env(value: str) -> str:
     return "'" + value.replace("'", "'\"'\"'") + "'"
 
 
+def safe_write_regular(path: Path, text: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise RuntimeError(f"not a regular file: {path}")
+        if st.st_nlink != 1:
+            raise RuntimeError(f"hardlinked file refused: {path}")
+        os.ftruncate(fd, 0)
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
+
+
 def upsert_env_file(path: Path, values: dict[str, str]) -> None:
     existing_lines: list[str] = []
     seen: set[str] = set()
@@ -232,8 +252,7 @@ def upsert_env_file(path: Path, values: dict[str, str]) -> None:
         if key not in seen:
             new_lines.append(f"{key}={quote_env(values[key])}")
 
-    path.write_text("\n".join(new_lines) + "\n", encoding="utf-8")
-    path.chmod(0o600)
+    safe_write_regular(path, "\n".join(new_lines) + "\n")
 
 
 def strip_literal_api_keys(value) -> int:
@@ -273,8 +292,7 @@ if config_path.exists():
     data = json.loads(config_path.read_text(encoding="utf-8") or "{}")
     removed_api_keys = strip_literal_api_keys(data)
     if removed_api_keys:
-        config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        config_path.chmod(0o600)
+        safe_write_regular(config_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 summary = {
     "updated_runtime_env": str(runtime_env_path),

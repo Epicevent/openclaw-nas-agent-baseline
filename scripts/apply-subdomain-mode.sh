@@ -105,17 +105,19 @@ if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
   exit 2
 fi
 
-if [[ ! -f "$config_path" ]]; then
-  echo "error: missing config: $config_path" >&2
-  exit 1
-fi
-
 if [[ ! -d "$compose_dir" ]]; then
   echo "error: missing compose dir: $compose_dir" >&2
   exit 1
 fi
 
 openclaw_assert_managed_slot_prewrite "$target_user"
+openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path"
+openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
+
+if [[ ! -f "$config_path" ]]; then
+  echo "error: missing config: $config_path" >&2
+  exit 1
+fi
 
 backup_dir="$(mktemp -d "/tmp/openclaw-subdomain-mode-backup.${target_user}.XXXXXX")"
 chmod 0700 "$backup_dir"
@@ -136,11 +138,30 @@ SUBDOMAIN_ORIGIN="$origin" \
 python3 - <<'PY'
 import json
 import os
+import stat
 from pathlib import Path
 
 config_path = Path(os.environ["SUBDOMAIN_CONFIG_PATH"])
 runtime_env_path = Path(os.environ["SUBDOMAIN_RUNTIME_ENV_PATH"])
 origin = os.environ["SUBDOMAIN_ORIGIN"].rstrip("/")
+
+
+def safe_write_regular(path: Path, text: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise RuntimeError(f"not a regular file: {path}")
+        if st.st_nlink != 1:
+            raise RuntimeError(f"hardlinked file refused: {path}")
+        os.ftruncate(fd, 0)
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
 
 data = json.loads(config_path.read_text(encoding="utf-8") or "{}")
 control = data.setdefault("gateway", {}).setdefault("controlUi", {})
@@ -148,8 +169,7 @@ control["basePath"] = "/"
 control["dangerouslyDisableDeviceAuth"] = True
 control["allowedOrigins"] = [origin]
 control.pop("autoApproveWithToken", None)
-config_path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-config_path.chmod(0o600)
+safe_write_regular(config_path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 
 runtime_values = {
     "OPENCLAW_PROXY_MODE": "subdomain",
@@ -182,8 +202,7 @@ for key in sorted(runtime_values):
         out.append(f"{key}={quote(runtime_values[key])}")
 
 runtime_env_path.parent.mkdir(parents=True, exist_ok=True)
-runtime_env_path.write_text("\n".join(out) + "\n", encoding="utf-8")
-runtime_env_path.chmod(0o600)
+safe_write_regular(runtime_env_path, "\n".join(out) + "\n")
 PY
 
 echo "updated_config=$config_path"

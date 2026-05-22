@@ -233,6 +233,7 @@ mkdir -p "$compose_dir" \
   "$target_home/.openclaw-auth-profile-secrets"
 
 openclaw_assert_managed_slot_prewrite "$target_user"
+openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path"
 
 cat > "$compose_dir/.env" <<EOF
 OPENCLAW_INSTANCE='$target_user'
@@ -345,11 +346,30 @@ python3 - <<'PY'
 import json
 import os
 import secrets
+import stat
 from pathlib import Path
 
 path = Path(os.environ["OPENCLAW_PRODUCTION_CONFIG_PATH"])
 workspace = os.environ["OPENCLAW_PRODUCTION_WORKSPACE"]
 origin = os.environ["OPENCLAW_PRODUCTION_ORIGIN"].rstrip("/")
+
+
+def safe_write_regular(path: Path, text: str) -> None:
+    flags = os.O_WRONLY | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    fd = os.open(path, flags, 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            raise RuntimeError(f"not a regular file: {path}")
+        if st.st_nlink != 1:
+            raise RuntimeError(f"hardlinked file refused: {path}")
+        os.ftruncate(fd, 0)
+        os.write(fd, text.encode("utf-8"))
+    finally:
+        os.close(fd)
+    os.chmod(path, 0o600)
 
 data = {
     "gateway": {
@@ -375,8 +395,7 @@ data = {
 }
 
 path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-path.chmod(0o600)
+safe_write_regular(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 PY
 
 echo "state_init=production_minimal"

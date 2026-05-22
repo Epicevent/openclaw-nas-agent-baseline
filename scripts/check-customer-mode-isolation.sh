@@ -222,6 +222,13 @@ else
   echo "INFO missing_config=$config_path"
 fi
 
+config_safety_output="$(openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path" 2>&1)" \
+  && pass "config_file_safe" \
+  || {
+    fail "config_file_safe"
+    printf '%s\n' "$config_safety_output" | sed -e 's/^FAIL /config_safety_detail=/' -e 's/^/INFO /'
+  }
+
 check "customer_runtime_env_blocked" sudo -u "$target_user" test ! -r "$runtime_env_path"
 check "customer_config_blocked" sudo -u "$target_user" test ! -r "$config_path"
 

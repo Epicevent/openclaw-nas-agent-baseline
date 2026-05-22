@@ -108,10 +108,65 @@ openclaw_assert_root_owned_file() {
   local path="$1" label="${2:-file}"
   [[ -f "$path" ]] || openclaw_safe_fail "${label}_missing=$path" || return 1
   [[ ! -L "$path" ]] || openclaw_safe_fail "${label}_symlink=$path" || return 1
+  [[ "$(stat -c '%h' "$path" 2>/dev/null || true)" == "1" ]] \
+    || openclaw_safe_fail "${label}_hardlink=$path" || return 1
   [[ "$(stat -c '%U:%G' "$path" 2>/dev/null || true)" == "root:root" ]] \
     || openclaw_safe_fail "${label}_not_root_owned=$path" || return 1
   if find "$path" -maxdepth 0 -perm /022 2>/dev/null | grep -q .; then
     openclaw_safe_fail "${label}_writable_by_group_or_other=$path" || return 1
+  fi
+}
+
+openclaw_assert_safe_openclaw_config_file() {
+  local target_user="$1" config_path="${2:-}" label="${3:-openclaw_config}"
+  local target_home runtime_user expected config_dir resolved owner group nlink
+
+  target_home="$(openclaw_target_home "$target_user")"
+  [[ -n "$target_home" ]] || openclaw_safe_fail "${label}_user_missing=$target_user" || return 1
+
+  runtime_user="${target_user}_rt"
+  expected="$target_home/.openclaw/openclaw.json"
+  config_path="${config_path:-$expected}"
+  config_dir="$target_home/.openclaw"
+
+  [[ "$config_path" == "$expected" ]] \
+    || openclaw_safe_fail "${label}_path_unexpected=$config_path expected=$expected" || return 1
+  [[ -d "$config_dir" ]] || openclaw_safe_fail "${label}_dir_missing=$config_dir" || return 1
+  [[ ! -L "$config_dir" ]] || openclaw_safe_fail "${label}_dir_symlink=$config_dir" || return 1
+  resolved="$(readlink -f "$config_dir" 2>/dev/null || true)"
+  [[ "$resolved" == "$config_dir" ]] \
+    || openclaw_safe_fail "${label}_dir_resolves_outside=$config_dir resolved=${resolved:-missing}" || return 1
+  owner="$(stat -c '%U' "$config_dir" 2>/dev/null || true)"
+  group="$(stat -c '%G' "$config_dir" 2>/dev/null || true)"
+  case "$owner" in
+    root|"$runtime_user") ;;
+    *)
+      openclaw_safe_fail "${label}_dir_owner_unexpected=$config_dir owner=${owner:-missing}:${group:-missing} expected=root_or_${runtime_user}" || return 1
+      ;;
+  esac
+  if find "$config_dir" -maxdepth 0 -perm /022 2>/dev/null | grep -q .; then
+    openclaw_safe_fail "${label}_dir_writable_by_group_or_other=$config_dir" || return 1
+  fi
+
+  [[ ! -L "$config_path" ]] || openclaw_safe_fail "${label}_symlink=$config_path" || return 1
+  if [[ -e "$config_path" ]]; then
+    [[ -f "$config_path" ]] || openclaw_safe_fail "${label}_not_regular=$config_path" || return 1
+    resolved="$(readlink -f "$config_path" 2>/dev/null || true)"
+    [[ "$resolved" == "$expected" ]] \
+      || openclaw_safe_fail "${label}_resolves_outside=$config_path resolved=${resolved:-missing} expected=$expected" || return 1
+    nlink="$(stat -c '%h' "$config_path" 2>/dev/null || true)"
+    [[ "$nlink" == "1" ]] || openclaw_safe_fail "${label}_hardlink=$config_path links=${nlink:-missing}" || return 1
+    owner="$(stat -c '%U' "$config_path" 2>/dev/null || true)"
+    group="$(stat -c '%G' "$config_path" 2>/dev/null || true)"
+    case "$owner" in
+      root|"$runtime_user") ;;
+      *)
+        openclaw_safe_fail "${label}_owner_unexpected=$config_path owner=${owner:-missing}:${group:-missing} expected=root_or_${runtime_user}" || return 1
+        ;;
+    esac
+    if find "$config_path" -maxdepth 0 -perm /077 2>/dev/null | grep -q .; then
+      openclaw_safe_fail "${label}_too_permissive=$config_path" || return 1
+    fi
   fi
 }
 
