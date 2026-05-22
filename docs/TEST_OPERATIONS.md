@@ -20,7 +20,7 @@
 
 테스트에 사용할 public repo commit과 Docker image tag를 먼저 고정한다. 서버 반영은
 [root 관리자 작업 - 호스트 준비](ROOT_ADMIN_TASKS.md#호스트-준비)의 공식 절차만 따른다.
-여기에 같은 shell 절차를 다시 복붙하지 않는다.
+여기서는 서버에 설치된 manifest 값을 테스트 기준으로 기록한다.
 
 ```bash
 source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest

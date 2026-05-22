@@ -43,9 +43,8 @@ pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
 설치본이다. 따라서 `/opt`에서 `git pull`하지 않는다. 반영할 public repo commit을
 명령이 먼저 계산하고, 그 commit을 checkout한 임시 repo에서 설치한다.
 
-아래 블록은 그대로 실행하는 절차다. 사람이 직접 채워 넣는 commit 값은 없다.
-특정 freeze commit을 일부러 설치해야 하는 상황이 아니라면 `BASELINE_COMMIT`을
-수동으로 바꾸지 않는다.
+기본 설치 대상은 public repo `main`의 현재 commit이다. 테스트 freeze 이후에는
+서버 설치본의 manifest와 private 원장의 `baseline_commit`이 같은 값이어야 한다.
 
 ```bash
 REPO_URL="https://github.com/Epicevent/openclaw-nas-agent-baseline.git"

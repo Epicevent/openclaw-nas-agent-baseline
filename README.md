@@ -44,14 +44,10 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 `/opt/openclaw-nas-agent-baseline`은 `git pull`로 관리하는 checkout이 아니라,
 공개 저장소의 특정 commit을 `install.sh`로 복사해 둔 설치본이다.
 
-서버에 반영할 때는 임시 wrapper 스크립트가 아니라
-[root 관리자 작업 - 호스트 준비](docs/ROOT_ADMIN_TASKS.md#호스트-준비)의 공식 절차만
-따른다. README에는 같은 shell 절차를 다시 복붙하지 않는다.
-
-호스트 준비 절차에는 운영자가 해석해서 채워 넣을 commit placeholder가 없다.
-명령이 public repo의 기준 commit을 계산하고, 설치 후 manifest 값이 그 commit과
-같은지 확인한다. 따라서 “어떤 commit을 넣어야 하는지”를 별도로 판단하거나 AI에게
-물어보는 운영을 만들지 않는다.
+서버 반영은
+[root 관리자 작업 - 호스트 준비](docs/ROOT_ADMIN_TASKS.md#호스트-준비)에서 수행한다.
+해당 절차는 public repo의 설치 대상 commit을 계산해 설치하고, 설치 후 manifest와
+비교한다.
 
 `install.sh`는 설치 후 다음 manifest를 남긴다.
 
@@ -63,8 +59,7 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 테스트 운영에서는 private 원장(`/srv/openclaw-ops/slots.yaml`)의
 `baseline_commit`도 같은 commit으로 갱신한다. drift checker는 원장의
 `baseline_commit`과 설치본 manifest의 `source_commit`이 다르면 fail 처리한다.
-`install.sh --check`는 문서 정합성 검사도 함께 실행해, 공식 호스트 설치 shell이
-`ROOT_ADMIN_TASKS.md` 밖에 다시 복붙되면 실패한다.
+`install.sh --check`는 문서 정합성 검사도 함께 실행한다.
 
 정리하면 기준은 하나다.
 

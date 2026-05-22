@@ -7,8 +7,8 @@ root가 필요한 작업은 [root 관리자 작업](ROOT_ADMIN_TASKS.md)에서 �
 
 ## 생성
 
-`svcops` 생성은 root 작업이다. 같은 shell 절차를 여기 다시 복붙하지 않고
-[root 관리자 작업 - 호스트 준비](ROOT_ADMIN_TASKS.md#호스트-준비)를 따른다.
+`svcops` 생성은 root 작업이다.
+[root 관리자 작업 - 호스트 준비](ROOT_ADMIN_TASKS.md#호스트-준비)에서 수행한다.
 
 `--set-password`는 SSH 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
 `svcops-control.sh` wrapper만 비밀번호 없이 실행하게 허용한다. PM2 drift monitor는
