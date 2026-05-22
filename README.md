@@ -38,6 +38,51 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 계정별 Web UI는 서로 다른 subdomain으로 분리한다.
 ```
 
+## 공식 설치/업데이트 기준
+
+공개 GitHub 저장소가 도구와 절차의 기준이다. 서버의
+`/opt/openclaw-nas-agent-baseline`은 `git pull`로 관리하는 checkout이 아니라,
+공개 저장소의 특정 commit을 `install.sh`로 복사해 둔 설치본이다.
+
+서버에 반영할 때는 임시 wrapper 스크립트가 아니라 아래 공식 흐름을 따른다.
+
+실행 주체: **[root 관리자]**
+
+```bash
+BASELINE_COMMIT="<public repo commit>"
+TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
+
+git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
+cd "$TMP_REPO"
+git checkout "$BASELINE_COMMIT"
+
+sudo bash install.sh --check
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
+  --set-password \
+  --nopasswd-sudo
+```
+
+`install.sh`는 설치 후 다음 manifest를 남긴다.
+
+```text
+/opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
+```
+
+이 manifest의 `source_commit`이 서버에 실제 설치된 공개 repo 기준이다.
+테스트 운영에서는 private 원장(`/srv/openclaw-ops/slots.yaml`)의
+`baseline_commit`도 같은 commit으로 갱신한다. drift checker는 원장의
+`baseline_commit`과 설치본 manifest의 `source_commit`이 다르면 fail 처리한다.
+
+정리하면 기준은 하나다.
+
+```text
+public repo commit
+→ install.sh
+→ /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
+→ /srv/openclaw-ops/slots.yaml baseline_commit
+→ drift check
+```
+
 ## Production 보안 판정
 
 현재 production 경로는 **Acceptable with conditions**로 본다. 이 말은 “아무렇게나

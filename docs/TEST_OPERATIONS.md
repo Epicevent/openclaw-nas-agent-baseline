@@ -19,14 +19,29 @@
 실행 주체: **[root 관리자]**
 
 테스트에 사용할 public repo commit과 Docker image tag를 먼저 고정한다.
+`/opt/openclaw-nas-agent-baseline`은 git checkout이 아니라 `install.sh`가 만든
+설치본이므로, `git pull`이나 `/opt`의 `git rev-parse`로 기준을 잡지 않는다.
+기준 commit을 checkout한 임시 repo에서 `install.sh`를 실행하고, 설치본 manifest를
+기준으로 삼는다.
 
 ```bash
-cd /opt/openclaw-nas-agent-baseline
-
-BASELINE_COMMIT="$(git rev-parse HEAD)"
+BASELINE_COMMIT="<public repo commit>"
 TEST_IMAGE_TAG="openclaw-nas-agent:baseline-test-$(date +%Y%m%d)"
 
+TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
+git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
+cd "$TMP_REPO"
+git checkout "$BASELINE_COMMIT"
+
+sudo bash install.sh --check
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
+  --set-password \
+  --nopasswd-sudo
+
+source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
+
 echo "baseline_commit=$BASELINE_COMMIT"
+echo "installed_source_commit=$source_commit"
 echo "test_image_tag=$TEST_IMAGE_TAG"
 ```
 
@@ -36,7 +51,7 @@ echo "test_image_tag=$TEST_IMAGE_TAG"
 sudo env \
   BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
   IMAGE_TAG="$TEST_IMAGE_TAG" \
-  bash scripts/build-container-baseline.sh
+  bash /opt/openclaw-nas-agent-baseline/scripts/build-container-baseline.sh
 ```
 
 빌드 결과는 private 원장에 기록한다.
