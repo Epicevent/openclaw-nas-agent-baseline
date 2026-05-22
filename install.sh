@@ -77,6 +77,43 @@ fi
 source_commit="${source_commit:-unknown}"
 source_remote="${source_remote:-unknown}"
 
+real_path() {
+  local path="$1"
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "$path"
+  else
+    (cd "$path" && pwd -P)
+  fi
+}
+
+prune_installed_package() {
+  local src_real prefix_real path
+  src_real="$(real_path "$script_dir")"
+  prefix_real="$(real_path "$prefix")"
+
+  if [[ "$src_real" == "$prefix_real" ]]; then
+    echo "install_prune=skipped_in_place"
+    return 0
+  fi
+
+  for path in \
+    README.md \
+    LICENSE \
+    .gitattributes \
+    .gitignore \
+    install.sh \
+    admin-cli \
+    compose \
+    container \
+    docs \
+    examples \
+    openclaw \
+    scripts; do
+    rm -rf -- "$prefix/$path"
+  done
+  echo "install_prune=managed_package_paths"
+}
+
 write_baseline_manifest() {
   local manifest="$prefix/.openclaw-baseline-manifest"
   local tmp installed_at installed_by
@@ -118,7 +155,7 @@ case "$prefix_abs" in
 esac
 
 mkdir -p "$prefix"
-find "$prefix" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+prune_installed_package
 
 tmp_exclude="$(mktemp)"
 cleanup() {
@@ -129,6 +166,7 @@ trap cleanup EXIT
 cat > "$tmp_exclude" <<'EOF'
 ./.git
 ./dist
+./temp
 ./*.tar.gz
 ./*.zip
 EOF
