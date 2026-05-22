@@ -31,7 +31,7 @@ for removed in \
   fi
 done
 
-host_install_refs="$(grep_md 'git clone https://github\.com/Epicevent/openclaw-nas-agent-baseline\.git|install-svcops-account\.sh --set-password --nopasswd-sudo' || true)"
+host_install_refs="$(grep_md 'git clone .*openclaw-nas-agent-baseline|git clone "\$REPO_URL"|install-svcops-account\.sh --set-password --nopasswd-sudo' || true)"
 if printf '%s\n' "$host_install_refs" | grep -v 'docs/ROOT_ADMIN_TASKS.md:' | grep -q .; then
   printf '%s\n' "$host_install_refs" | grep -v 'docs/ROOT_ADMIN_TASKS.md:' || true
   fail "host_install_snippet_outside_root_admin_tasks"
@@ -44,6 +44,13 @@ if grep_md 'git rev-parse HEAD' | grep -q .; then
   fail "git_rev_parse_head_in_docs"
 else
   pass "git_rev_parse_head_absent"
+fi
+
+if grep_md '<public repo commit>|BASELINE_COMMIT="<|paste_40_hex|TODO|FIXME' | grep -q .; then
+  grep_md '<public repo commit>|BASELINE_COMMIT="<|paste_40_hex|TODO|FIXME'
+  fail "operator_placeholder_in_docs"
+else
+  pass "operator_placeholder_absent"
 fi
 
 if grep_md 'openclaw-bootstrap|\.openclaw-install\.env' | grep -v 'docs/SLOT_TURNOVER.md:' | grep -q .; then

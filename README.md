@@ -48,6 +48,11 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 [root 관리자 작업 - 호스트 준비](docs/ROOT_ADMIN_TASKS.md#호스트-준비)의 공식 절차만
 따른다. README에는 같은 shell 절차를 다시 복붙하지 않는다.
 
+호스트 준비 절차에는 운영자가 해석해서 채워 넣을 commit placeholder가 없다.
+명령이 public repo의 기준 commit을 계산하고, 설치 후 manifest 값이 그 commit과
+같은지 확인한다. 따라서 “어떤 commit을 넣어야 하는지”를 별도로 판단하거나 AI에게
+물어보는 운영을 만들지 않는다.
+
 `install.sh`는 설치 후 다음 manifest를 남긴다.
 
 ```text
@@ -148,6 +153,10 @@ root 관리자가 6, 7, 8, 9번처럼 고객 홈 안의 OpenClaw 상태를 쓰�
 다음 주 고객 테스트처럼 여러 slot을 넘기기 전에는
 [테스트 운영 절차](docs/TEST_OPERATIONS.md)에 따라 baseline commit, 공통 image
 tag, private slot 원장, release gate를 먼저 고정한다.
+
+테스트 대상자는 README나 public docs에 직접 적지 않는다.
+`/srv/openclaw-ops/slots.yaml`의 기존 oc1~oc20 entry 중 `ready` slot을 골라
+`assigned`로 바꾸고, release gate가 통과한 뒤에만 `active_test`로 올린다.
 
 ## 1. 대상 계정 지정
 

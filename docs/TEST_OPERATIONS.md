@@ -23,11 +23,9 @@
 여기에 같은 shell 절차를 다시 복붙하지 않는다.
 
 ```bash
-BASELINE_COMMIT="<public repo commit>"
-TEST_IMAGE_TAG="openclaw-nas-agent:baseline-test-$(date +%Y%m%d)"
-
 source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
-test "$BASELINE_COMMIT" = "$source_commit"
+BASELINE_COMMIT="$source_commit"
+TEST_IMAGE_TAG="openclaw-nas-agent:baseline-test-$(date +%Y%m%d)"
 
 echo "baseline_commit=$BASELINE_COMMIT"
 echo "installed_source_commit=$source_commit"
@@ -86,57 +84,102 @@ image 변경 사유 아님:
 
 ## 3. Private Slot 원장
 
-실명과 실제 대응표는 public repo에 넣지 않는다. private 위치에 `slots.yaml` 또는
-`slots.xlsx`로 관리한다.
-
-예시 구조:
-
-```yaml
-baseline:
-  repo: Epicevent/openclaw-nas-agent-baseline
-  baseline_commit: "<installed source_commit>"
-  image_tag: "openclaw-nas-agent:baseline-test-YYYYMMDD"
-  frozen_at: "YYYY-MM-DDTHH:MM:SS+09:00"
-
-slots:
-  - person: "<private>"
-    user: "oc13"
-    subdomain: "oc13.example.com"
-    nas_share: "//NAS_HOST/SHARE_NAME"
-    mount_name: "SHARE_NAME"
-    dashboard_name: "<private>"
-    image_tag: "openclaw-nas-agent:baseline-test-YYYYMMDD"
-    status: "reserved"
-    notes: ""
-```
-
-상태값은 좁게 유지한다.
+실명과 실제 대응표는 public repo에 넣지 않는다. 서버의 private 원장을 기준으로
+관리한다.
 
 ```text
-reserved
-nas_registered
-mounted
-container_visible
-installed
-secret_injected
-verified
+원장 파일: /srv/openclaw-ops/slots.yaml
+소유권:    root:svcops
+권한:      0640
+역할:      oc1~oc20 slot의 실제 배정 상태
+```
+
+이 파일은 새로 복사해서 만들지 않는다. 호스트 준비 단계에서 생성된 oc1~oc20
+골격을 유지하고, 대상자가 생길 때 해당 slot entry의 값만 바꾼다.
+
+원장에 저장하는 값:
+
+```text
+assignee:       테스트 대상자 식별명 또는 내부 코드
+status:         ready / assigned / active_test 등 현재 상태
+subdomain:      고객에게 넘길 실제 URL host
+nas_share:      등록된 SMB 공유 경로
+mount_name:     nas_docs 아래에 붙는 폴더명
+dashboard_name: 화면에 표시할 이름
+image_tag:      해당 slot이 쓰는 baseline image tag
+last_gate:      마지막 release gate 결과와 시각
+handoff:        SSH/token/URL 전달 상태
+notes:          secret이 아닌 운영 메모
+```
+
+원장에 저장하지 않는 값:
+
+```text
+SSH password
+Gateway token 원문
+NAS password
+provider/API key
+```
+
+상태값은 현재 운영 상태를 헷갈리지 않을 만큼만 둔다.
+
+```text
+ready
+assigned
 active_test
 paused
 revoked
+turnover_needed
 ```
 
-## 4. 테스트 Slot 범위
-
-처음 테스트는 2~3개 slot만 확정한다.
+기본 전이는 아래처럼 본다.
 
 ```text
-권장:
-  기준 slot 1개
-  실제 테스트 사용자 1~2개
+ready
+→ assigned
+→ release gate pass
+→ handoff issued
+→ active_test
+
+revoked
+→ turnover_needed
+→ turnover 완료
+→ ready
 ```
 
-테스트 대상자 수, 각 대상자 `ocN`, subdomain, NAS share는 private 원장에 먼저
-고정한다. 확정되지 않은 slot을 미리 사용자에게 넘기지 않는다.
+`active_test`는 접근권을 실제로 넘긴 뒤에만 쓴다. 원장에 대상자 이름만 적은
+상태는 `assigned`다.
+
+## 4. 대상자 배정
+
+전체 slot 범위는 oc1~oc20이다. 특정 번호만 테스트용으로 고정하지 않는다.
+처음 외부 전달 batch를 작게 가져가는 것은 운영 리스크를 낮추기 위한 선택일 뿐,
+시스템의 slot 범위를 줄인다는 뜻이 아니다.
+
+대상자를 넣을 때는 먼저 `ready` 상태인 slot을 고른다.
+
+```text
+확인할 것:
+  status가 ready인가
+  subdomain이 실제 전달할 host와 맞는가
+  nas_share와 mount_name이 이번 대상자에게 맞는가
+  image_tag가 freeze한 테스트 image와 맞는가
+  last_gate가 너무 오래된 값이면 다시 gate를 돌릴 준비가 되어 있는가
+```
+
+배정 시 바꾸는 값은 보통 아래뿐이다.
+
+```text
+assignee
+status: assigned
+dashboard_name
+notes
+nas_share / mount_name, NAS가 기본값과 다를 때만
+subdomain, 기본 ocN.ji-tech.co.kr이 아닐 때만
+```
+
+배정만 했다고 사용자에게 넘기지 않는다. release gate가 통과하고 SSH/token/URL
+전달 상태를 기록한 뒤에만 `active_test`로 올린다.
 
 ## 5. Slot Release Gate
 

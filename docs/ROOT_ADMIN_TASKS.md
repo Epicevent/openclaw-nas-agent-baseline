@@ -41,15 +41,24 @@ pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
 서버에 공개 repo 기준을 설치하거나 갱신할 때 실행한다.
 `/opt/openclaw-nas-agent-baseline`은 git checkout이 아니라 `install.sh`가 만든
 설치본이다. 따라서 `/opt`에서 `git pull`하지 않는다. 반영할 public repo commit을
-명시하고 그 commit을 checkout한 임시 repo에서 설치한다.
+명령이 먼저 계산하고, 그 commit을 checkout한 임시 repo에서 설치한다.
+
+아래 블록은 그대로 실행하는 절차다. 사람이 직접 채워 넣는 commit 값은 없다.
+특정 freeze commit을 일부러 설치해야 하는 상황이 아니라면 `BASELINE_COMMIT`을
+수동으로 바꾸지 않는다.
 
 ```bash
-BASELINE_COMMIT="<public repo commit>"
+REPO_URL="https://github.com/Epicevent/openclaw-nas-agent-baseline.git"
+BASELINE_COMMIT="$(git ls-remote "$REPO_URL" refs/heads/main | awk '{print $1}')"
+test -n "$BASELINE_COMMIT"
+
+echo "will_install_commit=$BASELINE_COMMIT"
+
 TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
 
-git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
+git clone "$REPO_URL" "$TMP_REPO"
 cd "$TMP_REPO"
-git checkout "$BASELINE_COMMIT"
+git checkout --detach "$BASELINE_COMMIT"
 
 sudo bash install.sh --check
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
@@ -57,12 +66,12 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
   --nopasswd-sudo
 
 source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
+test "$source_commit" = "$BASELINE_COMMIT"
 echo "installed_source_commit=$source_commit"
 ```
 
-`installed_source_commit`은 `BASELINE_COMMIT`과 같아야 한다. 테스트 운영에서는
-private 원장(`/srv/openclaw-ops/slots.yaml`)의 `baseline_commit`도 같은 값으로
-갱신한다.
+테스트 운영에서는 private 원장(`/srv/openclaw-ops/slots.yaml`)의
+`baseline_commit`도 `installed_source_commit`과 같은 값으로 갱신한다.
 
 `--set-password`는 `svcops` 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
 `svcops-control.sh` wrapper만 비밀번호 없이 실행하게 열어 둔다. PM2 drift monitor는
