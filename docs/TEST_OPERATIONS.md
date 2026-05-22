@@ -18,27 +18,16 @@
 
 실행 주체: **[root 관리자]**
 
-테스트에 사용할 public repo commit과 Docker image tag를 먼저 고정한다.
-`/opt/openclaw-nas-agent-baseline`은 git checkout이 아니라 `install.sh`가 만든
-설치본이므로, `git pull`이나 `/opt`의 `git rev-parse`로 기준을 잡지 않는다.
-기준 commit을 checkout한 임시 repo에서 `install.sh`를 실행하고, 설치본 manifest를
-기준으로 삼는다.
+테스트에 사용할 public repo commit과 Docker image tag를 먼저 고정한다. 서버 반영은
+[root 관리자 작업 - 호스트 준비](ROOT_ADMIN_TASKS.md#호스트-준비)의 공식 절차만 따른다.
+여기에 같은 shell 절차를 다시 복붙하지 않는다.
 
 ```bash
 BASELINE_COMMIT="<public repo commit>"
 TEST_IMAGE_TAG="openclaw-nas-agent:baseline-test-$(date +%Y%m%d)"
 
-TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
-git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
-cd "$TMP_REPO"
-git checkout "$BASELINE_COMMIT"
-
-sudo bash install.sh --check
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
-  --set-password \
-  --nopasswd-sudo
-
 source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
+test "$BASELINE_COMMIT" = "$source_commit"
 
 echo "baseline_commit=$BASELINE_COMMIT"
 echo "installed_source_commit=$source_commit"
@@ -105,7 +94,7 @@ image 변경 사유 아님:
 ```yaml
 baseline:
   repo: Epicevent/openclaw-nas-agent-baseline
-  baseline_commit: "<git rev-parse HEAD>"
+  baseline_commit: "<installed source_commit>"
   image_tag: "openclaw-nas-agent:baseline-test-YYYYMMDD"
   frozen_at: "YYYY-MM-DDTHH:MM:SS+09:00"
 
@@ -274,12 +263,8 @@ PM2 상시 감시는 `svcops` 계정으로 실행한다. root PM2가 아니라 `
 `svcops-control.sh` wrapper를 호출하는 구조다.
 
 이 감시는 사람이 비밀번호를 입력할 수 없으므로 `svcops` sudoers는
-`svcops-control.sh` wrapper에 대해 `NOPASSWD`여야 한다. 계정 생성 시 다음 형태를
-사용한다.
-
-```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password --nopasswd-sudo
-```
+`svcops-control.sh` wrapper에 대해 `NOPASSWD`여야 한다. 이 설정은
+[root 관리자 작업 - 호스트 준비](ROOT_ADMIN_TASKS.md#호스트-준비)에서만 관리한다.
 
 이 설정은 wrapper만 passwordless로 허용한다. full sudo, Docker 직접 실행, 임의 root
 shell을 허용하는 설정이 아니다.

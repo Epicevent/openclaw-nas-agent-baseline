@@ -155,6 +155,7 @@ done
 
 if [[ "$run_check" -eq 1 ]]; then
   echo "running baseline check:"
+  bash "$prefix/scripts/check-docs.sh"
   bash "$prefix/scripts/check-baseline.sh" || true
 fi
 

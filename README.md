@@ -44,23 +44,9 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 `/opt/openclaw-nas-agent-baseline`은 `git pull`로 관리하는 checkout이 아니라,
 공개 저장소의 특정 commit을 `install.sh`로 복사해 둔 설치본이다.
 
-서버에 반영할 때는 임시 wrapper 스크립트가 아니라 아래 공식 흐름을 따른다.
-
-실행 주체: **[root 관리자]**
-
-```bash
-BASELINE_COMMIT="<public repo commit>"
-TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
-
-git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
-cd "$TMP_REPO"
-git checkout "$BASELINE_COMMIT"
-
-sudo bash install.sh --check
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
-  --set-password \
-  --nopasswd-sudo
-```
+서버에 반영할 때는 임시 wrapper 스크립트가 아니라
+[root 관리자 작업 - 호스트 준비](docs/ROOT_ADMIN_TASKS.md#호스트-준비)의 공식 절차만
+따른다. README에는 같은 shell 절차를 다시 복붙하지 않는다.
 
 `install.sh`는 설치 후 다음 manifest를 남긴다.
 
@@ -72,6 +58,8 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
 테스트 운영에서는 private 원장(`/srv/openclaw-ops/slots.yaml`)의
 `baseline_commit`도 같은 commit으로 갱신한다. drift checker는 원장의
 `baseline_commit`과 설치본 manifest의 `source_commit`이 다르면 fail 처리한다.
+`install.sh --check`는 문서 정합성 검사도 함께 실행해, 공식 호스트 설치 shell이
+`ROOT_ADMIN_TASKS.md` 밖에 다시 복붙되면 실패한다.
 
 정리하면 기준은 하나다.
 
@@ -473,11 +461,6 @@ docker ps
 
 - [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)
 - [svcops 운영계정](docs/SVCOPS.md)
-- [운영 모델](docs/OPERATION_MODEL.md)
 - [Slot turnover](docs/SLOT_TURNOVER.md)
 - [Updates](docs/UPDATES.md)
-- [Image fast install](docs/IMAGE_FAST_INSTALL.md)
-- [Container baseline](docs/CONTAINER_BASELINE.md)
 - [Recovery](docs/OPENCLAW_RECOVERY.md)
-- [Remount guide](docs/REMOUNT_GUIDE.md)
-- [Bootstrap compatibility install](docs/BOOTSTRAP_COMPAT.md)

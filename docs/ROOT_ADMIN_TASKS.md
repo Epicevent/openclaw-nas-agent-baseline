@@ -38,21 +38,31 @@ pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
 
 실행 주체: **[root 관리자]**
 
-서버당 한 번 실행한다.
+서버에 공개 repo 기준을 설치하거나 갱신할 때 실행한다.
+`/opt/openclaw-nas-agent-baseline`은 git checkout이 아니라 `install.sh`가 만든
+설치본이다. 따라서 `/opt`에서 `git pull`하지 않는다. 반영할 public repo commit을
+명시하고 그 commit을 checkout한 임시 repo에서 설치한다.
 
 ```bash
+BASELINE_COMMIT="<public repo commit>"
 TMP_REPO="$(mktemp -d)/openclaw-nas-agent-baseline"
+
 git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git "$TMP_REPO"
 cd "$TMP_REPO"
+git checkout "$BASELINE_COMMIT"
 
-sudo bash install.sh
+sudo bash install.sh --check
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh \
+  --set-password \
+  --nopasswd-sudo
+
+source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
+echo "installed_source_commit=$source_commit"
 ```
 
-제한 운영계정 `svcops`를 만든다.
-
-```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password --nopasswd-sudo
-```
+`installed_source_commit`은 `BASELINE_COMMIT`과 같아야 한다. 테스트 운영에서는
+private 원장(`/srv/openclaw-ops/slots.yaml`)의 `baseline_commit`도 같은 값으로
+갱신한다.
 
 `--set-password`는 `svcops` 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
 `svcops-control.sh` wrapper만 비밀번호 없이 실행하게 열어 둔다. PM2 drift monitor는
