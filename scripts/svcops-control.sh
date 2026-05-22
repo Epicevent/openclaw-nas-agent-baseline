@@ -16,6 +16,7 @@ Usage:
   svcops-control.sh nas-register-all START END SHARE
   svcops-control.sh nas-unregister USER
   svcops-control.sh nas-unregister-all START END
+  svcops-control.sh image-status USER
   svcops-control.sh gateway-refresh USER
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
@@ -704,6 +705,26 @@ case "$command_name" in
     target_user="$1"
     validate_user "$target_user"
     refresh_gateway "$target_user"
+    ;;
+
+  image-status)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    container="openclaw-${target_user}-openclaw-gateway-1"
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+      echo "target_user=$target_user"
+      echo "container=$container"
+      echo "container_status=missing"
+      exit 1
+    fi
+    echo "target_user=$target_user"
+    echo "container=$container"
+    docker inspect "$container" \
+      --format 'container_status={{.State.Status}}
+container_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}
+container_image_ref={{.Config.Image}}
+container_image_id={{.Image}}'
     ;;
 
   nas-fstab)

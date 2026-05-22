@@ -237,3 +237,41 @@ UI 문구 이상함
 8. private 원장 상태 갱신
 9. 사용자 전달
 ```
+
+## 9. Drift Check
+
+`slots.yaml`은 선언된 운영 상태이고, 서버는 실제 상태다. 둘이 같다고 믿지
+않고 주기적으로 비교한다.
+
+read-only drift checker:
+
+```bash
+/opt/openclaw-nas-agent-baseline/scripts/openclaw-ops-drift-check.sh \
+  --registry /srv/openclaw-ops/slots.yaml \
+  --report /srv/openclaw-ops/reports/drift-latest.txt
+```
+
+PM2 상시 감시는 `svcops` 계정으로 실행한다. root PM2가 아니라 `svcops` PM2가
+`svcops-control.sh` wrapper를 호출하는 구조다.
+
+```text
+process name:
+  openclaw-ops-drift
+
+report:
+  /srv/openclaw-ops/reports/drift-latest.txt
+
+check interval:
+  기본 900초
+```
+
+비교하는 핵심 항목:
+
+```text
+release gate PASS 여부
+registry의 NAS share와 실제 host/container CIFS source 일치 여부
+registry의 mount_name과 실제 mountpoint 일치 여부
+registry의 image_id와 실제 container image id 일치 여부
+```
+
+`last_gate`는 과거 검증 기록이고, drift check는 현재 상태 검증이다.
