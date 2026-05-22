@@ -51,8 +51,13 @@ sudo bash install.sh
 제한 운영계정 `svcops`를 만든다.
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password --nopasswd-sudo
 ```
+
+`--set-password`는 `svcops` 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
+`svcops-control.sh` wrapper만 비밀번호 없이 실행하게 열어 둔다. PM2 drift monitor는
+`sudo -n`으로 wrapper를 호출하므로 이 옵션이 필요하다. 이 설정은 `sudo bash`,
+`sudo docker`, 임의 root shell을 허용하지 않는다.
 
 ## 고객 Linux 계정 준비
 

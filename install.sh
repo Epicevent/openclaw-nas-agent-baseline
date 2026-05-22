@@ -119,7 +119,7 @@ cat <<EOF
 
 Next useful commands:
   cd $prefix
-  sudo bash scripts/install-svcops-account.sh
+  sudo bash scripts/install-svcops-account.sh --set-password --nopasswd-sudo
   openclaw-nas-mount --help
   sudo bash scripts/install-customer-slot-from-image.sh --user oc1 --host oc1.ji-tech.co.kr --image openclaw-nas-agent:baseline
   sudo bash scripts/check-customer-mode-isolation.sh --user oc1

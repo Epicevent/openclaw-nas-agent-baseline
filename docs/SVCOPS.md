@@ -15,8 +15,20 @@ git clone https://github.com/Epicevent/openclaw-nas-agent-baseline.git
 cd openclaw-nas-agent-baseline
 
 sudo bash install.sh
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password --nopasswd-sudo
 ```
+
+`--set-password`는 SSH 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
+`svcops-control.sh` wrapper만 비밀번호 없이 실행하게 허용한다. PM2 drift monitor는
+사람이 비밀번호를 입력할 수 없으므로 이 설정이 기본 운영값이다.
+
+허용되는 것은 다음 형태뿐이다.
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh ...
+```
+
+`sudo bash`, `sudo su`, `sudo docker` 같은 임의 root 명령은 여전히 허용하지 않는다.
 
 ## 역할
 

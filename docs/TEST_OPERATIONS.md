@@ -254,6 +254,17 @@ read-only drift checker:
 PM2 상시 감시는 `svcops` 계정으로 실행한다. root PM2가 아니라 `svcops` PM2가
 `svcops-control.sh` wrapper를 호출하는 구조다.
 
+이 감시는 사람이 비밀번호를 입력할 수 없으므로 `svcops` sudoers는
+`svcops-control.sh` wrapper에 대해 `NOPASSWD`여야 한다. 계정 생성 시 다음 형태를
+사용한다.
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password --nopasswd-sudo
+```
+
+이 설정은 wrapper만 passwordless로 허용한다. full sudo, Docker 직접 실행, 임의 root
+shell을 허용하는 설정이 아니다.
+
 ```text
 process name:
   openclaw-ops-drift

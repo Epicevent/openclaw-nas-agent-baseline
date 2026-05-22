@@ -95,7 +95,7 @@ bootstrap_customer_mode=ok
 운영자가 full sudo를 쓰지 않게 하려면 제한 운영계정 `svcops`를 만든다.
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-svcops-account.sh --set-password --nopasswd-sudo
 ```
 
 `svcops`는 `/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh`만 sudo로
