@@ -38,6 +38,29 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 계정별 Web UI는 서로 다른 subdomain으로 분리한다.
 ```
 
+## Production 보안 판정
+
+현재 production 경로는 **Acceptable with conditions**로 본다. 이 말은 “아무렇게나
+운영해도 안전하다”가 아니라, 아래 조건을 지키는 전제에서 고객 운영에 올릴 수
+있다는 뜻이다.
+
+```text
+반드시 지킬 조건:
+  root/admin이 fresh install, turnover, secret 주입, subdomain 재적용을 할 때
+  고객 계정의 active session이 없어야 한다.
+
+  recovery snapshot restore는 trusted recovery 절차에서만 실행한다.
+  고객이 임의로 준 tarball을 그대로 restore하지 않는다.
+
+  장기 production에서는 baseline image의 base image와 외부 dependency를 pinning한다.
+
+  nas-unregister는 fstab rule 제거일 뿐 active CIFS unmount 완료가 아니다.
+
+  fresh install smoke check와 provider/API key 주입 후 final check를 구분한다.
+```
+
+이 조건을 지키지 않으면 다시 **Not acceptable**이다.
+
 고객에게 전달하는 URL은 계정별 subdomain을 사용한다.
 
 ```text
@@ -85,6 +108,9 @@ NAS 공유 그룹 ocN_data:
 
 root가 해야 하는 1, 2, 6, 7, 9번의 실제 명령은
 [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에 있다.
+
+root 관리자가 6, 7, 8, 9번처럼 고객 홈 안의 OpenClaw 상태를 쓰거나 gateway를
+재생성하는 작업을 할 때는 먼저 고객 세션이 없는지 확인한다.
 
 ## 1. 대상 계정 지정
 

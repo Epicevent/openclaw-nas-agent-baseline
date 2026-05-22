@@ -14,6 +14,26 @@ CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 ```
 
+## root 작업 전 고객 세션 확인
+
+실행 주체: **[root 관리자]**
+
+fresh install, slot turnover, runtime secret 주입, subdomain 재적용, gateway
+재생성처럼 root가 고객 홈 내부 파일을 쓰는 작업 전에는 고객 계정의 active
+session이 없어야 한다.
+
+```bash
+pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
+```
+
+기존 고객을 새 사용자로 넘기는 turnover라면 접근 차단과 세션 종료가 먼저다.
+
+```bash
+sudo passwd -l "$TARGET_USER"
+sudo pkill -KILL -u "$TARGET_USER" 2>/dev/null || true
+pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
+```
+
 ## 호스트 준비
 
 실행 주체: **[root 관리자]**
@@ -63,6 +83,9 @@ echo "control_ui_host=$CONTROL_UI_HOST"
 
 실행 주체: **[root 관리자]**
 
+아래 `latest` 예시는 빠른 검증용이다. 장기 production에서는 `BASE_IMAGE`를 digest로
+고정하고, 빌드에 들어가는 pip/npm/apt dependency도 pinning 정책을 둔다.
+
 ```bash
 cd /opt/openclaw-nas-agent-baseline
 
@@ -70,6 +93,13 @@ sudo env \
   BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
   IMAGE_TAG=openclaw-nas-agent:baseline \
   bash scripts/build-container-baseline.sh
+```
+
+빌드 결과는 기록한다.
+
+```bash
+sudo docker image inspect openclaw-nas-agent:baseline \
+  --format 'image_id={{.Id}} created={{.Created}}'
 ```
 
 ## 계정별 OpenClaw 설치
@@ -94,6 +124,10 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-im
   --host "$CONTROL_UI_HOST" \
   --image openclaw-nas-agent:baseline
 ```
+
+`--check`를 붙인 fresh install 검사는 provider/API key 없이도 통과할 수 있는
+smoke check다. 최종 운영 완료 확인은 runtime secret 주입 후 `apply-runtime-secrets.sh
+--check`로 따로 수행한다.
 
 부분 설치물을 덮어써야 할 때만 `--force`를 붙인다.
 

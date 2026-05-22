@@ -96,6 +96,17 @@ sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 \
   --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-YYYYMMDDHHMMSS.tar.gz
 ```
 
+Use only trusted snapshots. Do not restore a customer-supplied tarball as-is.
+Before restore, inspect the archive for absolute paths, `..`, symlinks,
+hardlinks, and special files.
+
+```bash
+tar -tzvf "$SNAPSHOT" \
+  | awk '$1 ~ /^l|^h|^c|^b|^p/ || $6 ~ /^\// || $6 ~ /(^|\/)\.\.($|\/)/ { print }'
+```
+
+The command above should print nothing for a normal trusted recovery archive.
+
 Run for many accounts:
 
 ```bash

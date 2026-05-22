@@ -43,6 +43,9 @@ sudo docker exec "$CONTAINER" sh -lc 'openclaw --version'
 base image를 먼저 갱신하고 버전을 확인한다. base image가 그대로면 baseline을
 다시 빌드해도 OpenClaw 버전은 바뀌지 않는다.
 
+`latest`는 빠른 검증용이다. 장기 production 업데이트에서는 digest-pinned base
+image를 사용하고, 어떤 image id를 적용했는지 기록한다.
+
 ```bash
 cd /opt/openclaw-nas-agent-baseline
 

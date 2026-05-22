@@ -47,6 +47,7 @@ TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
 ```bash
 sudo passwd -l "$TARGET_USER"
 sudo pkill -KILL -u "$TARGET_USER" 2>/dev/null || true
+pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
 ```
 
 현재 gateway를 내린다.
@@ -145,6 +146,7 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
 
 ```text
 이전 CIFS mount가 남아 있지 않음
+기존 고객 active session이 남아 있지 않음
 이전 NAS credential이 남아 있지 않음
 이전 .openclaw state/cache/session이 남아 있지 않음
 runtime .env는 root:root 0600

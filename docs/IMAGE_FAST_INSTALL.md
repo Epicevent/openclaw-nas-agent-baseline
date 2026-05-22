@@ -18,6 +18,10 @@ production fresh install 경로에서 자동 실행되지 않는다.
 workspace 파일 seed, snapshot restore, workspace NAS symlink 재생성은
 `scripts/recovery/` 아래의 명시적 recovery 절차에서만 수행한다.
 
+따라서 image fast install의 `--check`는 구조 smoke check다. provider/API key까지
+포함한 final check는 runtime secret 주입 후 `apply-runtime-secrets.sh --check`에서
+수행한다.
+
 설치 명령:
 
 ```bash
