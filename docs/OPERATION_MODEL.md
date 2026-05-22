@@ -61,7 +61,7 @@ NAS 루트 폴더다. 실제 CIFS mountpoint는 SMB 공유 이름으로 만든 �
 ```
 
 같은 공유 이름을 가진 서로 다른 NAS를 한 계정에 동시에 붙이는 경우는 자동 충돌
-처리 대상이 아니다. 그때는 운영자가 별도 mountpoint를 명시한다.
+처리 대상이 아니다. 그때는 운영자가 고객 요청을 다른 공유 이름으로 정리한 뒤 등록한다. 고객 요청으로 별도 mountpoint나 credential path를 받지 않는다.
 
 컨테이너는 host의 `/home/ocN/nas_docs`를 read-only bind mount로 받는다. 컨테이너
 안에서 CIFS mount를 직접 하지 않는다.

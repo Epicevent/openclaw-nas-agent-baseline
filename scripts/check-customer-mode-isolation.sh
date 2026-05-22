@@ -24,6 +24,9 @@ USAGE
 target_user=""
 expected_basepath=""
 expected_origin=""
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -72,6 +75,7 @@ container="openclaw-${target_user}-openclaw-gateway-1"
 runtime_env_path="$target_home/openclaw/.env"
 config_path="$target_home/.openclaw/openclaw.json"
 nas_mountpoint="$target_home/nas_docs"
+compose_dir="$target_home/openclaw"
 failed=0
 
 pass() {
@@ -163,6 +167,13 @@ else
   echo "INFO missing_runtime_env=$runtime_env_path"
 fi
 
+compose_safety_output="$(openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" 2>&1)" \
+  && pass "compose_dir_safe" \
+  || {
+    fail "compose_dir_safe"
+    printf '%s\n' "$compose_safety_output" | sed -e 's/^FAIL /compose_safety_detail=/' -e 's/^/INFO /'
+  }
+
 if [[ -f "$config_path" ]]; then
   pass "config_exists"
 else
@@ -236,7 +247,10 @@ PY
   fi
 fi
 
-if sudo -u "$target_user" docker ps >/tmp/openclaw-customer-check-docker.out 2>/tmp/openclaw-customer-check-docker.err; then
+tmp_dir="$(mktemp -d /tmp/openclaw-customer-check.XXXXXX)"
+chmod 0700 "$tmp_dir"
+trap 'rm -rf "$tmp_dir"' EXIT
+if sudo -u "$target_user" docker ps >"$tmp_dir/docker.out" 2>"$tmp_dir/docker.err"; then
   fail "customer_docker_blocked"
 else
   pass "customer_docker_blocked"

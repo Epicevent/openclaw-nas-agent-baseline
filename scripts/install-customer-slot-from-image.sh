@@ -125,6 +125,8 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
   echo "error: user not found: $target_user" >&2
@@ -140,6 +142,11 @@ data_group="${data_group:-${target_user}_data}"
 nas_mount="$target_home/nas_docs"
 container="openclaw-${target_user}-openclaw-gateway-1"
 cli_container="openclaw-${target_user}-openclaw-cli-1"
+
+if [[ "$compose_dir" != "$target_home/openclaw" ]]; then
+  echo "error: --compose-dir must be the managed slot path: $target_home/openclaw" >&2
+  exit 2
+fi
 
 slot="${target_user#oc}"
 gateway_port=$((28789 + (slot - 1) * 100))
@@ -372,6 +379,7 @@ chmod 0750 "$target_home"
 gpasswd -d "$target_user" docker >/dev/null 2>&1 || true
 
 echo "== docker compose up =="
+openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 (
   cd "$compose_dir"
   export COMPOSE_PROJECT_NAME="openclaw-$target_user"

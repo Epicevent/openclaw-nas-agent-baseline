@@ -5,3 +5,17 @@ node_modules/
 .venv/
 __pycache__/
 dist/
+.env
+*.env
+*.cred
+*.key
+*.pem
+*.p12
+*.pfx
+.openclaw-install.env
+.openclaw/
+.openclaw*/
+.openclaw-nas/
+openclaw.json
+credentials/
+secrets/

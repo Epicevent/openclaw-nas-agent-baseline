@@ -206,7 +206,7 @@ mount 실행 시에도 credential 입력 전에 등록된 공유 경로를 먼�
 ```
 
 공유 이름이 같은 두 NAS를 같은 계정에 동시에 붙이는 경우는 아직 자동 충돌 처리를
-하지 않는다. 그런 경우에는 운영자가 별도 mountpoint를 명시해서 등록한다.
+하지 않는다. 그런 경우에는 운영자가 고객 요청을 다른 공유 이름으로 정리한 뒤 등록한다. 고객 요청으로 별도 mountpoint나 credential path를 받지 않는다.
 
 root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
 운영자는 full sudo가 아니라 `svcops` wrapper만 사용한다. root 접근자는

@@ -92,6 +92,18 @@ runtime_env_path="$target_home/openclaw/.env"
 compose_dir="$target_home/openclaw"
 container="openclaw-${target_user}-openclaw-gateway-1"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
+
+if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  echo "error: invalid user name: $target_user" >&2
+  exit 2
+fi
+
+if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+  echo "error: invalid host: $host" >&2
+  exit 2
+fi
 
 if [[ ! -f "$config_path" ]]; then
   echo "error: missing config: $config_path" >&2
@@ -103,8 +115,8 @@ if [[ ! -d "$compose_dir" ]]; then
   exit 1
 fi
 
-backup_dir="/tmp/openclaw-subdomain-mode-backup.${target_user}.$(date +%Y%m%d%H%M%S)"
-mkdir -p "$backup_dir"
+backup_dir="$(mktemp -d "/tmp/openclaw-subdomain-mode-backup.${target_user}.XXXXXX")"
+chmod 0700 "$backup_dir"
 cp -a "$config_path" "$backup_dir/openclaw.json.bak"
 if [[ -f "$runtime_env_path" ]]; then
   cp -a "$runtime_env_path" "$backup_dir/env.bak"
@@ -186,6 +198,7 @@ fi
 
 if [[ "$recreate" -eq 1 ]]; then
   echo "== docker compose force-recreate gateway =="
+  openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
   cd "$compose_dir"
   compose_args=(-f docker-compose.yml)
   [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)

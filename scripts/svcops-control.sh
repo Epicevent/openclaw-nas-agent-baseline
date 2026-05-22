@@ -30,6 +30,8 @@ USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 
 validate_user() {
   local user="$1"
@@ -53,7 +55,7 @@ validate_host() {
 
 cifs_share_is_valid() {
   local share="$1"
-  [[ "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]
+  [[ "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]
 }
 
 validate_share() {
@@ -216,9 +218,30 @@ request_value() {
   awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$file" 2>/dev/null || true
 }
 
-request_path_under_home_is_valid() {
-  local target_home="$1" path="$2"
-  [[ "$path" == "$target_home/nas_docs" || "$path" == "$target_home/nas_docs/"* || "$path" == "$target_home/.nas-cifs.cred" || "$path" == "$target_home/.openclaw-nas/credentials/"* ]]
+assert_share_request_path_safe() {
+  local target_user="$1" target_home="$2" request_file="$3" resolved
+  [[ ! -L "$target_home" ]] || { echo "share_request=invalid_home_symlink"; return 1; }
+  if [[ -e "$target_home/.openclaw-nas" && -L "$target_home/.openclaw-nas" ]]; then
+    echo "share_request=invalid_control_dir_symlink"
+    return 1
+  fi
+  [[ ! -L "$request_file" ]] || { echo "share_request=invalid_symlink"; return 1; }
+  resolved="$(readlink -f "$request_file" 2>/dev/null || true)"
+  [[ "$resolved" == "$target_home/.openclaw-nas/share-request.env" ]] || {
+    echo "share_request=invalid_resolved_path"
+    echo "request_resolved=${resolved:-missing}"
+    return 1
+  }
+  [[ "$(stat -c '%U' "$request_file" 2>/dev/null || true)" == "$target_user" ]] || {
+    echo "share_request=invalid_owner"
+    echo "request_owner=$(stat -c '%U' "$request_file" 2>/dev/null || echo unknown)"
+    return 1
+  }
+  if find "$request_file" -maxdepth 0 -perm /077 2>/dev/null | grep -q .; then
+    echo "share_request=invalid_permissions"
+    echo "request_mode=$(stat -c '%a' "$request_file" 2>/dev/null || echo unknown)"
+    return 1
+  fi
 }
 
 print_share_request() {
@@ -230,15 +253,7 @@ print_share_request() {
     echo "next_action=none"
     return 0
   fi
-  if [[ -L "$request_file" ]]; then
-    echo "share_request=invalid_symlink"
-    echo "next_action=reject; inspect account state with root"
-    return 1
-  fi
-  owner="$(stat -c '%U' "$request_file" 2>/dev/null || true)"
-  if [[ "$owner" != "$target_user" ]]; then
-    echo "share_request=invalid_owner"
-    echo "request_owner=${owner:-unknown}"
+  if ! assert_share_request_path_safe "$target_user" "$target_home" "$request_file"; then
     echo "next_action=reject; inspect account state with root"
     return 1
   fi
@@ -249,12 +264,17 @@ print_share_request() {
   requested_mountpoint="$(request_value MOUNTPOINT "$request_file")"
   requested_credentials="$(request_value CREDENTIALS_PATH "$request_file")"
   mount_name="$(request_value MOUNT_NAME "$request_file")"
+  [[ "$mount_name" == "primary" || -z "$mount_name" ]] && mount_name="$(mount_name_from_share "$requested_share")"
+  validate_mount_name "$mount_name"
   echo "share_request=present"
   echo "requested_by=${requested_by:-unknown}"
   echo "requested_at=${requested_at:-unknown}"
-  echo "mount_name=${mount_name:-primary}"
-  echo "requested_mountpoint=${requested_mountpoint:-missing}"
-  [[ -n "$requested_credentials" ]] && echo "requested_credentials_file=$requested_credentials"
+  echo "mount_name=$mount_name"
+  echo "derived_mountpoint=$(named_nas_mountpoint "$target_home" "$mount_name")"
+  echo "derived_credentials_file=$(named_nas_credentials_path "$target_home" "$mount_name")"
+  if [[ -n "$requested_mountpoint" || -n "$requested_credentials" ]]; then
+    echo "request_path_fields=ignored; paths are derived from mount_name"
+  fi
   echo "current_registered_share=${current_share:-unknown}"
   echo "requested_share=${requested_share:-missing}"
   if cifs_share_is_valid "$requested_share"; then
@@ -272,37 +292,24 @@ approve_share_request() {
   target_group="$(id -gn "$target_user")"
   request_file="$(share_request_file "$target_home")"
   [[ -f "$request_file" ]] || { echo "FAIL share_request_missing"; return 1; }
-  [[ ! -L "$request_file" ]] || { echo "FAIL share_request_symlink"; return 1; }
-  [[ "$(stat -c '%U' "$request_file" 2>/dev/null || true)" == "$target_user" ]] || {
-    echo "FAIL share_request_owner"
+  if ! assert_share_request_path_safe "$target_user" "$target_home" "$request_file" >/dev/null; then
+    echo "FAIL share_request_path_safety"
     return 1
-  }
+  fi
   requested_share="$(request_value REQUESTED_SHARE "$request_file")"
   validate_share "$requested_share"
   mount_name="$(request_value MOUNT_NAME "$request_file")"
-  [[ "$mount_name" == "primary" ]] && mount_name=""
-  if [[ -n "$mount_name" ]]; then
-    validate_mount_name "$mount_name"
-  fi
-  requested_mountpoint="$(request_value MOUNTPOINT "$request_file")"
-  requested_credentials="$(request_value CREDENTIALS_PATH "$request_file")"
-  requested_mountpoint="${requested_mountpoint:-$(nas_mountpoint "$target_home")}"
-  requested_credentials="${requested_credentials:-$(nas_credentials_path "$target_home")}"
-  if ! request_path_under_home_is_valid "$target_home" "$requested_mountpoint"; then
-    echo "FAIL requested_mountpoint_invalid=$requested_mountpoint"
-    return 1
-  fi
-  if ! request_path_under_home_is_valid "$target_home" "$requested_credentials"; then
-    echo "FAIL requested_credentials_invalid=$requested_credentials"
-    return 1
-  fi
+  [[ "$mount_name" == "primary" || -z "$mount_name" ]] && mount_name="$(mount_name_from_share "$requested_share")"
+  validate_mount_name "$mount_name"
+  requested_mountpoint="$(named_nas_mountpoint "$target_home" "$mount_name")"
+  requested_credentials="$(named_nas_credentials_path "$target_home" "$mount_name")"
 
   echo "approving_share_request_for=$target_user"
-  echo "mount_name=${mount_name:-primary}"
+  echo "mount_name=$mount_name"
   echo "mountpoint=$requested_mountpoint"
+  echo "credentials_path=$requested_credentials"
   echo "requested_share=$requested_share"
-  helper_args=(--user "$target_user" --share "$requested_share" --mountpoint "$requested_mountpoint" --credentials-path "$requested_credentials")
-  [[ -n "$mount_name" ]] && helper_args+=(--mount-name "$mount_name")
+  helper_args=(--user "$target_user" --share "$requested_share" --mount-name "$mount_name")
   bash "$script_dir/write-user-nas-fstab-entry.sh" \
     "${helper_args[@]}"
 
@@ -310,12 +317,20 @@ approve_share_request() {
   approved_dir="$target_home/.openclaw-nas/approved"
   approved_file="$approved_dir/share-request.$stamp.env"
   mkdir -p "$approved_dir"
-  cp -a "$request_file" "$approved_file"
   {
+    printf 'REQUEST_KIND=nas_mount\n'
+    printf 'REQUESTED_BY=%s\n' "$(request_value REQUESTED_BY "$request_file")"
+    printf 'REQUESTED_AT=%s\n' "$(request_value REQUESTED_AT "$request_file")"
+    printf 'MOUNT_NAME=%s\n' "$mount_name"
+    printf 'REQUESTED_SHARE=%s\n' "$requested_share"
+    printf 'MOUNTPOINT=%s\n' "$requested_mountpoint"
+    printf 'CREDENTIALS_PATH=%s\n' "$requested_credentials"
     printf 'APPROVED_AT=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
     printf 'APPROVED_BY=svcops\n'
-  } >> "$approved_file"
-  chown -R "$target_user:$target_group" "$target_home/.openclaw-nas"
+  } > "$approved_file"
+  chown "$target_user:$target_group" "$target_home/.openclaw-nas" "$approved_dir" "$approved_file"
+  chmod 0700 "$target_home/.openclaw-nas" "$approved_dir"
+  chmod 0600 "$approved_file"
   rm -f "$request_file"
 
   echo
@@ -343,6 +358,7 @@ refresh_gateway() {
   compose_dir="$target_home/openclaw"
   container="$(gateway_container "$target_user")"
   [[ -d "$compose_dir" ]] || { echo "FAIL compose_dir_missing=$compose_dir"; return 1; }
+  openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" || return 1
 
   echo "action=gateway_refresh"
   (

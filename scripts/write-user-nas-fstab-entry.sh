@@ -16,9 +16,6 @@ Options:
                             Required unless OPENCLAW_USER_NAS_SHARE is set.
   --mount-name NAME        Local folder name under /home/USER/nas_docs.
                             Default: derived from SHARE_NAME.
-  --mountpoint DIR         Mountpoint. Default: /home/USER/nas_docs/SHARE_NAME.
-  --credentials-path FILE  Credential file. Default:
-                            /home/USER/.openclaw-nas/credentials/SHARE_NAME.cred.
   --no-daemon-reload       Do not run systemctl daemon-reload after fstab update.
 
 Run as root/admin.
@@ -46,13 +43,10 @@ while [[ $# -gt 0 ]]; do
       mount_name="${2:?missing --mount-name value}"
       shift 2
       ;;
-    --mountpoint)
-      mountpoint="${2:?missing --mountpoint value}"
-      shift 2
-      ;;
-    --credentials-path)
-      credentials_path="${2:?missing --credentials-path value}"
-      shift 2
+    --mountpoint|--credentials-path)
+      echo "error: $1 is not supported" >&2
+      echo "hint: use --mount-name NAME; mountpoint and credential path are derived from that name." >&2
+      exit 2
       ;;
     --no-daemon-reload)
       daemon_reload=0
@@ -84,6 +78,12 @@ fi
 
 if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
   echo "error: invalid user name: $target_user" >&2
+  exit 2
+fi
+
+if [[ ! "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]; then
+  echo "error: invalid CIFS share path: $share" >&2
+  echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
   exit 2
 fi
 
@@ -122,29 +122,38 @@ if ! getent group "$data_group" >/dev/null; then
 fi
 target_gid="$(getent group "$data_group" | cut -d: -f3)"
 
-if [[ -z "$mount_name" && -z "$mountpoint" ]]; then
+if [[ -z "$mount_name" ]]; then
   mount_name="$(mount_name_from_share "$share")"
 fi
 
-if [[ -z "$mountpoint" ]]; then
-  mountpoint="$target_home/nas_docs/$mount_name"
-fi
+mountpoint="$target_home/nas_docs/$mount_name"
+credentials_path="$target_home/.openclaw-nas/credentials/$mount_name.cred"
 
-if [[ -z "$credentials_path" ]]; then
-  if [[ -n "$mount_name" ]]; then
-    credentials_path="$target_home/.openclaw-nas/credentials/$mount_name.cred"
-  else
-    credentials_path="$target_home/.nas-cifs.cred"
+for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" "$target_home/.openclaw-nas/credentials" "$mountpoint" "$credentials_path"; do
+  if [[ -L "$path" ]]; then
+    echo "error: refusing symlink in managed NAS path: $path" >&2
+    exit 1
   fi
-fi
+done
 
-if [[ "$mountpoint" != "$target_home/"* && "$mountpoint" != "$target_home" ]]; then
-  echo "error: mountpoint must stay under $target_home: $mountpoint" >&2
-  exit 1
-fi
+case "$mountpoint" in
+  "$target_home/nas_docs/"*) ;;
+  *)
+    echo "error: internal mountpoint escaped managed root: $mountpoint" >&2
+    exit 1
+    ;;
+esac
 
-if [[ "$credentials_path" != "$target_home/"* ]]; then
-  echo "error: credentials-path must stay under $target_home: $credentials_path" >&2
+case "$credentials_path" in
+  "$target_home/.openclaw-nas/credentials/"*.cred) ;;
+  *)
+    echo "error: internal credential path escaped managed root: $credentials_path" >&2
+    exit 1
+    ;;
+esac
+
+if [[ "$mountpoint" == *"/../"* || "$mountpoint" == */.. || "$credentials_path" == *"/../"* || "$credentials_path" == */.. ]]; then
+  echo "error: refusing parent traversal in managed NAS path" >&2
   exit 1
 fi
 
@@ -169,6 +178,12 @@ fi
 credentials_dir="$(dirname "$credentials_path")"
 credentials_root="$(dirname "$credentials_dir")"
 mkdir -p "$mountpoint" "$credentials_dir"
+for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" "$target_home/.openclaw-nas/credentials" "$mountpoint" "$credentials_path"; do
+  if [[ -L "$path" ]]; then
+    echo "error: refusing symlink in managed NAS path after mkdir: $path" >&2
+    exit 1
+  fi
+done
 current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
 if [[ "$current_mount_target" == "$mountpoint" ]]; then
   echo "warn: mountpoint is already mounted; skipping ownership fix: $mountpoint" >&2

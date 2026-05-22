@@ -25,11 +25,16 @@ USAGE
 mode="approve"
 device_id=""
 target_user=""
+user_arg=0
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --user)
       target_user="${2:?missing user}"
+      user_arg=1
       shift 2
       ;;
     --list)
@@ -73,6 +78,14 @@ openclaw_dir="${OPENCLAW_DIR:-$target_home/openclaw}"
 if [[ ! -d "$openclaw_dir" ]]; then
   echo "error: OpenClaw directory not found: $openclaw_dir" >&2
   exit 1
+fi
+
+if [[ "$user_arg" -eq 1 ]]; then
+  if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+    echo "error: invalid user name: $target_user" >&2
+    exit 2
+  fi
+  openclaw_assert_safe_compose_dir "$target_user" "$openclaw_dir"
 fi
 
 compose_args=(-f docker-compose.yml)

@@ -106,6 +106,15 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
+
+if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  echo "error: invalid user name: $target_user" >&2
+  exit 2
+fi
+
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
   echo "error: user not found: $target_user" >&2
@@ -118,6 +127,24 @@ mountpoint="${mountpoint:-$target_home/nas_docs}"
 compose_dir="${compose_dir:-$target_home/openclaw}"
 container="openclaw-${target_user}-openclaw-gateway-1"
 cli_container="openclaw-${target_user}-openclaw-cli-1"
+
+if [[ "$compose_dir" != "$target_home/openclaw" ]]; then
+  echo "error: --compose-dir must be the managed slot path: $target_home/openclaw" >&2
+  exit 2
+fi
+
+case "$mountpoint" in
+  "$target_home/nas_docs"|"$target_home/nas_docs/"*) ;;
+  *)
+    echo "error: --mountpoint must stay under $target_home/nas_docs" >&2
+    exit 2
+    ;;
+esac
+
+if [[ "$mountpoint" == *"/../"* || "$mountpoint" == */.. || -L "$mountpoint" ]]; then
+  echo "error: unsafe NAS mountpoint: $mountpoint" >&2
+  exit 2
+fi
 
 if [[ "$remount" -eq 1 ]]; then
   if [[ -z "$share" ]]; then
@@ -239,6 +266,7 @@ gpasswd -d "$target_user" docker >/dev/null 2>&1 || true
 
 if [[ "$restart_gateway" -eq 1 ]]; then
   echo "== start gateway as runtime user =="
+  openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
   cd "$compose_dir"
   mapfile -t args < <(compose_args)
   docker compose "${args[@]}" up -d --force-recreate openclaw-gateway
@@ -254,7 +282,6 @@ else
 fi
 
 if [[ "$run_check" -eq 1 ]]; then
-  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   bash "$script_dir/check-customer-mode-isolation.sh" --user "$target_user"
 fi
 

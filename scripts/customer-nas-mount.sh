@@ -20,8 +20,6 @@ Options:
                         ~/nas_docs/NAME.
   --remount             Unmount first, then mount again.
   --reset-credential    Re-enter NAS username/password before mounting.
-  --mountpoint DIR      Override mountpoint.
-  --credentials FILE    Override credentials file.
 
 Run as the customer Linux account, for example oc20. Do not run with sudo.
 USAGE
@@ -29,8 +27,8 @@ USAGE
 
 mode="mount"
 reset_credential=0
-mountpoint="${OPENCLAW_NAS_MOUNTPOINT:-}"
-credentials="${OPENCLAW_NAS_CREDENTIALS:-}"
+mountpoint=""
+credentials=""
 mount_name=""
 requested_share=""
 
@@ -62,13 +60,10 @@ while [[ $# -gt 0 ]]; do
       reset_credential=1
       shift
       ;;
-    --mountpoint)
-      mountpoint="${2:?missing --mountpoint value}"
-      shift 2
-      ;;
-    --credentials)
-      credentials="${2:?missing --credentials value}"
-      shift 2
+    --mountpoint|--credentials)
+      echo "error: $1 is not supported in customer mode" >&2
+      echo "hint: use --mount-name NAME; the operator-approved paths are derived from that name." >&2
+      exit 2
       ;;
     -h|--help)
       usage
@@ -87,6 +82,12 @@ if [[ "$(id -u)" -eq 0 ]]; then
   exit 1
 fi
 
+if [[ -n "${OPENCLAW_NAS_MOUNTPOINT:-}" || -n "${OPENCLAW_NAS_CREDENTIALS:-}" ]]; then
+  echo "error: OPENCLAW_NAS_MOUNTPOINT/OPENCLAW_NAS_CREDENTIALS overrides are not supported" >&2
+  echo "hint: use --mount-name NAME; paths are generated from the registered mount name." >&2
+  exit 2
+fi
+
 validate_mount_name() {
   local name="$1"
   if [[ "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
@@ -98,7 +99,7 @@ validate_mount_name() {
 
 validate_share() {
   local share="$1"
-  if [[ ! "$share" =~ ^//[^[:space:]/]+/[^[:space:]]+$ ]]; then
+  if [[ ! "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]; then
     echo "error: invalid CIFS share path: $share" >&2
     echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
     exit 2
@@ -138,22 +139,6 @@ if [[ -z "$credentials" ]]; then
     credentials="$HOME/.nas-cifs.cred"
   fi
 fi
-
-case "$mountpoint" in
-  "$HOME"|"$HOME"/*) ;;
-  *)
-    echo "error: mountpoint must stay under HOME: $mountpoint" >&2
-    exit 2
-    ;;
-esac
-
-case "$credentials" in
-  "$HOME"|"$HOME"/*) ;;
-  *)
-    echo "error: credentials file must stay under HOME: $credentials" >&2
-    exit 2
-    ;;
-esac
 
 status() {
   local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
@@ -299,6 +284,7 @@ require_registered_share() {
 }
 
 write_credentials() {
+  local old_stty
   umask 077
   mkdir -p "$(dirname "$credentials")"
 
@@ -306,9 +292,12 @@ write_credentials() {
   read -r nas_user
 
   printf "NAS password: "
+  old_stty="$(stty -g)"
+  trap 'stty "$old_stty" 2>/dev/null || true' INT TERM EXIT
   stty -echo
   read -r nas_pass
-  stty echo
+  stty "$old_stty"
+  trap - INT TERM EXIT
   printf "\n"
 
   {
