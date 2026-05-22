@@ -121,13 +121,6 @@ printf '\n'
 
 sudo tee "$SECRET_ENV" >/dev/null <<EOF
 GEMINI_API_KEY=$GEMINI_API_KEY
-OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
-OPENCLAW_PROXY_MODE=subdomain
-OPENCLAW_CONTROL_UI_BASEPATH=/
-OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://$CONTROL_UI_HOST
-OPENCLAW_GATEWAY_BIND=lan
 EOF
 
 sudo chown root:root "$SECRET_ENV"
@@ -139,9 +132,6 @@ unset GEMINI_API_KEY
 
 ```bash
 sudo grep -q '^GEMINI_API_KEY=' "$SECRET_ENV" && echo gemini_key_present
-sudo grep -q '^OPENCLAW_PROXY_MODE=subdomain$' "$SECRET_ENV" && echo proxy_mode_ok
-sudo grep -q '^OPENCLAW_CONTROL_UI_BASEPATH=/$' "$SECRET_ENV" && echo basepath_ok
-sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$SECRET_ENV" && echo origin_ok
 ```
 
 주입하고 gateway를 재생성한다.

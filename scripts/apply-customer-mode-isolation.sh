@@ -228,11 +228,6 @@ if [[ -d "$target_home/.openclaw-auth-profile-secrets" ]]; then
   find "$target_home/.openclaw-auth-profile-secrets" -type f -exec chmod 0600 {} +
 fi
 
-if [[ -f "$target_home/.openclaw-install.env" ]]; then
-  chown root:root "$target_home/.openclaw-install.env"
-  chmod 0600 "$target_home/.openclaw-install.env"
-fi
-
 chown -R root:root "$compose_dir"
 find "$compose_dir" -type d -exec chmod 0755 {} +
 find "$compose_dir" -type f -exec chmod 0644 {} +

@@ -21,8 +21,6 @@ Options:
   --host HOST           Public subdomain. Default: USER.BASE_DOMAIN.
   --base-domain NAME    Base domain. Default: ji-tech.co.kr.
   --image IMAGE         Docker image. Default: openclaw-nas-agent:baseline.
-  --env-file FILE       Optional legacy install env file to import.
-  --require-env-file    Fail if the default or explicit env file is missing.
   --compose-dir DIR     Compose dir. Default: /home/USER/openclaw.
   --runtime-user USER   Runtime account. Default: USER_rt.
   --data-group GROUP    NAS shared group. Default: USER_data.
@@ -39,9 +37,6 @@ target_user=""
 host=""
 base_domain="${OPENCLAW_BASE_DOMAIN:-ji-tech.co.kr}"
 image="${OPENCLAW_IMAGE:-openclaw-nas-agent:baseline}"
-env_file=""
-env_file_explicit=0
-require_env_file=0
 compose_dir=""
 runtime_user=""
 data_group=""
@@ -67,15 +62,6 @@ while [[ $# -gt 0 ]]; do
     --image)
       image="${2:?missing --image value}"
       shift 2
-      ;;
-    --env-file)
-      env_file="${2:?missing --env-file value}"
-      env_file_explicit=1
-      shift 2
-      ;;
-    --require-env-file)
-      require_env_file=1
-      shift
       ;;
     --compose-dir)
       compose_dir="${2:?missing --compose-dir value}"
@@ -144,7 +130,6 @@ fi
 
 host="${host:-${target_user}.${base_domain}}"
 origin="https://${host}"
-env_file="${env_file:-$target_home/.openclaw-install.env}"
 compose_dir="${compose_dir:-$target_home/openclaw}"
 runtime_user="${runtime_user:-${target_user}_rt}"
 data_group="${data_group:-${target_user}_data}"
@@ -165,18 +150,6 @@ fi
 slot="${target_user#oc}"
 gateway_port=$((28789 + (slot - 1) * 100))
 bridge_port=$((gateway_port + 1))
-
-install_env_present=0
-provider_key_present=0
-if [[ -f "$env_file" ]]; then
-  install_env_present=1
-  if grep -Eq '^[[:space:]]*(export[[:space:]]+)?GEMINI_API_KEY[[:space:]]*=' "$env_file"; then
-    provider_key_present=1
-  fi
-elif [[ "$env_file_explicit" -eq 1 || "$require_env_file" -eq 1 ]]; then
-  echo "error: install env not found: $env_file" >&2
-  exit 1
-fi
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "error: image not found: $image" >&2
@@ -227,12 +200,7 @@ echo "data_group=$data_group"
 echo "image=$image"
 echo "host=$host"
 echo "gateway_port=$gateway_port"
-if [[ "$install_env_present" -eq 1 ]]; then
-  echo "install_env=present"
-else
-  echo "install_env=missing"
-  echo "secret_import=skipped"
-fi
+echo "secret_import=skipped"
 
 openclaw_assert_managed_slot_prewrite "$target_user"
 
@@ -373,14 +341,7 @@ bash "$script_dir/repair-openclaw-state.sh" \
   --force-defaults \
   --no-backup
 
-if [[ "$install_env_present" -eq 1 ]]; then
-  bash "$script_dir/apply-openclaw-install-env.sh" \
-    --env-file "$env_file" \
-    --user "$target_user" \
-    --runtime-user "$runtime_user"
-else
-  echo "INFO install_env_import_skipped=$env_file"
-fi
+echo "INFO runtime_secret_injection=not_part_of_fresh_install"
 
 subdomain_args=(--user "$target_user" --host "$host" --no-recreate)
 if [[ "$write_apache" -eq 0 ]]; then
@@ -405,11 +366,6 @@ find "$compose_dir" -type d -exec chmod 0755 {} +
 find "$compose_dir" -type f -exec chmod 0644 {} +
 chmod 0600 "$compose_dir/.env"
 chown root:root "$compose_dir/.env" "$compose_dir/docker-compose.host-user.yml"
-
-if [[ -f "$target_home/.openclaw-install.env" ]]; then
-  chown root:root "$target_home/.openclaw-install.env"
-  chmod 0600 "$target_home/.openclaw-install.env"
-fi
 
 chown "$target_user:$target_user" "$target_home"
 chmod 0750 "$target_home"
@@ -445,9 +401,7 @@ if [[ "$run_check" -eq 1 ]]; then
     --expected-basepath /
     --expected-origin "$origin"
   )
-  if [[ "$provider_key_present" -eq 0 ]]; then
-    check_args+=(--skip-provider-key-check)
-  fi
+  check_args+=(--skip-provider-key-check)
   bash "$script_dir/check-customer-deployment.sh" \
     "${check_args[@]}"
 fi

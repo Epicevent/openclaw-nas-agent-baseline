@@ -81,8 +81,8 @@ sudo bash install.sh
 ```bash
 PATCH_REPO=/opt/openclaw-nas-agent-baseline
 
-sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh"
-sudo bash "$PATCH_REPO/scripts/patch-openclaw-bootstrap-install-env.sh" --check
+sudo bash "$PATCH_REPO/scripts/legacy/patch-openclaw-bootstrap-install-env.sh"
+sudo bash "$PATCH_REPO/scripts/legacy/patch-openclaw-bootstrap-install-env.sh" --check
 ```
 
 정상 출력:

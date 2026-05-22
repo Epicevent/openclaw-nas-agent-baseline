@@ -25,8 +25,8 @@ Secret values such as GEMINI_API_KEY are not written into openclaw.json. The
 Gateway reads them from its runtime environment.
 
 Examples:
-  bash scripts/apply-openclaw-install-env.sh --env-file "$HOME/.openclaw-install.env" --home "$HOME"
-  sudo bash scripts/apply-openclaw-install-env.sh --env-file /secure/ocN.install.env --user ocN --runtime-user ocN_rt
+  bash scripts/legacy/apply-openclaw-install-env.sh --env-file "$HOME/.openclaw-install.env" --home "$HOME"
+  sudo bash scripts/legacy/apply-openclaw-install-env.sh --env-file /secure/ocN.install.env --user ocN --runtime-user ocN_rt
 USAGE
 }
 
@@ -37,8 +37,9 @@ runtime_user=""
 write_runtime_env=1
 import_gateway_token=0
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+scripts_root="$(cd "$script_dir/.." && pwd)"
 # shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+source "$scripts_root/lib-safe-compose.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

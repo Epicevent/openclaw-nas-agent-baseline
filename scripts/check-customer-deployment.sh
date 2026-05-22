@@ -212,6 +212,21 @@ check_public_openclaw_page() {
   return 1
 }
 
+echo "== production legacy boundary =="
+legacy_import_pattern='apply-openclaw-install-env[.]sh'
+legacy_env_pattern='[.]openclaw-install[.]'"env"
+legacy_refs="$(
+  grep -R -n --include='*.sh' -E "${legacy_import_pattern}|${legacy_env_pattern}" "$script_dir" 2>/dev/null \
+    | grep -v '/legacy/' \
+    || true
+)"
+if [[ -n "$legacy_refs" ]]; then
+  fail "production_legacy_boundary_ok"
+  printf '%s\n' "$legacy_refs" | sed 's/^/INFO legacy_ref=/'
+else
+  pass "production_legacy_boundary_ok"
+fi
+
 echo "== customer isolation =="
 isolation_args=(
   --user "$target_user"

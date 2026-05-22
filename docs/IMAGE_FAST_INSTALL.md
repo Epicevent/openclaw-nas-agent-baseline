@@ -11,9 +11,8 @@
 ```
 
 fresh install은 provider/API key 없이 완료할 수 있어야 한다. key 주입과 교체는
-설치 이후 `apply-runtime-secrets.sh`로 별도 처리한다. `.openclaw-install.env`는
-bootstrap 호환 또는 legacy import 용도일 뿐, production fresh install의 필수
-전제가 아니다.
+설치 이후 `apply-runtime-secrets.sh`로 별도 처리한다. legacy install-env import는
+production fresh install 경로에서 자동 실행되지 않는다.
 
 설치 명령:
 
@@ -32,6 +31,9 @@ provider/API key를 주입하거나 교체할 때:
 ```bash
 sudo install -o root -g root -m 0600 /dev/null "/root/openclaw-runtime-secrets.$TARGET_USER.env"
 sudo editor "/root/openclaw-runtime-secrets.$TARGET_USER.env"
+
+# 예:
+# GEMINI_API_KEY=...
 
 sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-runtime-secrets.sh \
   --user "$TARGET_USER" \

@@ -19,8 +19,8 @@ Default target:
   /opt/openclaw-bootstrap/openclaw-bootstrap.sh
 
 Examples:
-  sudo bash scripts/patch-openclaw-bootstrap-install-env.sh
-  bash scripts/patch-openclaw-bootstrap-install-env.sh --check
+  sudo bash scripts/legacy/patch-openclaw-bootstrap-install-env.sh
+  bash scripts/legacy/patch-openclaw-bootstrap-install-env.sh --check
 USAGE
 }
 
@@ -294,7 +294,7 @@ resolve_openclaw_baseline_dir() {
            "$HOME/openclaw-nas-agent-baseline-fresh" \
            "$HOME/openclaw-nas-agent-baseline"; do
     [[ -n "$d" ]] || continue
-    if [[ -f "$d/scripts/apply-openclaw-install-env.sh" ]]; then
+    if [[ -f "$d/scripts/legacy/apply-openclaw-install-env.sh" ]]; then
       printf '%s' "$d"
       return 0
     fi
@@ -310,7 +310,7 @@ apply_openclaw_install_settings() {
   [[ -f "$env_file" ]] || die "OPENCLAW_INSTALL_ENV_FILE not found: $env_file"
 
   baseline_dir="$(resolve_openclaw_baseline_dir)" || die "openclaw-nas-agent-baseline repo not found. Set OPENCLAW_BASELINE_DIR."
-  helper="$baseline_dir/scripts/apply-openclaw-install-env.sh"
+  helper="$baseline_dir/scripts/legacy/apply-openclaw-install-env.sh"
 
   info "Applying install settings: $env_file"
   local helper_args=(--home "$HOME" --env-file "$env_file")
