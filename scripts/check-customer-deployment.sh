@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  check-customer-deployment.sh --user USER --expected-origin ORIGIN [--expected-basepath PATH] [--skip-public-url-check] [--expect-unknown-origin-rejected ORIGIN]
+  check-customer-deployment.sh --user USER --expected-origin ORIGIN [--expected-basepath PATH] [--skip-provider-key-check] [--skip-public-url-check] [--expect-unknown-origin-rejected ORIGIN]
 
 Checks the full hosted customer deployment without printing secret values.
 
@@ -30,6 +30,7 @@ expected_origin=""
 expected_basepath="/"
 skip_public_url_check=0
 expect_unknown_origin_rejected=""
+skip_provider_key_check=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
     --expected-basepath)
       expected_basepath="${2:?missing basepath}"
       shift 2
+      ;;
+    --skip-provider-key-check)
+      skip_provider_key_check=1
+      shift
       ;;
     --skip-public-url-check)
       skip_public_url_check=1
@@ -208,10 +213,16 @@ check_public_openclaw_page() {
 }
 
 echo "== customer isolation =="
+isolation_args=(
+  --user "$target_user"
+  --expected-basepath "$expected_basepath"
+  --expected-origin "$expected_origin"
+)
+if [[ "$skip_provider_key_check" -eq 1 ]]; then
+  isolation_args+=(--skip-provider-key-check)
+fi
 if bash "$script_dir/check-customer-mode-isolation.sh" \
-  --user "$target_user" \
-  --expected-basepath "$expected_basepath" \
-  --expected-origin "$expected_origin"; then
+  "${isolation_args[@]}"; then
   pass "customer_isolation_ok"
 else
   fail "customer_isolation_ok"

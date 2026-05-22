@@ -55,6 +55,9 @@ port=""
 output=""
 apply=0
 reload_apache=0
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -120,6 +123,11 @@ if [[ -z "$target_user" ]]; then
   exit 2
 fi
 
+if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  echo "error: invalid user name: $target_user" >&2
+  exit 2
+fi
+
 case "$mode" in
   subdomain|path) ;;
   *)
@@ -134,13 +142,18 @@ if [[ "$apply" -eq 1 && "$(id -u)" -ne 0 ]]; then
 fi
 
 target_home="$(getent passwd "$target_user" | cut -d: -f6 || true)"
-if [[ -z "$target_home" && -z "$output" ]]; then
+if [[ -z "$target_home" ]]; then
   echo "error: user not found: $target_user" >&2
   exit 1
 fi
 
 if [[ -z "$host" ]]; then
   host="${target_user}.${base_domain}"
+fi
+
+if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
+  echo "error: invalid host: $host" >&2
+  exit 2
 fi
 
 if [[ -z "$cert_live_name" ]]; then
@@ -173,6 +186,24 @@ fi
 if [[ -z "$port" ]]; then
   echo "error: could not determine backend port; pass --port" >&2
   exit 1
+fi
+
+if [[ ! "$port" =~ ^[0-9]+$ || "$port" -lt 1 || "$port" -gt 65535 ]]; then
+  echo "error: invalid port: $port" >&2
+  exit 2
+fi
+
+if [[ "$apply" -eq 1 ]]; then
+  expected_output_subdomain="$target_home/openclaw/deploy/apache-subdomain-${target_user}.conf"
+  expected_output_path="$target_home/openclaw/deploy/apache-${target_user}.conf"
+  case "$output" in
+    "$expected_output_subdomain"|"$expected_output_path") ;;
+    *)
+      echo "error: --output must stay on a managed deploy path: $expected_output_subdomain or $expected_output_path" >&2
+      exit 2
+      ;;
+  esac
+  openclaw_assert_managed_slot_prewrite "$target_user"
 fi
 
 render_subdomain() {

@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  repair-openclaw-state.sh [--user USER] [--home HOME] [--snapshot FILE] [--force-defaults] [--no-backup]
+  repair-openclaw-state.sh [--user USER] [--home HOME] [--runtime-user USER] [--snapshot FILE] [--force-defaults] [--no-backup]
 
 Repairs a user's OpenClaw state enough to get the agent usable again.
 
@@ -23,9 +23,12 @@ USAGE
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 
 target_user=""
 target_home=""
+runtime_user=""
 snapshot=""
 force_defaults=0
 make_backup=1
@@ -38,6 +41,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --home)
       target_home="${2:?missing home}"
+      shift 2
+      ;;
+    --runtime-user)
+      runtime_user="${2:?missing runtime user}"
       shift 2
       ;;
     --snapshot)
@@ -81,13 +88,31 @@ fi
 
 target_uid="$(id -u "$target_user" 2>/dev/null || true)"
 target_gid="$(id -g "$target_user" 2>/dev/null || true)"
+runtime_uid=""
+runtime_gid=""
+if [[ -n "$runtime_user" ]]; then
+  runtime_uid="$(id -u "$runtime_user" 2>/dev/null || true)"
+  runtime_gid="$(id -g "$runtime_user" 2>/dev/null || true)"
+  if [[ -z "$runtime_uid" || -z "$runtime_gid" ]]; then
+    echo "error: runtime user not found: $runtime_user" >&2
+    exit 1
+  fi
+fi
 
 openclaw_dir="$target_home/.openclaw"
 workspace_dir="$openclaw_dir/workspace"
 recovery_dir="$target_home/.openclaw-recovery"
 config_path="$openclaw_dir/openclaw.json"
 
+if [[ "$(id -u)" -eq 0 && "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  openclaw_assert_managed_slot_prewrite "$target_user"
+fi
+
 mkdir -p "$openclaw_dir" "$workspace_dir" "$recovery_dir"
+
+if [[ "$(id -u)" -eq 0 && "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  openclaw_assert_managed_slot_prewrite "$target_user"
+fi
 
 if [[ "$make_backup" -eq 1 && -d "$openclaw_dir" ]]; then
   echo "backup: $("$script_dir/backup-openclaw-state.sh" --user "$target_user" --home "$target_home")"
@@ -215,8 +240,14 @@ snapshot=${snapshot:-}
 repo=$repo_root
 EOF
 
-if [[ -n "$target_uid" && -n "$target_gid" && "$(id -u)" -eq 0 ]]; then
-  chown -R "$target_uid:$target_gid" "$openclaw_dir" "$recovery_dir"
+if [[ "$(id -u)" -eq 0 ]]; then
+  if [[ -n "$runtime_uid" && -n "$runtime_gid" ]]; then
+    chown -R "$runtime_uid:$runtime_gid" "$openclaw_dir"
+    chown -R root:root "$recovery_dir"
+    chmod 0700 "$recovery_dir"
+  elif [[ -n "$target_uid" && -n "$target_gid" ]]; then
+    chown -R "$target_uid:$target_gid" "$openclaw_dir" "$recovery_dir"
+  fi
 fi
 
 echo "openclaw_dir=$openclaw_dir"

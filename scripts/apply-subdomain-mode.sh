@@ -115,6 +115,8 @@ if [[ ! -d "$compose_dir" ]]; then
   exit 1
 fi
 
+openclaw_assert_managed_slot_prewrite "$target_user"
+
 backup_dir="$(mktemp -d "/tmp/openclaw-subdomain-mode-backup.${target_user}.XXXXXX")"
 chmod 0700 "$backup_dir"
 cp -a "$config_path" "$backup_dir/openclaw.json.bak"

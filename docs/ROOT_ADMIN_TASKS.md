@@ -59,44 +59,6 @@ echo "control_ui_host=$CONTROL_UI_HOST"
 
 고객 계정은 Docker 그룹에 넣지 않는다.
 
-## 설치 입력 파일 준비
-
-실행 주체: **[root 관리자]**
-
-`$TARGET_HOME/.openclaw-install.env`는 설치 입력 파일이다. Gemini/API key는 여기에
-들어가지만, 설치 후 고객 계정은 이 파일을 읽을 수 없다.
-
-```bash
-sudo install -o root -g root -m 600 /dev/null "$TARGET_HOME/.openclaw-install.env"
-
-read -rsp "GEMINI_API_KEY for $TARGET_USER: " GEMINI_API_KEY
-printf '\n'
-
-sudo tee "$TARGET_HOME/.openclaw-install.env" >/dev/null <<EOF
-GEMINI_API_KEY=$GEMINI_API_KEY
-OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
-OPENCLAW_PROXY_MODE=subdomain
-OPENCLAW_CONTROL_UI_BASEPATH=/
-OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
-OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
-OPENCLAW_PROXY_ALLOWED_ORIGINS=https://$CONTROL_UI_HOST
-OPENCLAW_GATEWAY_BIND=lan
-EOF
-
-sudo chown root:root "$TARGET_HOME/.openclaw-install.env"
-sudo chmod 600 "$TARGET_HOME/.openclaw-install.env"
-unset GEMINI_API_KEY
-```
-
-값 자체를 출력하지 않고 존재 여부만 확인한다.
-
-```bash
-sudo grep -q '^GEMINI_API_KEY=' "$TARGET_HOME/.openclaw-install.env" && echo gemini_key_present
-sudo grep -q '^OPENCLAW_PROXY_MODE=subdomain$' "$TARGET_HOME/.openclaw-install.env" && echo proxy_mode_ok
-sudo grep -q '^OPENCLAW_CONTROL_UI_BASEPATH=/$' "$TARGET_HOME/.openclaw-install.env" && echo basepath_ok
-sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$TARGET_HOME/.openclaw-install.env" && echo origin_ok
-```
-
 ## baseline 이미지 빌드
 
 실행 주체: **[root 관리자]**
@@ -141,6 +103,55 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-im
   --host "$CONTROL_UI_HOST" \
   --image openclaw-nas-agent:baseline \
   --force
+```
+
+## runtime secret 주입 또는 교체
+
+실행 주체: **[root 관리자]**
+
+설치와 provider/API key 주입은 별도 단계다. fresh install 직후 또는 key 교체가
+필요할 때 실행한다.
+
+```bash
+SECRET_ENV="/root/openclaw-runtime-secrets.$TARGET_USER.env"
+sudo install -o root -g root -m 600 /dev/null "$SECRET_ENV"
+
+read -rsp "GEMINI_API_KEY for $TARGET_USER: " GEMINI_API_KEY
+printf '\n'
+
+sudo tee "$SECRET_ENV" >/dev/null <<EOF
+GEMINI_API_KEY=$GEMINI_API_KEY
+OPENCLAW_DEFAULT_MODEL=google/gemini-3.1-pro-preview
+OPENCLAW_PROXY_MODE=subdomain
+OPENCLAW_CONTROL_UI_BASEPATH=/
+OPENCLAW_CONTROL_UI_DISABLE_DEVICE_AUTH=1
+OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST
+OPENCLAW_PROXY_ALLOWED_ORIGINS=https://$CONTROL_UI_HOST
+OPENCLAW_GATEWAY_BIND=lan
+EOF
+
+sudo chown root:root "$SECRET_ENV"
+sudo chmod 600 "$SECRET_ENV"
+unset GEMINI_API_KEY
+```
+
+값 자체를 출력하지 않고 존재 여부만 확인한다.
+
+```bash
+sudo grep -q '^GEMINI_API_KEY=' "$SECRET_ENV" && echo gemini_key_present
+sudo grep -q '^OPENCLAW_PROXY_MODE=subdomain$' "$SECRET_ENV" && echo proxy_mode_ok
+sudo grep -q '^OPENCLAW_CONTROL_UI_BASEPATH=/$' "$SECRET_ENV" && echo basepath_ok
+sudo grep -q "^OPENCLAW_PROXY_PUBLIC_ORIGIN=https://$CONTROL_UI_HOST$" "$SECRET_ENV" && echo origin_ok
+```
+
+주입하고 gateway를 재생성한다.
+
+```bash
+sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-runtime-secrets.sh \
+  --user "$TARGET_USER" \
+  --host "$CONTROL_UI_HOST" \
+  --env-file "$SECRET_ENV" \
+  --check
 ```
 
 ## Apache 운영 반영
@@ -217,7 +228,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
 
 이미 설치된 계정을 일부러 지우고 신규 설치를 검증할 때만 실행한다.
 이 블록은 OpenClaw 설치물과 컨테이너를 삭제한다. NAS mount, Apache 설정,
-`.openclaw-install.env`, 고객 NAS credential은 삭제하지 않는다.
+고객 NAS credential은 삭제하지 않는다.
 
 ```bash
 sudo docker ps -a --filter "label=com.docker.compose.project=openclaw-$TARGET_USER" \

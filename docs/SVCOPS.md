@@ -110,9 +110,9 @@ svcops가 직접 처리:
 root 관리자에게 요청:
   서버 최초 설치
   고객 Linux 계정 생성과 비밀번호 설정
-  .openclaw-install.env 작성
   baseline 이미지 빌드
   계정별 OpenClaw 설치
+  runtime secret 주입 또는 교체
   Apache 운영 site 반영
   Gateway token 출력
 ```

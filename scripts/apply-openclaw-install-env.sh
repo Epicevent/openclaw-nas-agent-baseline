@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  apply-openclaw-install-env.sh --env-file FILE [--user USER] [--home HOME] [--no-runtime-env] [--import-gateway-token]
+  apply-openclaw-install-env.sh --env-file FILE [--user USER] [--home HOME] [--runtime-user USER] [--no-runtime-env] [--import-gateway-token]
 
 Applies install-time OpenClaw settings into a newly created account.
 The script does not print secret values.
@@ -26,15 +26,19 @@ Gateway reads them from its runtime environment.
 
 Examples:
   bash scripts/apply-openclaw-install-env.sh --env-file "$HOME/.openclaw-install.env" --home "$HOME"
-  sudo bash scripts/apply-openclaw-install-env.sh --env-file /secure/ocN.install.env --user ocN
+  sudo bash scripts/apply-openclaw-install-env.sh --env-file /secure/ocN.install.env --user ocN --runtime-user ocN_rt
 USAGE
 }
 
 target_user=""
 target_home=""
 env_file=""
+runtime_user=""
 write_runtime_env=1
 import_gateway_token=0
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-safe-compose.sh
+source "$script_dir/lib-safe-compose.sh"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +52,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --home)
       target_home="${2:?missing home}"
+      shift 2
+      ;;
+    --runtime-user)
+      runtime_user="${2:?missing runtime user}"
       shift 2
       ;;
     --no-runtime-env)
@@ -80,6 +88,10 @@ if [[ ! -f "$env_file" ]]; then
   echo "error: env file not found: $env_file" >&2
   exit 1
 fi
+if [[ -L "$env_file" ]]; then
+  echo "error: env file must not be a symlink: $env_file" >&2
+  exit 1
+fi
 
 if [[ -n "$target_user" && -z "$target_home" ]]; then
   target_home="$(getent passwd "$target_user" | cut -d: -f6)"
@@ -98,12 +110,30 @@ fi
 
 target_uid="$(id -u "$target_user" 2>/dev/null || true)"
 target_gid="$(id -g "$target_user" 2>/dev/null || true)"
+runtime_uid=""
+runtime_gid=""
+if [[ -n "$runtime_user" ]]; then
+  runtime_uid="$(id -u "$runtime_user" 2>/dev/null || true)"
+  runtime_gid="$(id -g "$runtime_user" 2>/dev/null || true)"
+  if [[ -z "$runtime_uid" || -z "$runtime_gid" ]]; then
+    echo "error: runtime user not found: $runtime_user" >&2
+    exit 1
+  fi
+fi
 
 openclaw_dir="$target_home/.openclaw"
 config_path="$openclaw_dir/openclaw.json"
 runtime_env_path="$target_home/openclaw/.env"
 
+if [[ "$(id -u)" -eq 0 && "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  openclaw_assert_managed_slot_prewrite "$target_user"
+fi
+
 mkdir -p "$openclaw_dir"
+
+if [[ "$(id -u)" -eq 0 && "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
+  openclaw_assert_managed_slot_prewrite "$target_user"
+fi
 
 OPENCLAW_IMPORT_ENV_FILE="$env_file" \
 OPENCLAW_IMPORT_CONFIG_PATH="$config_path" \
@@ -353,9 +383,14 @@ summary = {
 print(json.dumps(summary, indent=2, ensure_ascii=False))
 PY
 
-if [[ -n "$target_uid" && -n "$target_gid" && "$(id -u)" -eq 0 ]]; then
-  chown "$target_uid:$target_gid" "$config_path"
+if [[ "$(id -u)" -eq 0 ]]; then
+  if [[ -n "$runtime_uid" && -n "$runtime_gid" ]]; then
+    chown "$runtime_uid:$runtime_gid" "$config_path"
+  elif [[ -n "$target_uid" && -n "$target_gid" ]]; then
+    chown "$target_uid:$target_gid" "$config_path"
+  fi
   if [[ -f "$runtime_env_path" ]]; then
-    chown "$target_uid:$target_gid" "$runtime_env_path"
+    chown root:root "$runtime_env_path"
+    chmod 0600 "$runtime_env_path"
   fi
 fi

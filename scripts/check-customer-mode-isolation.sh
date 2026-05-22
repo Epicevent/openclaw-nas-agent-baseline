@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  check-customer-mode-isolation.sh --user USER [--expected-basepath PATH] [--expected-origin ORIGIN]
+  check-customer-mode-isolation.sh --user USER [--expected-basepath PATH] [--expected-origin ORIGIN] [--skip-provider-key-check]
 
 Checks customer-mode isolation without printing secret values.
 
@@ -15,7 +15,8 @@ Expected pass state:
   - USER cannot read /home/USER/.openclaw/openclaw.json
   - USER cannot see GEMINI_API_KEY through /proc
   - Control UI device pairing is disabled for this hosted customer flow
-  - gateway container has GEMINI_API_KEY and sees the NAS as a CIFS mount
+  - gateway container has GEMINI_API_KEY, unless --skip-provider-key-check is used
+  - gateway container sees the NAS as a CIFS mount
 
 Run as root/admin.
 USAGE
@@ -24,6 +25,7 @@ USAGE
 target_user=""
 expected_basepath=""
 expected_origin=""
+skip_provider_key_check=0
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib-safe-compose.sh
 source "$script_dir/lib-safe-compose.sh"
@@ -41,6 +43,10 @@ while [[ $# -gt 0 ]]; do
     --expected-origin)
       expected_origin="${2:?missing origin}"
       shift 2
+      ;;
+    --skip-provider-key-check)
+      skip_provider_key_check=1
+      shift
       ;;
     -h|--help)
       usage
@@ -106,6 +112,39 @@ registered_nas_mountpoints() {
   ' /etc/fstab 2>/dev/null
 }
 
+check_data_group_isolation() {
+  local user="$1" runtime_user="${1}_rt" own_group="${1}_data"
+  local account group members member leaked=0
+
+  for account in "$user" "$runtime_user"; do
+    id "$account" >/dev/null 2>&1 || continue
+    while read -r group; do
+      [[ -n "$group" ]] || continue
+      if [[ "$group" =~ ^oc[1-9][0-9]*_data$ && "$group" != "$own_group" ]]; then
+        echo "INFO cross_tenant_group_leak account=$account group=$group"
+        leaked=1
+      fi
+    done < <(id -nG "$account" 2>/dev/null | tr ' ' '\n')
+  done
+
+  if getent group "$own_group" >/dev/null 2>&1; then
+    members="$(getent group "$own_group" | cut -d: -f4)"
+    IFS=',' read -ra group_members <<<"$members"
+    for member in "${group_members[@]}"; do
+      [[ -z "$member" ]] && continue
+      case "$member" in
+        "$user"|"$runtime_user") ;;
+        *)
+          echo "INFO unexpected_data_group_member group=$own_group member=$member"
+          leaked=1
+          ;;
+      esac
+    done
+  fi
+
+  [[ "$leaked" -eq 0 ]]
+}
+
 container_path_for_nas_mountpoint() {
   local root="$1" mountpoint="$2" suffix
   if [[ "$mountpoint" == "$root" ]]; then
@@ -121,6 +160,8 @@ if id -nG "$target_user" | tr ' ' '\n' | grep -qx docker; then
 else
   pass "customer_not_in_docker_group"
 fi
+
+check "cross_tenant_data_group_isolation" check_data_group_isolation "$target_user"
 
 check "customer_nas_read_ok" sudo -u "$target_user" test -r "$nas_mountpoint"
 
@@ -272,10 +313,14 @@ fi
 
 if docker inspect "$container" >/dev/null 2>&1; then
   docker inspect "$container" --format 'INFO container_user={{.Config.User}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
-  if docker exec "$container" sh -lc 'test -n "$GEMINI_API_KEY"'; then
-    pass "container_env_gemini_present"
+  if [[ "$skip_provider_key_check" -eq 1 ]]; then
+    echo "INFO container_env_gemini_present=skipped"
   else
-    fail "container_env_gemini_present"
+    if docker exec "$container" sh -lc 'test -n "$GEMINI_API_KEY"'; then
+      pass "container_env_gemini_present"
+    else
+      fail "container_env_gemini_present"
+    fi
   fi
 
   if docker exec "$container" sh -lc 'test -r /home/node/nas_docs'; then

@@ -16,7 +16,7 @@
   sudo로 svcops-control.sh wrapper만 실행한다.
 
 [root 관리자]
-  서버 초기 설정, Linux 계정 생성, API key 설치, Docker 이미지 설치,
+  서버 초기 설정, Linux 계정 생성, runtime secret 주입, Docker 이미지 설치,
   Apache 운영 반영처럼 root 권한이 필요한 작업을 맡는다.
 
 [고객 계정: ocN]
@@ -72,17 +72,18 @@ NAS 공유 그룹 ocN_data:
 
 ```text
 1. [root 관리자] 호스트와 svcops 준비
-2. [root 관리자] 고객 Linux 계정과 설치 입력 파일 준비
+2. [root 관리자] 고객 Linux 계정 준비
 3. [운영계정: svcops] NAS user-mount fstab 규칙 등록
 4. [고객 계정: ocN] NAS credential 작성 및 mount
 5. [운영계정: svcops] NAS 상태 확인
 6. [root 관리자] baseline 이미지와 계정별 OpenClaw 설치
-7. [운영계정: svcops] subdomain 설정 적용 및 배포 확인
-8. [root 관리자] 필요한 경우 Apache 운영 반영과 Gateway token 전달
-9. [고객 계정: ocN] 접속 smoke test
+7. [root 관리자] provider/API key 주입 또는 교체
+8. [운영계정: svcops] subdomain 설정 적용 및 배포 확인
+9. [root 관리자] 필요한 경우 Apache 운영 반영과 Gateway token 전달
+10. [고객 계정: ocN] 접속 smoke test
 ```
 
-root가 해야 하는 1, 2, 6, 8번의 실제 명령은
+root가 해야 하는 1, 2, 6, 7, 9번의 실제 명령은
 [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에 있다.
 
 ## 1. 대상 계정 지정
@@ -244,11 +245,20 @@ registered_child_share_1=//NAS_HOST/SHARE_NAME
 
 실행 주체: **[root 관리자]**
 
-root 관리자가 baseline 이미지와 계정별 OpenClaw 설치를 수행한다.
+root 관리자가 baseline 이미지와 계정별 OpenClaw 설치를 수행한다. 이 단계는
+provider/API key 없이 완료될 수 있어야 한다.
 
 필요한 명령은 [root 관리자 작업 - 계정별 OpenClaw 설치](docs/ROOT_ADMIN_TASKS.md#계정별-openclaw-설치)에 있다.
 
-## 7. subdomain 설정 적용
+## 7. runtime secret 주입 또는 교체
+
+실행 주체: **[root 관리자]**
+
+Gemini/API key 같은 runtime secret은 설치 이후 별도 절차로 주입하거나 교체한다.
+
+필요한 명령은 [root 관리자 작업 - runtime secret 주입 또는 교체](docs/ROOT_ADMIN_TASKS.md#runtime-secret-주입-또는-교체)에 있다.
+
+## 8. subdomain 설정 적용
 
 실행 주체: **[운영계정: svcops]**
 
@@ -265,7 +275,7 @@ Apache가 `/home/ocN/openclaw/deploy/apache-subdomain-ocN.conf`를 실제 운영
 VirtualHost로 읽도록 만드는 작업은 서버 Apache 구조에 따라 root 작업일 수 있다.
 그 경우 [root 관리자 작업 - Apache 운영 반영](docs/ROOT_ADMIN_TASKS.md#apache-운영-반영)을 따른다.
 
-## 8. 배포 확인
+## 9. 배포 확인
 
 실행 주체: **[운영계정: svcops]**
 
@@ -290,6 +300,7 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check-all \
 
 ```text
 PASS customer_not_in_docker_group
+PASS cross_tenant_data_group_isolation
 PASS customer_nas_read_ok
 PASS customer_nas_mounted_cifs
 PASS runtime_env_exists
@@ -324,7 +335,7 @@ PASS public_url_openclaw_page_ok
 Apache 관련 PASS가 실패하면 OpenClaw 자체보다 Apache 운영 반영을 먼저 본다.
 브라우저가 회사 기본 홈페이지를 보여주는 경우도 이 범주다.
 
-## 9. 고객에게 전달할 정보
+## 10. 고객에게 전달할 정보
 
 실행 주체: **[root 관리자]**
 
@@ -343,7 +354,7 @@ https://oc13.ji-tech.co.kr/
 Gateway token 출력과 device approval 예외 처리는
 [root 관리자 작업 - 고객 전달 정보](docs/ROOT_ADMIN_TASKS.md#고객-전달-정보)에 있다.
 
-## 10. 고객 계정 smoke test
+## 11. 고객 계정 smoke test
 
 실행 주체: **[고객 계정: `$TARGET_USER`]**
 

@@ -165,6 +165,7 @@ compose_args() {
 }
 
 echo "== preflight =="
+openclaw_assert_managed_slot_prewrite "$target_user"
 id "$target_user"
 test -d "$target_home"
 test -d "$compose_dir"
