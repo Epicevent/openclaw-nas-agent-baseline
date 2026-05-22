@@ -14,6 +14,10 @@ fresh install은 provider/API key 없이 완료할 수 있어야 한다. key 주
 설치 이후 `apply-runtime-secrets.sh`로 별도 처리한다. legacy install-env import는
 production fresh install 경로에서 자동 실행되지 않는다.
 
+또한 image fast install은 workspace recovery를 자동 실행하지 않는다. 기본
+workspace 파일 seed, snapshot restore, workspace NAS symlink 재생성은
+`scripts/recovery/` 아래의 명시적 recovery 절차에서만 수행한다.
+
 설치 명령:
 
 ```bash

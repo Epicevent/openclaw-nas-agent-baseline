@@ -227,6 +227,21 @@ else
   pass "production_legacy_boundary_ok"
 fi
 
+echo "== production recovery boundary =="
+recovery_repair_pattern='repair-openclaw-state[.]'"sh"
+recovery_backup_pattern='backup-openclaw-state[.]'"sh"
+recovery_refs="$(
+  grep -R -n --include='*.sh' -E "${recovery_repair_pattern}|${recovery_backup_pattern}" "$script_dir" 2>/dev/null \
+    | grep -v '/recovery/' \
+    || true
+)"
+if [[ -n "$recovery_refs" ]]; then
+  fail "production_recovery_boundary_ok"
+  printf '%s\n' "$recovery_refs" | sed 's/^/INFO recovery_ref=/'
+else
+  pass "production_recovery_boundary_ok"
+fi
+
 echo "== customer isolation =="
 isolation_args=(
   --user "$target_user"

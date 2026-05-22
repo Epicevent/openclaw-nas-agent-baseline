@@ -16,15 +16,16 @@ Default behavior:
   - fixes ownership for the target user
 
 Examples:
-  sudo bash scripts/repair-openclaw-state.sh --user oc1
-  sudo bash scripts/repair-openclaw-state.sh --user oc1 --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-20260519120000.tar.gz
+  sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1
+  sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-20260519120000.tar.gz
 USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "$script_dir/.." && pwd)"
+scripts_root="$(cd "$script_dir/.." && pwd)"
+repo_root="$(cd "$script_dir/../.." && pwd)"
 # shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+source "$scripts_root/lib-safe-compose.sh"
 
 target_user=""
 target_home=""

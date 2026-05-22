@@ -61,17 +61,17 @@ Create a per-user snapshot:
 
 ```bash
 cd /opt/openclaw-nas-agent-baseline
-sudo bash scripts/backup-openclaw-state.sh --user oc1
+sudo bash scripts/recovery/backup-openclaw-state.sh --user oc1
 ```
 
 Repair with repo defaults:
 
 ```bash
-sudo bash scripts/repair-openclaw-state.sh --user oc1
+sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1
 ```
 
-For a fresh account, the repair script also creates a minimal
-`~/.openclaw/openclaw.json` with:
+When explicitly used for recovery on an empty account, the repair script also
+creates a minimal `~/.openclaw/openclaw.json` with:
 
 - `gateway.mode=local`
 - generated per-user gateway token
@@ -79,16 +79,20 @@ For a fresh account, the repair script also creates a minimal
 - optional allowed origins from `OPENCLAW_PROXY_PUBLIC_ORIGIN` or
   `OPENCLAW_PROXY_ALLOWED_ORIGINS`
 
+This is not part of the production image fast install path. Fresh install
+initializes only the minimal runtime config it needs and does not run workspace
+recovery, default workspace seeding, or snapshot restore.
+
 Repair and overwrite default workspace files:
 
 ```bash
-sudo bash scripts/repair-openclaw-state.sh --user oc1 --force-defaults
+sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 --force-defaults
 ```
 
 Restore from a snapshot:
 
 ```bash
-sudo bash scripts/repair-openclaw-state.sh --user oc1 \
+sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 \
   --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-YYYYMMDDHHMMSS.tar.gz
 ```
 
@@ -97,7 +101,7 @@ Run for many accounts:
 ```bash
 cd /opt/openclaw-nas-agent-baseline
 for i in $(seq 1 20); do
-  sudo bash scripts/repair-openclaw-state.sh --user "oc$i"
+  sudo bash scripts/recovery/repair-openclaw-state.sh --user "oc$i"
 done
 ```
 

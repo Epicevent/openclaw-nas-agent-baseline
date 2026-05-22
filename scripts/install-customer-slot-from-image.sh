@@ -134,6 +134,7 @@ compose_dir="${compose_dir:-$target_home/openclaw}"
 runtime_user="${runtime_user:-${target_user}_rt}"
 data_group="${data_group:-${target_user}_data}"
 nas_mount="$target_home/nas_docs"
+config_path="$target_home/.openclaw/openclaw.json"
 container="openclaw-${target_user}-openclaw-gateway-1"
 cli_container="openclaw-${target_user}-openclaw-cli-1"
 
@@ -332,14 +333,55 @@ services:
       - "$data_gid"
 EOF
 
-OPENCLAW_CONTROL_UI_BASEPATH="/" \
-OPENCLAW_PROXY_PUBLIC_ORIGIN="$origin" \
-OPENCLAW_PROXY_ALLOWED_ORIGINS="$origin" \
-bash "$script_dir/repair-openclaw-state.sh" \
-  --user "$target_user" \
-  --runtime-user "$runtime_user" \
-  --force-defaults \
-  --no-backup
+if ! command -v python3 >/dev/null 2>&1; then
+  echo "error: python3 is required to initialize production OpenClaw config" >&2
+  exit 1
+fi
+
+OPENCLAW_PRODUCTION_CONFIG_PATH="$config_path" \
+OPENCLAW_PRODUCTION_WORKSPACE="/home/node/.openclaw/workspace" \
+OPENCLAW_PRODUCTION_ORIGIN="$origin" \
+python3 - <<'PY'
+import json
+import os
+import secrets
+from pathlib import Path
+
+path = Path(os.environ["OPENCLAW_PRODUCTION_CONFIG_PATH"])
+workspace = os.environ["OPENCLAW_PRODUCTION_WORKSPACE"]
+origin = os.environ["OPENCLAW_PRODUCTION_ORIGIN"].rstrip("/")
+
+data = {
+    "gateway": {
+        "mode": "local",
+        "port": 18789,
+        "bind": "lan",
+        "auth": {
+            "mode": "token",
+            "token": secrets.token_urlsafe(32),
+        },
+        "controlUi": {
+            "basePath": "/",
+            "dangerouslyDisableDeviceAuth": True,
+            "allowedOrigins": [origin],
+            "allowInsecureAuth": True,
+        },
+    },
+    "agents": {
+        "defaults": {
+            "workspace": workspace,
+        },
+    },
+}
+
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+path.chmod(0o600)
+PY
+
+echo "state_init=production_minimal"
+echo "workspace_seed=skipped"
+echo "recovery=skipped"
 
 echo "INFO runtime_secret_injection=not_part_of_fresh_install"
 

@@ -87,7 +87,8 @@ EOF
 
 tar -C "$script_dir" --exclude-from="$tmp_exclude" -cf - . | tar -C "$prefix" -xf -
 
-chmod +x "$prefix/install.sh" "$prefix"/scripts/*.sh "$prefix"/container/*.sh 2>/dev/null || true
+chmod +x "$prefix/install.sh" "$prefix"/container/*.sh 2>/dev/null || true
+find "$prefix/scripts" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 
 if [[ "$(id -u)" -eq 0 ]]; then
   chown -R root:root "$prefix"
@@ -106,7 +107,7 @@ for user in "${repair_users[@]}"; do
     args+=(--force-defaults)
   fi
   echo "repairing OpenClaw state for: $user"
-  bash "$prefix/scripts/repair-openclaw-state.sh" "${args[@]}"
+  bash "$prefix/scripts/recovery/repair-openclaw-state.sh" "${args[@]}"
 done
 
 if [[ "$run_check" -eq 1 ]]; then

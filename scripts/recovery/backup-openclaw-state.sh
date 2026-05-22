@@ -10,8 +10,8 @@ Creates a local recovery snapshot for the repairable parts of ~/.openclaw.
 It intentionally skips volatile databases, logs, device identity, and NAS data.
 
 Examples:
-  bash scripts/backup-openclaw-state.sh
-  sudo bash scripts/backup-openclaw-state.sh --user oc1
+  bash scripts/recovery/backup-openclaw-state.sh
+  sudo bash scripts/recovery/backup-openclaw-state.sh --user oc1
 USAGE
 }
 
