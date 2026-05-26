@@ -99,16 +99,43 @@ count_matching_lines() {
   grep -Eic "$pattern" "$file" 2>/dev/null || true
 }
 
+last_matching_timestamp() {
+  local pattern="$1" file="$2"
+  awk -v pattern="$pattern" '
+    BEGIN { IGNORECASE = 1 }
+    $0 ~ pattern && $1 ~ /^[0-9]{4}-[0-9]{2}-[0-9]{2}T/ { last = $1 }
+    END { if (last != "") print last }
+  ' "$file" 2>/dev/null | tail -1
+}
+
 container_activity_python() {
   cat <<'PY'
 import datetime
 import os
+import re
 import sys
 import time
 
 since_seconds = int(sys.argv[1])
 now = time.time()
 cutoff = now - since_seconds
+
+PROVIDER_ENDPOINT = re.compile(
+    r"(api\.openai\.com|generativelanguage\.googleapis\.com|api\.anthropic\.com|"
+    r"openrouter\.ai|api\.groq\.com|api\.mistral\.ai|api\.x\.ai)",
+    re.I,
+)
+PROVIDER_OPERATION = re.compile(
+    r"(chat/completions|/responses\b|/v1/messages\b|generateContent|"
+    r"streamGenerateContent|countTokens|embedContent)",
+    re.I,
+)
+TOKEN_USAGE = re.compile(
+    r"(prompt_tokens|completion_tokens|input_tokens|output_tokens|total_tokens|"
+    r"usageMetadata|token_count|tokens_used)",
+    re.I,
+)
+ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})")
 
 groups = [
     ("app_log", ["/tmp/openclaw"], (".log",)),
@@ -118,6 +145,16 @@ groups = [
 
 def iso(ts):
     return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+def parse_line_ts(line):
+    m = ISO_TS.match(line)
+    if not m:
+        return None
+    raw = f"{m.group(1)}T{m.group(2)}+00:00"
+    try:
+        return datetime.datetime.fromisoformat(raw).timestamp()
+    except ValueError:
+        return None
 
 overall_latest = 0.0
 for name, roots, suffixes in groups:
@@ -152,6 +189,59 @@ for name, roots, suffixes in groups:
     print(f"container_{name}_latest_at={iso(latest) if latest else 'none'}")
 
 print(f"container_file_latest_at={iso(overall_latest) if overall_latest else 'none'}")
+
+endpoint_lines = 0
+operation_lines = 0
+token_usage_lines = 0
+provider_latest = 0.0
+untimed_provider_lines = 0
+
+for root in ["/tmp/openclaw"]:
+    if not os.path.exists(root):
+        continue
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in {".git", "node_modules"}]
+        for filename in filenames:
+            if not filename.endswith(".log"):
+                continue
+            path = os.path.join(dirpath, filename)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            if st.st_mtime < cutoff:
+                continue
+            try:
+                with open(path, "r", encoding="utf-8", errors="replace") as handle:
+                    for line in handle:
+                        line_ts = parse_line_ts(line)
+                        if line_ts is not None and line_ts < cutoff:
+                            continue
+                        matches = [
+                            bool(PROVIDER_ENDPOINT.search(line)),
+                            bool(PROVIDER_OPERATION.search(line)),
+                            bool(TOKEN_USAGE.search(line)),
+                        ]
+                        if not any(matches):
+                            continue
+                        if line_ts is None:
+                            untimed_provider_lines += 1
+                        else:
+                            provider_latest = max(provider_latest, line_ts)
+                        if matches[0]:
+                            endpoint_lines += 1
+                        if matches[1]:
+                            operation_lines += 1
+                        if matches[2]:
+                            token_usage_lines += 1
+            except OSError:
+                continue
+
+print(f"container_app_log_provider_endpoint_lines_recent={endpoint_lines}")
+print(f"container_app_log_provider_operation_lines_recent={operation_lines}")
+print(f"container_app_log_provider_token_usage_lines_recent={token_usage_lines}")
+print(f"container_app_log_provider_untimed_lines_recent={untimed_provider_lines}")
+print(f"container_app_log_provider_latest_at={iso(provider_latest) if provider_latest else 'none'}")
 PY
 }
 
@@ -191,12 +281,20 @@ print_usage_for_user() {
   log_lines="$(wc -l <"$tmp" | tr -d ' ')"
   error_lines="$(count_matching_lines 'error|exception|fatal|panic|traceback|failed|fail' "$tmp")"
   warn_lines="$(count_matching_lines 'warn|warning' "$tmp")"
+  provider_endpoint_lines="$(count_matching_lines 'api\.openai\.com|generativelanguage\.googleapis\.com|api\.anthropic\.com|openrouter\.ai|api\.groq\.com|api\.mistral\.ai|api\.x\.ai' "$tmp")"
+  provider_operation_lines="$(count_matching_lines 'chat/completions|/responses\b|/v1/messages\b|generateContent|streamGenerateContent|countTokens|embedContent' "$tmp")"
+  provider_token_usage_lines="$(count_matching_lines 'prompt_tokens|completion_tokens|input_tokens|output_tokens|total_tokens|usageMetadata|token_count|tokens_used' "$tmp")"
+  provider_latest_at="$(last_matching_timestamp 'api\.openai\.com|generativelanguage\.googleapis\.com|api\.anthropic\.com|openrouter\.ai|api\.groq\.com|api\.mistral\.ai|api\.x\.ai|chat/completions|/responses\b|/v1/messages\b|generateContent|streamGenerateContent|countTokens|embedContent|prompt_tokens|completion_tokens|input_tokens|output_tokens|total_tokens|usageMetadata|token_count|tokens_used' "$tmp")"
   last_log_at="$(awk '/^[0-9]{4}-[0-9]{2}-[0-9]{2}T/ { print $1 }' "$tmp" | tail -1)"
   echo "docker_logs_rc=$logs_rc"
   echo "docker_log_lines_since=$log_lines"
   echo "docker_log_error_lines_since=$error_lines"
   echo "docker_log_warn_lines_since=$warn_lines"
   echo "docker_log_last_at=${last_log_at:-none}"
+  echo "docker_log_provider_endpoint_lines_since=$provider_endpoint_lines"
+  echo "docker_log_provider_operation_lines_since=$provider_operation_lines"
+  echo "docker_log_provider_token_usage_lines_since=$provider_token_usage_lines"
+  echo "docker_log_provider_latest_at=${provider_latest_at:-none}"
   rm -f "$tmp"
 
   since_seconds="$(since_seconds_for_container_scan "$since")"
