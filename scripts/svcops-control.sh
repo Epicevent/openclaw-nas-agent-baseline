@@ -23,6 +23,8 @@ Usage:
   svcops-control.sh shared-ollama-up MODEL [IMAGE]
   svcops-control.sh shared-ollama-usage [SINCE] [USER]
   svcops-control.sh shared-ollama-smoke USER [MODEL]
+  svcops-control.sh ollama-provider USER MODEL [BASE_URL]
+  svcops-control.sh ollama-default USER MODEL [BASE_URL]
   svcops-control.sh heartbeat-status USER
   svcops-control.sh heartbeat-status-all START END
   svcops-control.sh heartbeat-disable USER
@@ -804,6 +806,33 @@ container_image_id={{.Image}}'
     else
       bash "$script_dir/manage-shared-ollama.sh" smoke --user "$target_user"
     fi
+    ;;
+
+  ollama-provider)
+    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    model="$2"
+    base_url="${3:-$(shared_ollama_base_url)}"
+    base_url="${base_url:-http://172.17.0.1:11434/v1}"
+    validate_user "$target_user"
+    bash "$script_dir/apply-ollama-provider-config.sh" \
+      --user "$target_user" \
+      --model "$model" \
+      --base-url "$base_url"
+    ;;
+
+  ollama-default)
+    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    model="$2"
+    base_url="${3:-$(shared_ollama_base_url)}"
+    base_url="${base_url:-http://172.17.0.1:11434/v1}"
+    validate_user "$target_user"
+    bash "$script_dir/apply-ollama-provider-config.sh" \
+      --user "$target_user" \
+      --model "$model" \
+      --base-url "$base_url" \
+      --set-default
     ;;
 
   heartbeat-status)
