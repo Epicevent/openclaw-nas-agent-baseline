@@ -19,6 +19,10 @@ Usage:
   svcops-control.sh image-status USER
   svcops-control.sh usage USER [SINCE]
   svcops-control.sh usage-all START END [SINCE]
+  svcops-control.sh heartbeat-status USER
+  svcops-control.sh heartbeat-status-all START END
+  svcops-control.sh heartbeat-disable USER
+  svcops-control.sh heartbeat-disable-all START END
   svcops-control.sh gateway-refresh USER
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
@@ -751,6 +755,55 @@ container_image_id={{.Image}}'
     bash "$script_dir/openclaw-usage-report.sh" \
       --range "$start" "$end" \
       --since "$since_window"
+    ;;
+
+  heartbeat-status)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    bash "$script_dir/openclaw-heartbeat-control.sh" status --user "$target_user"
+    ;;
+
+  heartbeat-status-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    bash "$script_dir/openclaw-heartbeat-control.sh" status --range "$start" "$end"
+    ;;
+
+  heartbeat-disable)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    bash "$script_dir/openclaw-heartbeat-control.sh" disable --user "$target_user"
+    refresh_gateway "$target_user"
+    ;;
+
+  heartbeat-disable-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        bash "$script_dir/openclaw-heartbeat-control.sh" disable --user "$target_user" || failed=1
+        refresh_gateway "$target_user" || failed=1
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
     ;;
 
   nas-fstab)

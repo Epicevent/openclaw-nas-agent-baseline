@@ -80,6 +80,16 @@ since_seconds_for_container_scan() {
   fi
 }
 
+docker_since_window() {
+  local value="$1" n
+  if [[ "$value" =~ ^([0-9]+)d$ ]]; then
+    n="${BASH_REMATCH[1]}"
+    printf '%sh' "$((n * 24))"
+  else
+    printf '%s' "$value"
+  fi
+}
+
 container_name_for_user() {
   printf 'openclaw-%s-openclaw-gateway-1' "$1"
 }
@@ -146,7 +156,7 @@ PY
 }
 
 print_usage_for_user() {
-  local user="$1" since="$2" since_seconds container tmp logs_rc status health started image_id log_lines error_lines warn_lines last_log_at file_latest
+  local user="$1" since="$2" since_seconds docker_since container tmp logs_rc status health started image_id log_lines error_lines warn_lines last_log_at file_latest
   validate_user_name "$user"
   echo "target_user=$user"
   echo "usage_window=$since"
@@ -175,7 +185,9 @@ print_usage_for_user() {
 
   tmp="$(mktemp)"
   logs_rc=0
-  docker logs --timestamps --since "$since" "$container" >"$tmp" 2>&1 || logs_rc=$?
+  docker_since="$(docker_since_window "$since")"
+  echo "docker_since_window=$docker_since"
+  docker logs --timestamps --since "$docker_since" "$container" >"$tmp" 2>&1 || logs_rc=$?
   log_lines="$(wc -l <"$tmp" | tr -d ' ')"
   error_lines="$(count_matching_lines 'error|exception|fatal|panic|traceback|failed|fail' "$tmp")"
   warn_lines="$(count_matching_lines 'warn|warning' "$tmp")"
@@ -188,7 +200,7 @@ print_usage_for_user() {
   rm -f "$tmp"
 
   since_seconds="$(since_seconds_for_container_scan "$since")"
-  docker exec "$container" python3 - "$since_seconds" <<PY 2>/dev/null || echo "container_file_activity=unavailable"
+  docker exec -i "$container" python3 - "$since_seconds" <<PY 2>/dev/null || echo "container_file_activity=unavailable"
 $(container_activity_python)
 PY
 }

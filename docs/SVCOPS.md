@@ -71,6 +71,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage-all 1 20 2
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage oc13 24h
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-status-all 1 20
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-disable-all 1 20
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
   oc1 \
   oc1.ji-tech.co.kr
@@ -105,6 +109,11 @@ gateway Docker log line 수, 마지막 gateway log timestamp, 컨테이너 안�
 log/state/workspace 변경량이다. 로그 내용, NAS credential, gateway token,
 provider/API key는 출력하지 않는다. provider별 과금량이나 token 사용량은 provider
 console 또는 별도 계량 로그에서 확인한다.
+
+`heartbeat-status-all`은 계정별 workspace `HEARTBEAT.md` 존재 여부만 보여준다.
+`heartbeat-disable-all`은 발견된 `HEARTBEAT.md`를 `.disabled.TIMESTAMP` 파일로
+이름 변경하고 gateway를 재생성한다. 비용 통제 전에는 heartbeat 파일을 유지하지
+않는다.
 
 고객이 `openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'`로 요청을
 만들면 `nas-requests`로 확인하고 `nas-approve-share`로 승인한다. 승인 시 fstab
