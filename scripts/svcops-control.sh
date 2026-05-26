@@ -17,6 +17,8 @@ Usage:
   svcops-control.sh nas-unregister USER
   svcops-control.sh nas-unregister-all START END
   svcops-control.sh image-status USER
+  svcops-control.sh usage USER [SINCE]
+  svcops-control.sh usage-all START END [SINCE]
   svcops-control.sh gateway-refresh USER
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
@@ -725,6 +727,30 @@ case "$command_name" in
 container_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}
 container_image_ref={{.Config.Image}}
 container_image_id={{.Image}}'
+    ;;
+
+  usage)
+    [[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    since_window="${2:-24h}"
+    validate_user "$target_user"
+    bash "$script_dir/openclaw-usage-report.sh" \
+      --user "$target_user" \
+      --since "$since_window"
+    ;;
+
+  usage-all)
+    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    since_window="${3:-24h}"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    bash "$script_dir/openclaw-usage-report.sh" \
+      --range "$start" "$end" \
+      --since "$since_window"
     ;;
 
   nas-fstab)

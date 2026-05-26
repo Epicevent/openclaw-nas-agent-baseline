@@ -67,6 +67,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-unregister-all 10 19
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage-all 1 20 24h
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage oc13 24h
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
   oc1 \
   oc1.ji-tech.co.kr
@@ -95,6 +99,12 @@ OpenClaw 컨테이너에서는 `/home/node/nas_docs/hanpass`로 보인다. 여�
 `nas-verify`는 고객 계정의 NAS mount와 OpenClaw 컨테이너 안의 NAS mount를 실제로
 비교한다. 고객 계정은 CIFS로 mounted인데 컨테이너가 아직 일반 디렉터리를 보고
 있으면 gateway 컨테이너만 재생성하고 다시 확인한다.
+
+`usage-all`과 `usage`는 최근 OpenClaw activity를 계정별로 보여준다. 기본 지표는
+gateway Docker log line 수, 마지막 gateway log timestamp, 컨테이너 안의 OpenClaw
+log/state/workspace 변경량이다. 로그 내용, NAS credential, gateway token,
+provider/API key는 출력하지 않는다. provider별 과금량이나 token 사용량은 provider
+console 또는 별도 계량 로그에서 확인한다.
 
 고객이 `openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'`로 요청을
 만들면 `nas-requests`로 확인하고 `nas-approve-share`로 승인한다. 승인 시 fstab
