@@ -14,7 +14,7 @@ Options:
   --user USER             Target customer slot, for example oc20. Required.
   --model MODEL           Ollama model. Default: gemma2:2b.
   --provider-id ID        OpenClaw provider id. Default: local-ollama.
-  --base-url URL          OpenAI-compatible base URL. Default: http://172.17.0.1:11434/v1.
+  --base-url URL          OpenAI-compatible base URL. Default: shared Ollama container URL.
   --every DURATION        Heartbeat interval. Default: 30m.
   --main-model MODEL      Optional primary model, for example google/gemini-1.5-pro.
   --no-restart            Update files only; do not recreate gateway.
@@ -26,7 +26,7 @@ USAGE
 target_user=""
 ollama_model="gemma2:2b"
 provider_id="local-ollama"
-base_url="http://172.17.0.1:11434/v1"
+base_url=""
 heartbeat_every="30m"
 main_model=""
 restart_gateway=1
@@ -110,6 +110,8 @@ if [[ -n "$main_model" && ! "$main_model" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z
 fi
 
 case "$base_url" in
+  "")
+    ;;
   http://*|https://*) ;;
   *)
     echo "error: base URL must start with http:// or https://: $base_url" >&2
@@ -120,6 +122,25 @@ esac
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib-safe-compose.sh
 source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/lib-ollama.sh
+source "$script_dir/lib-ollama.sh"
+
+base_url="${base_url:-$(openclaw_ollama_container_base_url)}"
+host_probe_base_url="$(openclaw_ollama_host_probe_base_url "$base_url")"
+case "$base_url" in
+  http://*|https://*) ;;
+  *)
+    echo "error: base URL must start with http:// or https://: $base_url" >&2
+    exit 2
+    ;;
+esac
+case "$host_probe_base_url" in
+  http://*|https://*) ;;
+  *)
+    echo "error: host probe URL must start with http:// or https://: $host_probe_base_url" >&2
+    exit 2
+    ;;
+esac
 
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
@@ -142,6 +163,7 @@ echo "target_home=$target_home"
 echo "provider_id=$provider_id"
 echo "ollama_model=$ollama_model"
 echo "base_url=$base_url"
+echo "host_probe_base_url=$host_probe_base_url"
 echo "heartbeat_every=$heartbeat_every"
 [[ -n "$main_model" ]] && echo "main_model=$main_model" || echo "main_model=preserve"
 echo "config_api_key=not_written"
@@ -149,11 +171,18 @@ echo "config_api_key=not_written"
 openclaw_assert_managed_slot_prewrite "$target_user"
 openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path"
+case "$base_url" in
+  http://$(openclaw_ollama_network_alias):*|http://$(openclaw_ollama_network_alias)/*)
+    openclaw_assert_shared_ollama_network
+    openclaw_write_shared_ollama_compose_override "$target_user" "$compose_dir"
+    ;;
+esac
+openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 
 shared_ollama_ok=unknown
 if command -v python3 >/dev/null 2>&1; then
   if OPENCLAW_OLLAMA_MODEL="$ollama_model" \
-    OPENCLAW_OLLAMA_BASE_URL="$base_url" \
+    OPENCLAW_OLLAMA_BASE_URL="$host_probe_base_url" \
     python3 - <<'PY'
 import json
 import os
@@ -182,7 +211,7 @@ PY
     if [[ "$rc" -eq 2 ]]; then
       echo "error: shared Ollama model missing: $ollama_model" >&2
     else
-      echo "error: shared Ollama unreachable for base URL: $base_url" >&2
+      echo "error: shared Ollama unreachable for host probe URL: $host_probe_base_url" >&2
     fi
     exit 1
   fi
@@ -331,6 +360,7 @@ if [[ "$restart_gateway" -eq 1 ]]; then
     compose_args=(-f docker-compose.yml)
     [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
     [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
+    [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
     [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
     docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
   )

@@ -9,7 +9,7 @@ Usage:
   manage-shared-ollama.sh usage [--since WINDOW] [--user USER]
   manage-shared-ollama.sh smoke --user USER [--model MODEL]
 
-Runs one shared Ollama container for OpenClaw heartbeat traffic.
+Runs one shared Ollama container for OpenClaw local-model traffic.
 
 Options for up:
   --model MODEL       Model to ensure, for example qwen2.5-coder:7b. Required.
@@ -23,9 +23,15 @@ Run as root/admin through svcops-control.sh.
 USAGE
 }
 
-container_name="openclaw-shared-ollama"
-state_dir="/srv/openclaw-ollama"
-endpoint_file="$state_dir/endpoint.env"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib-ollama.sh
+source "$script_dir/lib-ollama.sh"
+
+container_name="$(openclaw_ollama_container_name)"
+network_name="$(openclaw_ollama_network_default)"
+network_alias="$(openclaw_ollama_alias_default)"
+state_dir="$(openclaw_ollama_state_dir)"
+endpoint_file="$(openclaw_ollama_endpoint_file)"
 image="ollama/ollama:0.17.7"
 model=""
 bind_ip=""
@@ -78,8 +84,7 @@ docker_since_window() {
 }
 
 read_endpoint_value() {
-  local key="$1"
-  awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$endpoint_file" 2>/dev/null || true
+  openclaw_ollama_endpoint_value "$1"
 }
 
 wait_for_ollama() {
@@ -95,13 +100,17 @@ wait_for_ollama() {
 }
 
 print_status() {
-  local endpoint_model endpoint_url endpoint_image status image_ref listener
+  local endpoint_model endpoint_url endpoint_host_url endpoint_image endpoint_network endpoint_alias endpoint_port status image_ref listener
   endpoint_url="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_BASE_URL)"
+  endpoint_host_url="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_HOST_BASE_URL)"
   endpoint_model="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_MODEL)"
   endpoint_image="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_IMAGE)"
+  endpoint_network="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_NETWORK)"
+  endpoint_alias="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_NETWORK_ALIAS)"
+  endpoint_port="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_PORT)"
   status="$(docker inspect "$container_name" --format '{{.State.Status}}' 2>/dev/null || true)"
   image_ref="$(docker inspect "$container_name" --format '{{.Config.Image}}' 2>/dev/null || true)"
-  listener="$(ss -ltn 2>/dev/null | awk -v p=":$port" '$4 ~ p "$" { print $4 }' | tr '\n' ' ')"
+  listener="$(ss -ltn 2>/dev/null | awk -v p=":${endpoint_port:-$port}" '$4 ~ p "$" { print $4 }' | tr '\n' ' ')"
 
   echo "container=$container_name"
   echo "container_status=${status:-missing}"
@@ -109,8 +118,11 @@ print_status() {
   echo "models_dir=$models_dir"
   echo "endpoint_file=$endpoint_file"
   echo "endpoint_url=${endpoint_url:-missing}"
+  echo "host_endpoint_url=${endpoint_host_url:-missing}"
   echo "endpoint_model=${endpoint_model:-missing}"
   echo "endpoint_image=${endpoint_image:-missing}"
+  echo "docker_network=${endpoint_network:-$network_name}"
+  echo "network_alias=${endpoint_alias:-$network_alias}"
   echo "listeners=${listener:-none}"
   if [[ "$status" == "running" ]]; then
     docker exec "$container_name" ollama list || true
@@ -118,14 +130,17 @@ print_status() {
 }
 
 print_usage() {
-  local since="$1" target_user="$2" docker_since status tmp_logs tmp_map container ip user
+  local since="$1" target_user="$2" docker_since status tmp_logs tmp_map container ip user endpoint_network
   validate_since_window "$since"
   [[ -z "$target_user" ]] || validate_user "$target_user"
 
   status="$(docker inspect "$container_name" --format '{{.State.Status}}' 2>/dev/null || true)"
+  endpoint_network="$(openclaw_ollama_network_name)"
+  [[ "$endpoint_network" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || die "invalid shared Ollama network name: $endpoint_network"
   echo "container=$container_name"
   echo "container_status=${status:-missing}"
   echo "usage_window=$since"
+  echo "docker_network=$endpoint_network"
   if [[ "$status" != "running" ]]; then
     return 1
   fi
@@ -144,7 +159,10 @@ print_usage() {
     if [[ -n "$target_user" && "$user" != "$target_user" ]]; then
       continue
     fi
-    ip="$(docker inspect "$container" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' 2>/dev/null | sed '/^$/d' | head -1 || true)"
+    ip="$(docker inspect "$container" --format "{{with index .NetworkSettings.Networks \"$endpoint_network\"}}{{.IPAddress}}{{end}}" 2>/dev/null || true)"
+    if [[ -z "$ip" ]]; then
+      ip="$(docker inspect "$container" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' 2>/dev/null | sed '/^$/d' | head -1 || true)"
+    fi
     [[ -n "$ip" ]] || continue
     printf '%s %s %s\n' "$ip" "$user" "$container" >>"$tmp_map"
   done < <(docker ps --format '{{.Names}}')
@@ -433,6 +451,8 @@ case "$cmd" in
     validate_model "$model"
     validate_image "$image"
     validate_port "$port"
+    [[ "$network_name" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || die "invalid shared Ollama network name: $network_name"
+    [[ "$network_alias" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$ ]] || die "invalid shared Ollama network alias: $network_alias"
     bind_ip="${bind_ip:-$(docker0_ip)}"
     [[ -n "$bind_ip" ]] || die "could not resolve docker0 IPv4 address"
     validate_bind "$bind_ip"
@@ -446,12 +466,17 @@ case "$cmd" in
     echo "model=$model"
     echo "bind=$bind_ip:$port"
     echo "models_dir=$models_dir"
+    echo "docker_network=$network_name"
+    echo "network_alias=$network_alias"
 
     docker pull "$image"
+    docker network inspect "$network_name" >/dev/null 2>&1 || docker network create "$network_name" >/dev/null
     docker rm -f "$container_name" >/dev/null 2>&1 || true
     docker run -d \
       --name "$container_name" \
       --restart unless-stopped \
+      --network "$network_name" \
+      --network-alias "$network_alias" \
       -e OLLAMA_HOST=0.0.0.0:11434 \
       -p "$bind_ip:$port:11434" \
       -v "$models_dir:/root/.ollama" \
@@ -464,10 +489,15 @@ case "$cmd" in
     fi
 
     {
-      printf 'OPENCLAW_SHARED_OLLAMA_BASE_URL=http://%s:%s/v1\n' "$bind_ip" "$port"
+      printf 'OPENCLAW_SHARED_OLLAMA_BASE_URL=http://%s:11434/v1\n' "$network_alias"
+      printf 'OPENCLAW_SHARED_OLLAMA_HOST_BASE_URL=http://%s:%s/v1\n' "$bind_ip" "$port"
       printf 'OPENCLAW_SHARED_OLLAMA_MODEL=%s\n' "$model"
       printf 'OPENCLAW_SHARED_OLLAMA_IMAGE=%s\n' "$image"
       printf 'OPENCLAW_SHARED_OLLAMA_MODELS_DIR=%s\n' "$models_dir"
+      printf 'OPENCLAW_SHARED_OLLAMA_BIND_IP=%s\n' "$bind_ip"
+      printf 'OPENCLAW_SHARED_OLLAMA_PORT=%s\n' "$port"
+      printf 'OPENCLAW_SHARED_OLLAMA_NETWORK=%s\n' "$network_name"
+      printf 'OPENCLAW_SHARED_OLLAMA_NETWORK_ALIAS=%s\n' "$network_alias"
     } > "$endpoint_file"
     chown root:root "$endpoint_file"
     chmod 0644 "$endpoint_file"

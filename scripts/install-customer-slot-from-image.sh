@@ -440,10 +440,12 @@ openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 (
   cd "$compose_dir"
   export COMPOSE_PROJECT_NAME="openclaw-$target_user"
-  docker compose \
-    -f docker-compose.yml \
-    -f docker-compose.host-user.yml \
-    up -d --force-recreate openclaw-gateway
+  compose_args=(-f docker-compose.yml)
+  [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
+  [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
+  [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
+  [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
+  docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
 )
 
 for i in $(seq 1 30); do

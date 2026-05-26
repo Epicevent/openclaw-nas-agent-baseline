@@ -91,6 +91,7 @@ fi
 compose_args=(-f docker-compose.yml)
 [[ -f "$openclaw_dir/docker-compose.extra.yml" ]] && compose_args+=(-f docker-compose.extra.yml)
 [[ -f "$openclaw_dir/docker-compose.host-user.yml" ]] && compose_args+=(-f docker-compose.host-user.yml)
+[[ -f "$openclaw_dir/docker-compose.shared-ollama.yml" ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
 [[ -f "$openclaw_dir/docker-compose.sandbox.yml" ]] && compose_args+=(-f docker-compose.sandbox.yml)
 
 project="openclaw-$(printf '%s' "$target_user" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"

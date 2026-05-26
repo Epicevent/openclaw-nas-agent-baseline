@@ -224,6 +224,7 @@ if [[ "$recreate" -eq 1 ]]; then
   compose_args=(-f docker-compose.yml)
   [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
   [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
+  [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
   [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
   docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
   docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'

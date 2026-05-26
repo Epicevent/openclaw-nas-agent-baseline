@@ -161,6 +161,7 @@ compose_args() {
   printf '%s\n' -f docker-compose.yml
   [[ -f "$compose_dir/docker-compose.extra.yml" ]] && printf '%s\n' -f docker-compose.extra.yml
   [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
+  [[ -f "$compose_dir/docker-compose.shared-ollama.yml" ]] && printf '%s\n' -f docker-compose.shared-ollama.yml
   [[ -f "$compose_dir/docker-compose.sandbox.yml" ]] && printf '%s\n' -f docker-compose.sandbox.yml
 }
 
