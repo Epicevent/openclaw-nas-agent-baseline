@@ -26,8 +26,9 @@ runtime secret, NAS mount, credential은 유지하고 gateway 컨테이너 image
 baseline image로 갈아끼운다. 새 OpenClaw 버전이 기존 설정을 다르게 해석할 수
 있으므로 staging slot에서 먼저 확인한다.
 
-Ollama heartbeat를 켠 slot은 `docker-compose.ollama.yml`도 compose 입력에 포함되어야
-한다. 이 파일은 image 안에 들어가는 것이 아니라 slot의 compose override다.
+Ollama heartbeat는 공용 Ollama 컨테이너 endpoint를 사용한다. OpenClaw 업데이트는
+gateway baseline image를 갈아끼우는 작업이고, Ollama model store와 공용 Ollama
+컨테이너는 별도 운영 상태로 유지한다.
 
 ## staging slot에서 검증
 

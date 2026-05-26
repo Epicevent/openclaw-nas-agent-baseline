@@ -7,13 +7,14 @@ Usage:
   apply-ollama-heartbeat-config.sh --user USER [options]
 
 Configures OpenClaw heartbeat runs to use a local Ollama OpenAI-compatible
-provider. Provider/API keys are not written to openclaw.json.
+provider served by the shared OpenClaw Ollama container. Provider/API keys are
+not written to openclaw.json.
 
 Options:
   --user USER             Target customer slot, for example oc20. Required.
   --model MODEL           Ollama model. Default: gemma2:2b.
   --provider-id ID        OpenClaw provider id. Default: local-ollama.
-  --base-url URL          OpenAI-compatible base URL. Default: http://host.docker.internal:11434/v1.
+  --base-url URL          OpenAI-compatible base URL. Default: http://172.17.0.1:11434/v1.
   --every DURATION        Heartbeat interval. Default: 30m.
   --main-model MODEL      Optional primary model, for example google/gemini-1.5-pro.
   --no-restart            Update files only; do not recreate gateway.
@@ -25,7 +26,7 @@ USAGE
 target_user=""
 ollama_model="gemma2:2b"
 provider_id="local-ollama"
-base_url="http://host.docker.internal:11434/v1"
+base_url="http://172.17.0.1:11434/v1"
 heartbeat_every="30m"
 main_model=""
 restart_gateway=1
@@ -116,33 +117,6 @@ case "$base_url" in
     ;;
 esac
 
-base_host_port="$(
-  OPENCLAW_OLLAMA_BASE_URL="$base_url" python3 - <<'PY'
-import os
-from urllib.parse import urlparse
-
-url = urlparse(os.environ["OPENCLAW_OLLAMA_BASE_URL"])
-host = url.hostname or ""
-port = url.port or (443 if url.scheme == "https" else 80)
-print(f"{host}:{port}")
-PY
-)"
-base_host="${base_host_port%:*}"
-base_port="${base_host_port##*:}"
-docker_bridge_ip="$(ip -4 addr show docker0 2>/dev/null | sed -n 's/.*inet \([^/ ]*\).*/\1/p' | head -1 || true)"
-
-if [[ "$base_host" == "host.docker.internal" ]] && command -v ss >/dev/null 2>&1; then
-  if ! ss -ltn | awk -v p=":$base_port" '
-    $4 ~ p "$" && ($4 ~ /^0\.0\.0\.0:/ || $4 ~ /^\[::\]:/ || $4 ~ /^172\.17\.0\.1:/) { found = 1 }
-    END { exit found ? 0 : 1 }
-  '; then
-    echo "error: Ollama is not reachable from Docker containers at $base_url" >&2
-    echo "hint: current Linux Docker containers cannot reach a service bound only to 127.0.0.1." >&2
-    echo "hint: bind Ollama to the Docker bridge address, then retry." >&2
-    exit 1
-  fi
-fi
-
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib-safe-compose.sh
 source "$script_dir/lib-safe-compose.sh"
@@ -176,74 +150,44 @@ openclaw_assert_managed_slot_prewrite "$target_user"
 openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path"
 
-host_ollama_ok=unknown
+shared_ollama_ok=unknown
 if command -v python3 >/dev/null 2>&1; then
   if OPENCLAW_OLLAMA_MODEL="$ollama_model" \
-    OPENCLAW_OLLAMA_BASE_SCHEME="${base_url%%://*}" \
-    OPENCLAW_OLLAMA_BASE_HOST="$base_host" \
-    OPENCLAW_OLLAMA_BASE_PORT="$base_port" \
-    OPENCLAW_DOCKER_BRIDGE_IP="$docker_bridge_ip" \
+    OPENCLAW_OLLAMA_BASE_URL="$base_url" \
     python3 - <<'PY'
 import json
 import os
+from urllib.parse import urlparse
 import urllib.request
 
 model = os.environ["OPENCLAW_OLLAMA_MODEL"]
-scheme = os.environ["OPENCLAW_OLLAMA_BASE_SCHEME"] or "http"
-host = os.environ["OPENCLAW_OLLAMA_BASE_HOST"]
-port = os.environ["OPENCLAW_OLLAMA_BASE_PORT"]
-bridge = os.environ.get("OPENCLAW_DOCKER_BRIDGE_IP", "")
+base = os.environ["OPENCLAW_OLLAMA_BASE_URL"].rstrip("/")
+url = urlparse(base)
+root = f"{url.scheme}://{url.netloc}"
 
-hosts = []
-if host in {"host.docker.internal", "localhost", "127.0.0.1"}:
-    hosts.extend(["127.0.0.1", "localhost"])
-    if bridge:
-        hosts.append(bridge)
-else:
-    hosts.append(host)
-
-data = None
-last_error = None
-for candidate in dict.fromkeys(hosts):
-    try:
-        with urllib.request.urlopen(f"{scheme}://{candidate}:{port}/api/tags", timeout=5) as response:
-            data = json.load(response)
-        break
-    except Exception as exc:
-        last_error = exc
-
-if data is None:
-    print("host_ollama_probe_error=" + (last_error.__class__.__name__ if last_error else "unknown"))
+try:
+    with urllib.request.urlopen(root + "/api/tags", timeout=5) as response:
+        data = json.load(response)
+except Exception as exc:
+    print("shared_ollama_probe_error=" + exc.__class__.__name__)
     raise SystemExit(1)
 
 names = {item.get("name") or item.get("model") for item in data.get("models", [])}
 raise SystemExit(0 if model in names else 2)
 PY
   then
-    host_ollama_ok=yes
+    shared_ollama_ok=yes
   else
     rc=$?
     if [[ "$rc" -eq 2 ]]; then
-      echo "error: host Ollama model missing: $ollama_model" >&2
+      echo "error: shared Ollama model missing: $ollama_model" >&2
     else
-      echo "error: host Ollama unreachable for base URL: $base_url" >&2
+      echo "error: shared Ollama unreachable for base URL: $base_url" >&2
     fi
     exit 1
   fi
 fi
-echo "host_ollama_model_present=$host_ollama_ok"
-
-cat > "$compose_dir/docker-compose.ollama.yml" <<'EOF'
-services:
-  openclaw-gateway:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-  openclaw-cli:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-EOF
-chown root:root "$compose_dir/docker-compose.ollama.yml"
-chmod 0644 "$compose_dir/docker-compose.ollama.yml"
+echo "shared_ollama_model_present=$shared_ollama_ok"
 
 OPENCLAW_CONFIG_PATH="$config_path" \
 OPENCLAW_OLLAMA_PROVIDER_ID="$provider_id" \
@@ -384,11 +328,11 @@ if [[ "$restart_gateway" -eq 1 ]]; then
   (
     cd "$compose_dir"
     export COMPOSE_PROJECT_NAME="openclaw-$target_user"
-    docker compose \
-      -f docker-compose.yml \
-      -f docker-compose.ollama.yml \
-      -f docker-compose.host-user.yml \
-      up -d --force-recreate openclaw-gateway
+    compose_args=(-f docker-compose.yml)
+    [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
+    [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
+    [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
+    docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
   )
 
   for i in $(seq 1 30); do

@@ -71,6 +71,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage-all 1 20 2
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage oc13 24h
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh shared-ollama-status
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh shared-ollama-up qwen2.5-coder:7b
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-status-all 1 20
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-disable-all 1 20
@@ -116,8 +120,9 @@ console 또는 별도 계량 로그에서 확인한다.
 설정을 함께 보여준다. `HEARTBEAT.md`는 scheduler가 아니라 optional checklist다.
 `heartbeat-disable-all`은 `openclaw.json`의 `agents.defaults.heartbeat.every`와
 `agents.list[].heartbeat.every`를 `0m`으로 만든 뒤 gateway를 재생성한다.
-`heartbeat-ollama-all`은 heartbeat를 다시 켜고 local Ollama provider/model로
-돌린다.
+`shared-ollama-up`은 공용 Ollama 컨테이너와 model store를 준비한다.
+`heartbeat-ollama-all`은 heartbeat를 다시 켜고 공용 Ollama endpoint와 model을
+사용하게 한다.
 
 고객이 `openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'`로 요청을
 만들면 `nas-requests`로 확인하고 `nas-approve-share`로 승인한다. 승인 시 fstab

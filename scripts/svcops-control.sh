@@ -19,6 +19,8 @@ Usage:
   svcops-control.sh image-status USER
   svcops-control.sh usage USER [SINCE]
   svcops-control.sh usage-all START END [SINCE]
+  svcops-control.sh shared-ollama-status
+  svcops-control.sh shared-ollama-up MODEL [IMAGE]
   svcops-control.sh heartbeat-status USER
   svcops-control.sh heartbeat-status-all START END
   svcops-control.sh heartbeat-disable USER
@@ -353,11 +355,15 @@ gateway_container() {
   printf 'openclaw-%s-openclaw-gateway-1' "$target_user"
 }
 
+shared_ollama_base_url() {
+  awk -F= '$1 == "OPENCLAW_SHARED_OLLAMA_BASE_URL" { sub(/^[^=]*=/, ""); print; exit }' \
+    /srv/openclaw-ollama/endpoint.env 2>/dev/null || true
+}
+
 compose_files() {
   local compose_dir="$1"
   printf '%s\n' -f docker-compose.yml
   [[ -f "$compose_dir/docker-compose.extra.yml" ]] && printf '%s\n' -f docker-compose.extra.yml
-  [[ -f "$compose_dir/docker-compose.ollama.yml" ]] && printf '%s\n' -f docker-compose.ollama.yml
   [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
   [[ -f "$compose_dir/docker-compose.sandbox.yml" ]] && printf '%s\n' -f docker-compose.sandbox.yml
 }
@@ -760,6 +766,20 @@ container_image_id={{.Image}}'
       --since "$since_window"
     ;;
 
+  shared-ollama-status)
+    [[ $# -eq 0 ]] || { usage >&2; exit 2; }
+    bash "$script_dir/manage-shared-ollama.sh" status
+    ;;
+
+  shared-ollama-up)
+    [[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+    model="$1"
+    image="${2:-ollama/ollama:0.17.7}"
+    bash "$script_dir/manage-shared-ollama.sh" up \
+      --model "$model" \
+      --image "$image"
+    ;;
+
   heartbeat-status)
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
@@ -813,14 +833,14 @@ container_image_id={{.Image}}'
     [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
     target_user="$1"
     model="$2"
-    base_url="${3:-http://host.docker.internal:11434/v1}"
+    base_url="${3:-$(shared_ollama_base_url)}"
+    base_url="${base_url:-http://172.17.0.1:11434/v1}"
     validate_user "$target_user"
     bash "$script_dir/apply-ollama-heartbeat-config.sh" \
       --user "$target_user" \
       --model "$model" \
       --base-url "$base_url" \
-      --every 30m \
-      --main-model google/gemini-1.5-pro
+      --every 30m
     ;;
 
   heartbeat-ollama-all)
@@ -828,7 +848,8 @@ container_image_id={{.Image}}'
     start="$1"
     end="$2"
     model="$3"
-    base_url="${4:-http://host.docker.internal:11434/v1}"
+    base_url="${4:-$(shared_ollama_base_url)}"
+    base_url="${base_url:-http://172.17.0.1:11434/v1}"
     [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
       echo "error: invalid START/END" >&2
       exit 2
@@ -842,8 +863,7 @@ container_image_id={{.Image}}'
           --user "$target_user" \
           --model "$model" \
           --base-url "$base_url" \
-          --every 30m \
-          --main-model google/gemini-1.5-pro || failed=1
+          --every 30m || failed=1
       else
         echo "FAIL user_missing"
         failed=1
