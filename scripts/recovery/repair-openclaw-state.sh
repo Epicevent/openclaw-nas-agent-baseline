@@ -218,6 +218,11 @@ control.setdefault("allowInsecureAuth", True)
 agents = data.setdefault("agents", {})
 defaults = agents.setdefault("defaults", {})
 defaults.setdefault("workspace", workspace)
+heartbeat = defaults.setdefault("heartbeat", {})
+if isinstance(heartbeat, dict):
+    heartbeat.setdefault("every", "0m")
+else:
+    defaults["heartbeat"] = {"every": "0m"}
 
 path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 path.chmod(0o600)

@@ -247,6 +247,54 @@ import json
 import sys
 
 data = json.load(open(sys.argv[1], encoding="utf-8"))
+agents = data.get("agents") or {}
+defaults = agents.get("defaults") or {}
+default_heartbeat = defaults.get("heartbeat")
+
+if not isinstance(default_heartbeat, dict):
+    print("INFO heartbeat_defaults_missing_uses_openclaw_default_30m")
+    raise SystemExit(1)
+
+default_every = str(default_heartbeat.get("every") or "30m")
+default_model = str(default_heartbeat.get("model") or "")
+violations = []
+
+def local_heartbeat_model(model: str) -> bool:
+    return model.startswith("local-ollama/")
+
+if default_every != "0m" and not local_heartbeat_model(default_model):
+    violations.append(f"agents.defaults heartbeat every={default_every!r} model={default_model!r}")
+
+agent_entries = agents.get("list")
+if isinstance(agent_entries, list):
+    for index, entry in enumerate(agent_entries):
+        if not isinstance(entry, dict):
+            continue
+        heartbeat = entry.get("heartbeat")
+        if not isinstance(heartbeat, dict):
+            continue
+        every = str(heartbeat.get("every") or default_every)
+        model = str(heartbeat.get("model") or default_model)
+        if every != "0m" and not local_heartbeat_model(model):
+            agent_id = entry.get("id") or index
+            violations.append(f"agents.list[{agent_id!r}] heartbeat every={every!r} model={model!r}")
+
+if violations:
+    for violation in violations:
+        print(f"INFO heartbeat_cost_guard_violation={violation}")
+    raise SystemExit(1)
+PY
+then
+  pass "heartbeat_cost_guard_ok"
+else
+  fail "heartbeat_cost_guard_ok"
+fi
+
+if [[ -f "$config_path" ]] && sudo python3 - "$config_path" <<'PY'
+import json
+import sys
+
+data = json.load(open(sys.argv[1], encoding="utf-8"))
 enabled = data.get("gateway", {}).get("controlUi", {}).get("dangerouslyDisableDeviceAuth") is True
 raise SystemExit(0 if enabled else 1)
 PY

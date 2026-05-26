@@ -390,6 +390,9 @@ data = {
     "agents": {
         "defaults": {
             "workspace": workspace,
+            "heartbeat": {
+                "every": "0m",
+            },
         },
     },
 }

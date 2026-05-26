@@ -78,6 +78,7 @@ creates a minimal `~/.openclaw/openclaw.json` with:
 - control UI base path
 - optional allowed origins from `OPENCLAW_PROXY_PUBLIC_ORIGIN` or
   `OPENCLAW_PROXY_ALLOWED_ORIGINS`
+- heartbeat disabled with `agents.defaults.heartbeat.every=0m`
 
 This is not part of the production image fast install path. Fresh install
 initializes only the minimal runtime config it needs and does not run workspace
