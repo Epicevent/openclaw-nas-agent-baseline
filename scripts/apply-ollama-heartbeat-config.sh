@@ -129,6 +129,7 @@ PY
 )"
 base_host="${base_host_port%:*}"
 base_port="${base_host_port##*:}"
+docker_bridge_ip="$(ip -4 addr show docker0 2>/dev/null | sed -n 's/.*inet \([^/ ]*\).*/\1/p' | head -1 || true)"
 
 if [[ "$base_host" == "host.docker.internal" ]] && command -v ss >/dev/null 2>&1; then
   if ! ss -ltn | awk -v p=":$base_port" '
@@ -177,16 +178,42 @@ openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path"
 
 host_ollama_ok=unknown
 if command -v python3 >/dev/null 2>&1; then
-  if OPENCLAW_OLLAMA_MODEL="$ollama_model" python3 - <<'PY'
+  if OPENCLAW_OLLAMA_MODEL="$ollama_model" \
+    OPENCLAW_OLLAMA_BASE_SCHEME="${base_url%%://*}" \
+    OPENCLAW_OLLAMA_BASE_HOST="$base_host" \
+    OPENCLAW_OLLAMA_BASE_PORT="$base_port" \
+    OPENCLAW_DOCKER_BRIDGE_IP="$docker_bridge_ip" \
+    python3 - <<'PY'
 import json
 import os
 import urllib.request
 
 model = os.environ["OPENCLAW_OLLAMA_MODEL"]
-try:
-    with urllib.request.urlopen("http://127.0.0.1:11434/api/tags", timeout=5) as response:
-        data = json.load(response)
-except Exception:
+scheme = os.environ["OPENCLAW_OLLAMA_BASE_SCHEME"] or "http"
+host = os.environ["OPENCLAW_OLLAMA_BASE_HOST"]
+port = os.environ["OPENCLAW_OLLAMA_BASE_PORT"]
+bridge = os.environ.get("OPENCLAW_DOCKER_BRIDGE_IP", "")
+
+hosts = []
+if host in {"host.docker.internal", "localhost", "127.0.0.1"}:
+    hosts.extend(["127.0.0.1", "localhost"])
+    if bridge:
+        hosts.append(bridge)
+else:
+    hosts.append(host)
+
+data = None
+last_error = None
+for candidate in dict.fromkeys(hosts):
+    try:
+        with urllib.request.urlopen(f"{scheme}://{candidate}:{port}/api/tags", timeout=5) as response:
+            data = json.load(response)
+        break
+    except Exception as exc:
+        last_error = exc
+
+if data is None:
+    print("host_ollama_probe_error=" + (last_error.__class__.__name__ if last_error else "unknown"))
     raise SystemExit(1)
 
 names = {item.get("name") or item.get("model") for item in data.get("models", [])}
@@ -199,7 +226,7 @@ PY
     if [[ "$rc" -eq 2 ]]; then
       echo "error: host Ollama model missing: $ollama_model" >&2
     else
-      echo "error: host Ollama unreachable: http://127.0.0.1:11434" >&2
+      echo "error: host Ollama unreachable for base URL: $base_url" >&2
     fi
     exit 1
   fi
