@@ -350,10 +350,27 @@ defaults["heartbeat"] = {
     "isolatedSession": True,
     "skipWhenBusy": True,
 }
+agent_entries = agents.get("list")
+agent_overrides_updated = 0
+if isinstance(agent_entries, list):
+    for entry in agent_entries:
+        if not isinstance(entry, dict):
+            continue
+        heartbeat = entry.get("heartbeat")
+        if isinstance(heartbeat, dict):
+            heartbeat["every"] = heartbeat_every
+            heartbeat["model"] = model_ref
+            heartbeat.setdefault("includeReasoning", False)
+            heartbeat.setdefault("includeSystemPromptSection", True)
+            heartbeat.setdefault("lightContext", True)
+            heartbeat.setdefault("isolatedSession", True)
+            heartbeat.setdefault("skipWhenBusy", True)
+            agent_overrides_updated += 1
 
 safe_write_regular(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 print(f"updated_config={path}")
 print(f"heartbeat_model={model_ref}")
+print(f"heartbeat_agent_overrides_updated={agent_overrides_updated}")
 print(f"literal_api_keys_removed={removed}")
 PY
 

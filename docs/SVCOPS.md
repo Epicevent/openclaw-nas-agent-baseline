@@ -75,6 +75,8 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-status
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-disable-all 1 20
 
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh heartbeat-ollama-all 1 20 qwen2.5-coder:7b
+
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
   oc1 \
   oc1.ji-tech.co.kr
@@ -110,10 +112,12 @@ log/state/workspace 변경량이다. 로그 내용, NAS credential, gateway toke
 provider/API key는 출력하지 않는다. provider별 과금량이나 token 사용량은 provider
 console 또는 별도 계량 로그에서 확인한다.
 
-`heartbeat-status-all`은 계정별 workspace `HEARTBEAT.md` 존재 여부만 보여준다.
-`heartbeat-disable-all`은 발견된 `HEARTBEAT.md`를 `.disabled.TIMESTAMP` 파일로
-이름 변경하고 gateway를 재생성한다. 비용 통제 전에는 heartbeat 파일을 유지하지
-않는다.
+`heartbeat-status-all`은 계정별 `HEARTBEAT.md`와 `openclaw.json`의 heartbeat
+설정을 함께 보여준다. `HEARTBEAT.md`는 scheduler가 아니라 optional checklist다.
+`heartbeat-disable-all`은 `openclaw.json`의 `agents.defaults.heartbeat.every`와
+`agents.list[].heartbeat.every`를 `0m`으로 만든 뒤 gateway를 재생성한다.
+`heartbeat-ollama-all`은 heartbeat를 다시 켜고 local Ollama provider/model로
+돌린다.
 
 고객이 `openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'`로 요청을
 만들면 `nas-requests`로 확인하고 `nas-approve-share`로 승인한다. 승인 시 fstab
