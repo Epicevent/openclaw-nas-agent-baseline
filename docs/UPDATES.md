@@ -21,6 +21,14 @@ OpenClaw 업데이트는 고객 Web UI 버튼으로 처리하지 않는다. 운�
 Web UI에 업데이트 배너가 보여도 고객 운영 절차로 보지 않는다. 컨테이너 image
 기반 설치에서는 업데이트가 skip되거나 상태 파일/로그만 바뀔 수 있다.
 
+운영 업데이트는 고객별 설정을 새로 만들지 않는다. 기존 slot의 `openclaw.json`,
+runtime secret, NAS mount, credential은 유지하고 gateway 컨테이너 image를 새
+baseline image로 갈아끼운다. 새 OpenClaw 버전이 기존 설정을 다르게 해석할 수
+있으므로 staging slot에서 먼저 확인한다.
+
+Ollama heartbeat를 켠 slot은 `docker-compose.ollama.yml`도 compose 입력에 포함되어야
+한다. 이 파일은 image 안에 들어가는 것이 아니라 slot의 compose override다.
+
 ## staging slot에서 검증
 
 ```bash
