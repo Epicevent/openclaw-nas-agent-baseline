@@ -23,6 +23,8 @@ Usage:
   svcops-control.sh heartbeat-status-all START END
   svcops-control.sh heartbeat-disable USER
   svcops-control.sh heartbeat-disable-all START END
+  svcops-control.sh heartbeat-ollama USER MODEL [BASE_URL]
+  svcops-control.sh heartbeat-ollama-all START END MODEL [BASE_URL]
   svcops-control.sh gateway-refresh USER
   svcops-control.sh nas-prepare USER SHARE
   svcops-control.sh nas-fstab USER SHARE
@@ -355,6 +357,7 @@ compose_files() {
   local compose_dir="$1"
   printf '%s\n' -f docker-compose.yml
   [[ -f "$compose_dir/docker-compose.extra.yml" ]] && printf '%s\n' -f docker-compose.extra.yml
+  [[ -f "$compose_dir/docker-compose.ollama.yml" ]] && printf '%s\n' -f docker-compose.ollama.yml
   [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
   [[ -f "$compose_dir/docker-compose.sandbox.yml" ]] && printf '%s\n' -f docker-compose.sandbox.yml
 }
@@ -798,6 +801,49 @@ container_image_id={{.Image}}'
       if id "$target_user" >/dev/null 2>&1; then
         bash "$script_dir/openclaw-heartbeat-control.sh" disable --user "$target_user" || failed=1
         refresh_gateway "$target_user" || failed=1
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
+    ;;
+
+  heartbeat-ollama)
+    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    model="$2"
+    base_url="${3:-http://host.docker.internal:11434/v1}"
+    validate_user "$target_user"
+    bash "$script_dir/apply-ollama-heartbeat-config.sh" \
+      --user "$target_user" \
+      --model "$model" \
+      --base-url "$base_url" \
+      --every 30m \
+      --main-model google/gemini-1.5-pro
+    ;;
+
+  heartbeat-ollama-all)
+    [[ $# -ge 3 && $# -le 4 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    model="$3"
+    base_url="${4:-http://host.docker.internal:11434/v1}"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        bash "$script_dir/apply-ollama-heartbeat-config.sh" \
+          --user "$target_user" \
+          --model "$model" \
+          --base-url "$base_url" \
+          --every 30m \
+          --main-model google/gemini-1.5-pro || failed=1
       else
         echo "FAIL user_missing"
         failed=1

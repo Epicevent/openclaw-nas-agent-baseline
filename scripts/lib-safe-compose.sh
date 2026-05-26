@@ -197,7 +197,7 @@ openclaw_assert_safe_compose_dir() {
     openclaw_assert_root_owned_file "$compose_dir/$required" "compose_file" || return 1
   done
 
-  for optional in docker-compose.extra.yml docker-compose.sandbox.yml; do
+  for optional in docker-compose.extra.yml docker-compose.ollama.yml docker-compose.sandbox.yml; do
     if [[ -e "$compose_dir/$optional" ]]; then
       openclaw_assert_root_owned_file "$compose_dir/$optional" "compose_file" || return 1
     fi
