@@ -6,6 +6,7 @@ usage() {
 Usage:
   manage-shared-ollama.sh status
   manage-shared-ollama.sh up --model MODEL [options]
+  manage-shared-ollama.sh usage [--since WINDOW] [--user USER]
 
 Runs one shared Ollama container for OpenClaw heartbeat traffic.
 
@@ -57,6 +58,24 @@ validate_port() {
   [[ "$1" =~ ^[0-9]+$ && "$1" -ge 1 && "$1" -le 65535 ]] || die "invalid port: $1"
 }
 
+validate_since_window() {
+  [[ "$1" =~ ^[A-Za-z0-9:TZ+_.-]+$ ]] || die "invalid since window: $1"
+}
+
+validate_user() {
+  [[ "$1" =~ ^oc[1-9][0-9]*$ ]] || die "invalid user: $1"
+}
+
+docker_since_window() {
+  local value="$1" n
+  if [[ "$value" =~ ^([0-9]+)d$ ]]; then
+    n="${BASH_REMATCH[1]}"
+    printf '%sh' "$((n * 24))"
+  else
+    printf '%s' "$value"
+  fi
+}
+
 read_endpoint_value() {
   local key="$1"
   awk -F= -v k="$key" '$1 == k { sub(/^[^=]*=/, ""); print; exit }' "$endpoint_file" 2>/dev/null || true
@@ -97,6 +116,150 @@ print_status() {
   fi
 }
 
+print_usage() {
+  local since="$1" target_user="$2" docker_since status tmp_logs tmp_map container ip user
+  validate_since_window "$since"
+  [[ -z "$target_user" ]] || validate_user "$target_user"
+
+  status="$(docker inspect "$container_name" --format '{{.State.Status}}' 2>/dev/null || true)"
+  echo "container=$container_name"
+  echo "container_status=${status:-missing}"
+  echo "usage_window=$since"
+  if [[ "$status" != "running" ]]; then
+    return 1
+  fi
+
+  tmp_logs="$(mktemp)"
+  tmp_map="$(mktemp)"
+  trap 'rm -f "$tmp_logs" "$tmp_map"' RETURN
+
+  docker_since="$(docker_since_window "$since")"
+  echo "docker_since_window=$docker_since"
+  docker logs --timestamps --since "$docker_since" "$container_name" >"$tmp_logs" 2>&1 || true
+
+  while IFS= read -r container; do
+    [[ "$container" =~ ^openclaw-(oc[0-9]+)-openclaw-gateway-1$ ]] || continue
+    user="${BASH_REMATCH[1]}"
+    if [[ -n "$target_user" && "$user" != "$target_user" ]]; then
+      continue
+    fi
+    ip="$(docker inspect "$container" --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{"\n"}}{{end}}' 2>/dev/null | sed '/^$/d' | head -1 || true)"
+    [[ -n "$ip" ]] || continue
+    printf '%s %s %s\n' "$ip" "$user" "$container" >>"$tmp_map"
+  done < <(docker ps --format '{{.Names}}')
+
+  python3 - "$tmp_logs" "$tmp_map" "$target_user" <<'PY'
+import collections
+import re
+import sys
+
+log_path, map_path, target_user = sys.argv[1:4]
+
+ip_to_slot = {}
+slots = {}
+with open(map_path, "r", encoding="utf-8", errors="replace") as handle:
+    for line in handle:
+        parts = line.rstrip("\n").split(" ", 2)
+        if len(parts) != 3:
+            continue
+        ip, slot, container = parts
+        ip_to_slot[ip] = slot
+        slots[slot] = {
+            "gateway_ip": ip,
+            "gateway_container": container,
+            "request_lines": 0,
+            "generation_request_lines": 0,
+            "model_list_request_lines": 0,
+            "other_request_lines": 0,
+            "latest_request_at": "none",
+            "latest_generation_at": "none",
+        }
+
+request_re = re.compile(r"\|\s*(\d+\.\d+\.\d+\.\d+)\s*\|\s*([A-Z]+)\s+\"([^\"]+)\"")
+timestamp_re = re.compile(r"^(\d{4}-\d{2}-\d{2}T\S+)")
+generation_paths = (
+    "/v1/chat/completions",
+    "/v1/completions",
+    "/v1/responses",
+    "/api/chat",
+    "/api/generate",
+    "/api/embed",
+    "/api/embeddings",
+    "/v1/embeddings",
+)
+model_list_paths = (
+    "/v1/models",
+    "/api/tags",
+    "/api/ps",
+)
+
+totals = collections.Counter()
+unmapped = collections.Counter()
+
+with open(log_path, "r", encoding="utf-8", errors="replace") as handle:
+    for line in handle:
+        m = request_re.search(line)
+        if not m:
+            continue
+        ip, method, raw_path = m.groups()
+        path = raw_path.split("?", 1)[0]
+        ts_match = timestamp_re.match(line)
+        ts = ts_match.group(1) if ts_match else "unknown"
+        is_generation = method == "POST" and path in generation_paths
+        is_model_list = path in model_list_paths
+
+        totals["request_lines"] += 1
+        if is_generation:
+            totals["generation_request_lines"] += 1
+        elif is_model_list:
+            totals["model_list_request_lines"] += 1
+        else:
+            totals["other_request_lines"] += 1
+
+        slot = ip_to_slot.get(ip)
+        if not slot:
+            unmapped["request_lines"] += 1
+            if is_generation:
+                unmapped["generation_request_lines"] += 1
+            elif is_model_list:
+                unmapped["model_list_request_lines"] += 1
+            else:
+                unmapped["other_request_lines"] += 1
+            continue
+
+        row = slots[slot]
+        row["request_lines"] += 1
+        row["latest_request_at"] = ts
+        if is_generation:
+            row["generation_request_lines"] += 1
+            row["latest_generation_at"] = ts
+        elif is_model_list:
+            row["model_list_request_lines"] += 1
+        else:
+            row["other_request_lines"] += 1
+
+print(f"mapped_gateway_count={len(slots)}")
+print(f"request_lines_total={totals['request_lines']}")
+print(f"generation_request_lines_total={totals['generation_request_lines']}")
+print(f"model_list_request_lines_total={totals['model_list_request_lines']}")
+print(f"other_request_lines_total={totals['other_request_lines']}")
+print(f"unmapped_request_lines={unmapped['request_lines']}")
+print(f"unmapped_generation_request_lines={unmapped['generation_request_lines']}")
+
+for slot in sorted(slots, key=lambda s: int(s[2:])):
+    row = slots[slot]
+    print(f"== {slot} ==")
+    print(f"gateway_container={row['gateway_container']}")
+    print(f"gateway_ip={row['gateway_ip']}")
+    print(f"request_lines={row['request_lines']}")
+    print(f"generation_request_lines={row['generation_request_lines']}")
+    print(f"model_list_request_lines={row['model_list_request_lines']}")
+    print(f"other_request_lines={row['other_request_lines']}")
+    print(f"latest_request_at={row['latest_request_at']}")
+    print(f"latest_generation_at={row['latest_generation_at']}")
+PY
+}
+
 cmd="${1:-}"
 shift || true
 
@@ -109,6 +272,27 @@ case "$cmd" in
     [[ "$(id -u)" -eq 0 ]] || die "run with sudo/root"
     mkdir -p "$state_dir"
     print_status
+    ;;
+  usage)
+    since_window="2h"
+    target_user=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --since)
+          since_window="${2:?missing --since value}"
+          shift 2
+          ;;
+        --user)
+          target_user="${2:?missing --user value}"
+          shift 2
+          ;;
+        *)
+          die "unknown argument: $1"
+          ;;
+      esac
+    done
+    [[ "$(id -u)" -eq 0 ]] || die "run with sudo/root"
+    print_usage "$since_window" "$target_user"
     ;;
   up)
     while [[ $# -gt 0 ]]; do
