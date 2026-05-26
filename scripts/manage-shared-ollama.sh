@@ -283,7 +283,7 @@ run_smoke() {
   echo "model=$model"
   [[ "$status" == "running" ]] || die "gateway container is not running"
 
-  docker exec \
+  docker exec -i \
     -e OPENCLAW_OLLAMA_BASE_URL="$endpoint_url" \
     -e OPENCLAW_OLLAMA_MODEL="$model" \
     "$container" python3 - <<'PY'

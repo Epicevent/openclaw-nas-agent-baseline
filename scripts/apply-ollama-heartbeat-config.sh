@@ -347,7 +347,7 @@ if [[ "$restart_gateway" -eq 1 ]]; then
   done
 
   if command -v python3 >/dev/null 2>&1; then
-    if docker exec -e OPENCLAW_OLLAMA_BASE_URL="$base_url" -e OPENCLAW_OLLAMA_MODEL="$ollama_model" "$container" python3 - <<'PY'
+    if docker exec -i -e OPENCLAW_OLLAMA_BASE_URL="$base_url" -e OPENCLAW_OLLAMA_MODEL="$ollama_model" "$container" python3 - <<'PY'
 import json
 import os
 import urllib.request

@@ -299,7 +299,7 @@ if [[ "$restart_gateway" -eq 1 ]]; then
     sleep 2
   done
 
-  docker exec -e OPENCLAW_OLLAMA_BASE_URL="$base_url" -e OPENCLAW_OLLAMA_MODEL="$ollama_model" "$container" python3 - <<'PY'
+  docker exec -i -e OPENCLAW_OLLAMA_BASE_URL="$base_url" -e OPENCLAW_OLLAMA_MODEL="$ollama_model" "$container" python3 - <<'PY'
 import json
 import os
 import urllib.request
