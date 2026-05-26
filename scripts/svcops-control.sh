@@ -22,6 +22,7 @@ Usage:
   svcops-control.sh shared-ollama-status
   svcops-control.sh shared-ollama-up MODEL [IMAGE]
   svcops-control.sh shared-ollama-usage [SINCE] [USER]
+  svcops-control.sh shared-ollama-smoke USER [MODEL]
   svcops-control.sh heartbeat-status USER
   svcops-control.sh heartbeat-status-all START END
   svcops-control.sh heartbeat-disable USER
@@ -790,6 +791,18 @@ container_image_id={{.Image}}'
       bash "$script_dir/manage-shared-ollama.sh" usage --since "$since_window" --user "$target_user"
     else
       bash "$script_dir/manage-shared-ollama.sh" usage --since "$since_window"
+    fi
+    ;;
+
+  shared-ollama-smoke)
+    [[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    model="${2:-}"
+    validate_user "$target_user"
+    if [[ -n "$model" ]]; then
+      bash "$script_dir/manage-shared-ollama.sh" smoke --user "$target_user" --model "$model"
+    else
+      bash "$script_dir/manage-shared-ollama.sh" smoke --user "$target_user"
     fi
     ;;
 

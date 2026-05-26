@@ -7,6 +7,7 @@ Usage:
   manage-shared-ollama.sh status
   manage-shared-ollama.sh up --model MODEL [options]
   manage-shared-ollama.sh usage [--since WINDOW] [--user USER]
+  manage-shared-ollama.sh smoke --user USER [--model MODEL]
 
 Runs one shared Ollama container for OpenClaw heartbeat traffic.
 
@@ -260,6 +261,84 @@ for slot in sorted(slots, key=lambda s: int(s[2:])):
 PY
 }
 
+run_smoke() {
+  local user="$1" model_override="$2" endpoint_url endpoint_model model container status
+  validate_user "$user"
+  if [[ -n "$model_override" ]]; then
+    validate_model "$model_override"
+  fi
+
+  endpoint_url="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_BASE_URL)"
+  endpoint_model="$(read_endpoint_value OPENCLAW_SHARED_OLLAMA_MODEL)"
+  model="${model_override:-$endpoint_model}"
+  [[ -n "$endpoint_url" ]] || die "missing shared Ollama endpoint file value"
+  [[ -n "$model" ]] || die "missing shared Ollama model"
+
+  container="openclaw-${user}-openclaw-gateway-1"
+  status="$(docker inspect "$container" --format '{{.State.Status}}' 2>/dev/null || true)"
+  echo "target_user=$user"
+  echo "gateway_container=$container"
+  echo "gateway_status=${status:-missing}"
+  echo "base_url=$endpoint_url"
+  echo "model=$model"
+  [[ "$status" == "running" ]] || die "gateway container is not running"
+
+  docker exec \
+    -e OPENCLAW_OLLAMA_BASE_URL="$endpoint_url" \
+    -e OPENCLAW_OLLAMA_MODEL="$model" \
+    "$container" python3 - <<'PY'
+import json
+import os
+import urllib.request
+
+base = os.environ["OPENCLAW_OLLAMA_BASE_URL"].rstrip("/")
+model = os.environ["OPENCLAW_OLLAMA_MODEL"]
+payload = {
+    "model": model,
+    "messages": [
+        {"role": "user", "content": "Reply with exactly OK."},
+    ],
+    "stream": False,
+    "temperature": 0,
+    "max_tokens": 4,
+}
+request = urllib.request.Request(
+    base + "/chat/completions",
+    data=json.dumps(payload).encode("utf-8"),
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": "Bearer ollama",
+    },
+    method="POST",
+)
+try:
+    with urllib.request.urlopen(request, timeout=60) as response:
+        status = response.status
+        data = json.load(response)
+except Exception as exc:
+    print("generation_smoke=fail")
+    print("generation_error=" + exc.__class__.__name__)
+    raise SystemExit(1)
+
+content = ""
+choices = data.get("choices")
+if isinstance(choices, list) and choices:
+    first = choices[0]
+    if isinstance(first, dict):
+        message = first.get("message")
+        if isinstance(message, dict):
+            content = str(message.get("content") or "")
+        if not content:
+            content = str(first.get("text") or "")
+
+print("generation_smoke=pass")
+print(f"http_status={status}")
+print("response_nonempty=" + ("yes" if content.strip() else "no"))
+print(f"response_chars={len(content)}")
+raise SystemExit(0 if status == 200 and content.strip() else 1)
+PY
+}
+
 cmd="${1:-}"
 shift || true
 
@@ -293,6 +372,28 @@ case "$cmd" in
     done
     [[ "$(id -u)" -eq 0 ]] || die "run with sudo/root"
     print_usage "$since_window" "$target_user"
+    ;;
+  smoke)
+    smoke_user=""
+    smoke_model=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --user)
+          smoke_user="${2:?missing --user value}"
+          shift 2
+          ;;
+        --model)
+          smoke_model="${2:?missing --model value}"
+          shift 2
+          ;;
+        *)
+          die "unknown argument: $1"
+          ;;
+      esac
+    done
+    [[ "$(id -u)" -eq 0 ]] || die "run with sudo/root"
+    [[ -n "$smoke_user" ]] || die "--user is required"
+    run_smoke "$smoke_user" "$smoke_model"
     ;;
   up)
     while [[ $# -gt 0 ]]; do
