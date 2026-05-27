@@ -22,6 +22,28 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh ...
 
 `sudo bash`, `sudo su`, `sudo docker` 같은 임의 root 명령은 여전히 허용하지 않는다.
 
+## 운영자 콘솔
+
+`svcops`로 실행하는 localhost 전용 화면이다. 서버 외부에 직접 공개하지 않고 SSH
+tunnel로 접속한다.
+
+```bash
+pm2 start /opt/openclaw-nas-agent-baseline/admin-cli/bin/openclaw-ops-console \
+  --name openclaw-ops-console \
+  -- --host 127.0.0.1 --port 18088
+```
+
+운영자 PC에서는 다음처럼 연결한다.
+
+```bash
+ssh -L 18088:127.0.0.1:18088 svcops@SERVER
+```
+
+브라우저 주소는 `http://127.0.0.1:18088`이다. 콘솔에서 실행하는 조치는
+`svcops-control.sh` wrapper로만 처리되며, 결과는
+`/srv/openclaw-ops/reports/actions.log`에 JSONL로 남는다. NAS password, API key,
+gateway token은 이 화면에서 입력하거나 저장하지 않는다.
+
 ## 역할
 
 ```text

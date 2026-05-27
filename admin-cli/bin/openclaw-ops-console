@@ -1,0 +1,1008 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import html
+import json
+import os
+import re
+import secrets
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Any
+from urllib.parse import parse_qs, urlparse
+
+
+DEFAULT_REGISTRY = "/srv/openclaw-ops/slots.yaml"
+DEFAULT_MANIFEST = "/opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest"
+DEFAULT_DRIFT_REPORT = "/srv/openclaw-ops/reports/drift-latest.txt"
+DEFAULT_ACTIONS_LOG = "/srv/openclaw-ops/reports/actions.log"
+DEFAULT_CONTROL = "/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh"
+DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024
+DEFAULT_BASE_URL = "http://openclaw-shared-ollama:11434/v1"
+DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
+
+SLOT_RE = re.compile(r"^oc[1-9][0-9]*$")
+SHARE_RE = re.compile(r"^//[^\s/,]+/[^\s/,]+$")
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/\-]{0,127}$")
+BASE_URL_RE = re.compile(r"^https?://[A-Za-z0-9._:\-/]+$")
+SINCE_RE = re.compile(r"^[0-9]+[mhd]$")
+
+SECRET_VALUE_RE = re.compile(
+    r"(?i)\b([A-Za-z0-9_]*(?:api[_-]?key|token|password|passwd|credential|secret)[A-Za-z0-9_]*)"
+    r"(\s*[=:]\s*)(['\"]?)([^\s'\"\r\n]+)"
+)
+BEARER_RE = re.compile(r"(?i)\b(Bearer\s+)[A-Za-z0-9._~+/=-]+")
+KEY_LIKE_RE = re.compile(r"\b(sk-[A-Za-z0-9]{12,}|AIza[0-9A-Za-z_\-]{20,})\b")
+SENSITIVE_PARAM_KEYS = ("pass", "password", "token", "secret", "credential", "api_key", "apikey", "key")
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+
+
+def unquote_yaml(value: str) -> str:
+    value = value.strip()
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1]
+    if value.startswith("'") and value.endswith("'"):
+        return value[1:-1]
+    return value
+
+
+def read_text(path: Path, max_bytes: int = 1024 * 1024) -> str:
+    try:
+        with path.open("rb") as handle:
+            data = handle.read(max_bytes + 1)
+    except FileNotFoundError:
+        return ""
+    if len(data) > max_bytes:
+        data = data[:max_bytes] + b"\n[truncated]\n"
+    return data.decode("utf-8", errors="replace")
+
+
+def parse_key_values(text: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        line = line.lstrip("\ufeff")
+        if "=" not in line:
+            continue
+        if not re.match(r"^[A-Za-z0-9_]+=", line):
+            continue
+        key, value = line.split("=", 1)
+        key = key.lstrip("\ufeff")
+        result[key] = value
+    return result
+
+
+def parse_key_value_file(path: Path) -> dict[str, str]:
+    return parse_key_values(read_text(path, max_bytes=64 * 1024))
+
+
+def parse_registry(path: Path) -> tuple[dict[str, str], list[dict[str, str]]]:
+    text = read_text(path)
+    meta: dict[str, str] = {}
+    slots: list[dict[str, str]] = []
+    section = ""
+    current: dict[str, str] | None = None
+    nested = ""
+
+    for raw in text.splitlines():
+        line = raw.rstrip().lstrip("\ufeff")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if stripped == "meta:":
+            section = "meta"
+            current = None
+            nested = ""
+            continue
+        if stripped == "slots:":
+            section = "slots"
+            current = None
+            nested = ""
+            continue
+        if section == "meta" and indent == 2 and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            meta[key] = unquote_yaml(value)
+            continue
+        if section != "slots":
+            continue
+        if indent == 2 and stripped.startswith("- slot:"):
+            if current:
+                slots.append(current)
+            current = {"slot": unquote_yaml(stripped.split(":", 1)[1])}
+            nested = ""
+            continue
+        if current is None:
+            continue
+        if indent == 4 and stripped.endswith(":"):
+            nested = stripped[:-1]
+            continue
+        if indent == 4 and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[key] = unquote_yaml(value)
+            nested = ""
+            continue
+        if indent == 6 and nested and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[f"{nested}.{key}"] = unquote_yaml(value)
+
+    if current:
+        slots.append(current)
+    slots.sort(key=lambda item: slot_number(item.get("slot", "")))
+    return meta, slots
+
+
+def slot_number(slot: str) -> int:
+    match = re.search(r"(\d+)$", slot or "")
+    return int(match.group(1)) if match else 10_000
+
+
+def parse_drift_report(path: Path) -> dict[str, Any]:
+    text = read_text(path)
+    top: dict[str, str] = {}
+    slots: dict[str, dict[str, Any]] = {}
+    current = ""
+
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        match = re.match(r"^==\s+(oc[0-9]+)\s+==$", stripped)
+        if match:
+            current = match.group(1)
+            slots[current] = {"lines": []}
+            continue
+        if current:
+            slots[current]["lines"].append(stripped)
+            if "=" in stripped:
+                key, value = stripped.split("=", 1)
+                slots[current][key] = value
+            continue
+        if "=" in stripped:
+            key, value = stripped.split("=", 1)
+            top[key] = value
+
+    return {
+        "exists": bool(text),
+        "summary": top.get("summary", "missing"),
+        "failures": int(top.get("failures", "0") or 0) if top.get("failures", "0").isdigit() else None,
+        "warnings": int(top.get("warnings", "0") or 0) if top.get("warnings", "0").isdigit() else None,
+        "started": top.get("drift_check_started", ""),
+        "finished": top.get("drift_check_finished", ""),
+        "top": top,
+        "slots": slots,
+    }
+
+
+def redact(text: str) -> str:
+    text = SECRET_VALUE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}{m.group(3)}[REDACTED]", text)
+    text = BEARER_RE.sub(lambda m: f"{m.group(1)}[REDACTED]", text)
+    text = KEY_LIKE_RE.sub("[REDACTED_KEY]", text)
+    return text
+
+
+def limit_output(text: str, max_bytes: int) -> tuple[str, bool]:
+    data = text.encode("utf-8", errors="replace")
+    if len(data) <= max_bytes:
+        return text, False
+    clipped = data[:max_bytes].decode("utf-8", errors="replace")
+    return clipped + "\n[output truncated]\n", True
+
+
+def sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
+    clean: dict[str, Any] = {}
+    for key, value in params.items():
+        lowered = key.lower()
+        if key == "csrf":
+            continue
+        if key == "confirm":
+            continue
+        if any(item in lowered for item in SENSITIVE_PARAM_KEYS):
+            clean[key] = "[REDACTED]"
+        else:
+            clean[key] = value
+    return clean
+
+
+def validate_loopback(host: str) -> None:
+    if host not in ("127.0.0.1", "localhost", "::1"):
+        raise SystemExit("error: openclaw-ops-console only binds to loopback in v1")
+
+
+class ControlRunner:
+    def __init__(self, control: str, use_sudo: bool, max_output_bytes: int):
+        self.control = control
+        self.use_sudo = use_sudo
+        self.max_output_bytes = max_output_bytes
+
+    def command(self, args: list[str]) -> list[str]:
+        if self.use_sudo:
+            return ["sudo", "-n", self.control, *args]
+        return [self.control, *args]
+
+    def run(self, args: list[str], timeout: int = 120) -> dict[str, Any]:
+        started = time.monotonic()
+        cmd = self.command(args)
+        try:
+            proc = subprocess.run(
+                cmd,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                timeout=timeout,
+            )
+            output = proc.stdout or ""
+            exit_code = proc.returncode
+        except TimeoutError:
+            output = "TIMEOUT\n"
+            exit_code = 124
+        except subprocess.TimeoutExpired as exc:
+            output = (exc.stdout or "") + "\nTIMEOUT\n"
+            exit_code = 124
+        except OSError as exc:
+            output = f"ERROR: {exc}\n"
+            exit_code = 127
+        duration_ms = int((time.monotonic() - started) * 1000)
+        output = redact(output)
+        output, truncated = limit_output(output, self.max_output_bytes)
+        return {
+            "args": args,
+            "exit_code": exit_code,
+            "duration_ms": duration_ms,
+            "output": output,
+            "truncated": truncated,
+        }
+
+
+def append_action_log(path: Path, event: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+
+def read_recent_actions(path: Path, count: int = 12) -> list[dict[str, Any]]:
+    text = read_text(path, max_bytes=512 * 1024)
+    rows: list[dict[str, Any]] = []
+    for line in text.splitlines()[-count:]:
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
+
+
+def valid_slot(value: str) -> str:
+    if not SLOT_RE.match(value or ""):
+        raise ValueError("invalid slot")
+    return value
+
+
+def valid_share(value: str) -> str:
+    if not SHARE_RE.match(value or ""):
+        raise ValueError("invalid NAS share")
+    return value
+
+
+def valid_model(value: str) -> str:
+    if not MODEL_RE.match(value or ""):
+        raise ValueError("invalid model")
+    return value
+
+
+def valid_base_url(value: str) -> str:
+    if not BASE_URL_RE.match(value or ""):
+        raise ValueError("invalid base URL")
+    return value
+
+
+def valid_since(value: str) -> str:
+    if not SINCE_RE.match(value or ""):
+        raise ValueError("invalid since window")
+    return value
+
+
+def first_param(params: dict[str, Any], key: str, default: str = "") -> str:
+    value = params.get(key, default)
+    if isinstance(value, list):
+        return str(value[0]) if value else default
+    return str(value)
+
+
+def host_for_slot(slot: str, registry_slots: list[dict[str, str]], base_domain: str) -> str:
+    for item in registry_slots:
+        if item.get("slot") == slot:
+            return item.get("subdomain") or f"{slot}.{base_domain}"
+    return f"{slot}.{base_domain}"
+
+
+def extract_requested_share(text: str, slot: str) -> str:
+    in_slot = False
+    for line in text.splitlines():
+        match = re.match(r"^==\s+(oc[0-9]+)\s+==$", line.strip())
+        if match:
+            in_slot = match.group(1) == slot
+            continue
+        if in_slot and line.startswith("requested_share="):
+            return line.split("=", 1)[1].strip()
+    return ""
+
+
+class OpsConsole:
+    def __init__(self, args: argparse.Namespace):
+        self.host = args.host
+        self.port = args.port
+        self.registry = Path(args.registry)
+        self.manifest = Path(args.manifest)
+        self.drift_report = Path(args.drift_report)
+        self.actions_log = Path(args.actions_log)
+        self.base_domain = args.base_domain
+        self.csrf = secrets.token_urlsafe(32)
+        self.runner = ControlRunner(args.control, not args.no_sudo, args.max_output_bytes)
+
+    def registry_state(self) -> tuple[dict[str, str], list[dict[str, str]]]:
+        return parse_registry(self.registry)
+
+    def summary(self) -> dict[str, Any]:
+        meta, slots = self.registry_state()
+        manifest = parse_key_value_file(self.manifest)
+        drift = parse_drift_report(self.drift_report)
+        installed_commit = manifest.get("source_commit", "")
+        registry_commit = meta.get("baseline_commit", "")
+        baseline_match = bool(installed_commit and registry_commit and installed_commit == registry_commit)
+        drift_slots = drift.get("slots", {})
+
+        merged_slots: list[dict[str, Any]] = []
+        for slot in slots:
+            name = slot.get("slot", "")
+            drift_slot = drift_slots.get(name, {})
+            merged_slots.append(
+                {
+                    "slot": name,
+                    "status": slot.get("status", ""),
+                    "assignee": slot.get("assignee", ""),
+                    "subdomain": slot.get("subdomain", ""),
+                    "nas_share": slot.get("nas_share", ""),
+                    "mount_name": slot.get("mount_name", ""),
+                    "dashboard_name": slot.get("dashboard_name", ""),
+                    "image_tag": slot.get("image_tag", ""),
+                    "gate_status": slot.get("last_gate.status", ""),
+                    "gate_checked_at": slot.get("last_gate.checked_at", ""),
+                    "handoff_ssh": slot.get("handoff.ssh", ""),
+                    "handoff_token": slot.get("handoff.token", ""),
+                    "handoff_url": slot.get("handoff.url", ""),
+                    "drift_result": drift_slot.get("result", "missing"),
+                    "drift_lines": drift_slot.get("lines", []),
+                }
+            )
+
+        ollama = self.runner.run(["shared-ollama-status"], timeout=30)
+        usage = self.runner.run(["usage-all", "1", "20", "24h"], timeout=90)
+
+        return {
+            "generated_at": now_iso(),
+            "registry": str(self.registry),
+            "manifest": str(self.manifest),
+            "meta": meta,
+            "manifest_values": manifest,
+            "baseline": {
+                "registry_commit": registry_commit,
+                "installed_commit": installed_commit,
+                "match": baseline_match,
+                "image_tag": meta.get("image_tag", ""),
+                "image_id": meta.get("image_id", ""),
+            },
+            "drift": drift,
+            "slots": merged_slots,
+            "slot_count": len(merged_slots),
+            "failed_slots": len([slot for slot in merged_slots if slot.get("drift_result") == "FAIL"]),
+            "ollama_status": ollama,
+            "usage_summary": usage,
+            "recent_actions": read_recent_actions(self.actions_log),
+            "external_integrations": {
+                "groupware_mail": "pending_external_access",
+                "kakaowork": "pending_external_access",
+            },
+        }
+
+    def slot_detail(self, slot: str) -> dict[str, Any]:
+        valid_slot(slot)
+        commands = {
+            "nas-status": ["nas-status", slot],
+            "heartbeat-status": ["heartbeat-status", slot],
+            "image-status": ["image-status", slot],
+            "usage": ["usage", slot, "24h"],
+        }
+        outputs = {name: self.runner.run(args, timeout=90) for name, args in commands.items()}
+        return {"slot": slot, "commands": outputs}
+
+    def action_args(self, action: str, params: dict[str, Any]) -> tuple[list[str], int]:
+        meta, slots = self.registry_state()
+        del meta
+        slot = first_param(params, "slot")
+        since = first_param(params, "since", "24h")
+        model = first_param(params, "model", DEFAULT_OLLAMA_MODEL)
+        base_url = first_param(params, "base_url", DEFAULT_BASE_URL)
+        confirm = first_param(params, "confirm")
+        share = first_param(params, "share")
+
+        if action in {
+            "check",
+            "nas-status",
+            "nas-verify",
+            "usage",
+            "heartbeat-status",
+            "image-status",
+            "gateway-refresh",
+            "heartbeat-disable",
+            "heartbeat-ollama",
+            "ollama-provider",
+            "ollama-default",
+            "shared-ollama-smoke",
+            "nas-approve-share",
+            "nas-register",
+            "nas-unregister",
+        }:
+            slot = valid_slot(slot)
+
+        if action == "check":
+            return ["check", slot, host_for_slot(slot, slots, self.base_domain)], 240
+        if action == "nas-status":
+            return ["nas-status", slot], 90
+        if action == "nas-verify":
+            return ["nas-verify", slot], 180
+        if action == "usage":
+            return ["usage", slot, valid_since(since)], 90
+        if action == "heartbeat-status":
+            return ["heartbeat-status", slot], 90
+        if action == "image-status":
+            return ["image-status", slot], 60
+        if action == "shared-ollama-status":
+            return ["shared-ollama-status"], 60
+        if action == "shared-ollama-smoke":
+            args = ["shared-ollama-smoke", slot]
+            if model:
+                args.append(valid_model(model))
+            return args, 180
+        if action == "gateway-refresh":
+            return ["gateway-refresh", slot], 180
+        if action == "heartbeat-disable":
+            return ["heartbeat-disable", slot], 180
+        if action == "heartbeat-ollama":
+            return ["heartbeat-ollama", slot, valid_model(model), valid_base_url(base_url)], 180
+        if action == "ollama-provider":
+            return ["ollama-provider", slot, valid_model(model), valid_base_url(base_url)], 180
+        if action == "ollama-default":
+            return ["ollama-default", slot, valid_model(model), valid_base_url(base_url)], 180
+        if action == "nas-requests":
+            return ["nas-requests", "1", "20"], 90
+        if action == "nas-approve-share":
+            if confirm != slot:
+                raise ValueError("nas-approve-share requires confirming the slot")
+            return ["nas-approve-share", slot], 180
+        if action == "nas-register":
+            share = valid_share(share)
+            if confirm != share:
+                raise ValueError("nas-register requires confirming the NAS share")
+            return ["nas-register", slot, share], 180
+        if action == "nas-unregister":
+            if confirm != slot:
+                raise ValueError("nas-unregister requires confirming the slot")
+            return ["nas-unregister", slot], 180
+        raise ValueError("unsupported action")
+
+    def execute_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
+        params = dict(params)
+        if action == "nas-approve-share":
+            slot = valid_slot(first_param(params, "slot"))
+            request_probe = self.runner.run(["nas-requests", "1", "20"], timeout=90)
+            requested_share = extract_requested_share(request_probe["output"], slot)
+            if not requested_share:
+                raise ValueError("no requested NAS share is visible for this slot")
+            params["requested_share"] = requested_share
+
+        args, timeout = self.action_args(action, params)
+        actor = os.environ.get("USER") or os.environ.get("LOGNAME") or os.environ.get("USERNAME") or "unknown"
+        slot = first_param(params, "slot")
+        started_at = now_iso()
+        result = self.runner.run(args, timeout=timeout)
+        event = {
+            "timestamp": started_at,
+            "actor": actor,
+            "action": action,
+            "slot": slot,
+            "params": sanitize_params(params),
+            "exit_code": result["exit_code"],
+            "duration_ms": result["duration_ms"],
+            "result_summary": "\n".join(result["output"].splitlines()[:12])[:2048],
+        }
+        append_action_log(self.actions_log, event)
+        return {"event": event, "result": result}
+
+
+def html_page(csrf: str) -> str:
+    token = json.dumps(csrf)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OpenClaw Ops Console</title>
+  <style>
+    :root {{
+      color-scheme: light;
+      --bg: #f5f7f8;
+      --panel: #ffffff;
+      --ink: #16202a;
+      --muted: #66717d;
+      --line: #d9e1e7;
+      --ok: #0f7b4f;
+      --warn: #9a6200;
+      --bad: #b3261e;
+      --blue: #195db5;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+    }}
+    header {{
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }}
+    h1 {{ font-size: 20px; margin: 0; }}
+    h2 {{ font-size: 16px; margin: 0 0 10px; }}
+    button, input, select {{
+      font: inherit;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--ink);
+    }}
+    button {{
+      cursor: pointer;
+      padding: 8px 10px;
+      font-weight: 600;
+    }}
+    button.primary {{ background: var(--blue); border-color: var(--blue); color: #fff; }}
+    button.danger {{ border-color: #e3aaa5; color: var(--bad); }}
+    input, select {{ padding: 8px 9px; min-width: 0; }}
+    main {{
+      display: grid;
+      grid-template-columns: minmax(520px, 1fr) minmax(360px, 520px);
+      gap: 16px;
+      padding: 16px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }}
+    section {{
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+    }}
+    .summary {{
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }}
+    .metric {{
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-height: 74px;
+    }}
+    .label {{ color: var(--muted); font-size: 12px; }}
+    .value {{ font-size: 18px; font-weight: 700; margin-top: 6px; overflow-wrap: anywhere; }}
+    .ok {{ color: var(--ok); }}
+    .warn {{ color: var(--warn); }}
+    .bad {{ color: var(--bad); }}
+    .muted {{ color: var(--muted); }}
+    .toolbar {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }}
+    th, td {{
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+      vertical-align: top;
+    }}
+    tr[data-selected="true"] {{ background: #eef5ff; }}
+    .pill {{
+      display: inline-block;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 2px 7px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }}
+    .pill.ok {{ border-color: #abd8c4; background: #ecf8f2; }}
+    .pill.bad {{ border-color: #e8b5b0; background: #fff1ef; }}
+    .pill.warn {{ border-color: #e3ca8d; background: #fff8e6; }}
+    .detail-grid {{
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }}
+    .actions {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }}
+    .form-row {{ display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; margin: 6px 0; }}
+    pre {{
+      background: #101820;
+      color: #d9e8f6;
+      border-radius: 6px;
+      padding: 10px;
+      max-height: 420px;
+      overflow: auto;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }}
+    .output-title {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }}
+    @media (max-width: 1100px) {{
+      main {{ grid-template-columns: 1fr; }}
+      .summary {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+    }}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>OpenClaw Ops Console</h1>
+      <div class="label">localhost-only console for svcops wrapper operations</div>
+    </div>
+    <div class="toolbar">
+      <button class="primary" onclick="refreshSummary()">Refresh</button>
+    </div>
+  </header>
+  <main>
+    <section class="summary" id="summary"></section>
+
+    <section>
+      <div class="toolbar" style="justify-content: space-between;">
+        <h2>Slots</h2>
+        <button onclick="runGlobalAction('nas-requests')">NAS requests</button>
+      </div>
+      <div style="overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Slot</th>
+              <th>Status</th>
+              <th>Subdomain</th>
+              <th>NAS</th>
+              <th>Gate</th>
+              <th>Drift</th>
+            </tr>
+          </thead>
+          <tbody id="slots"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <div class="toolbar" style="justify-content: space-between;">
+        <h2 id="detailTitle">Slot Detail</h2>
+        <button onclick="loadSlotDetail()">Load status</button>
+      </div>
+      <div id="slotMeta" class="muted">Select a slot.</div>
+      <div class="detail-grid">
+        <div>
+          <h2>Low-risk checks</h2>
+          <div class="actions">
+            <button onclick="runSlotAction('check')">check</button>
+            <button onclick="runSlotAction('nas-status')">nas-status</button>
+            <button onclick="runSlotAction('nas-verify')">nas-verify</button>
+            <button onclick="runSlotAction('usage')">usage</button>
+            <button onclick="runSlotAction('heartbeat-status')">heartbeat-status</button>
+            <button onclick="runSlotAction('image-status')">image-status</button>
+            <button onclick="runGlobalAction('shared-ollama-status')">shared-ollama-status</button>
+            <button onclick="runSlotAction('shared-ollama-smoke')">shared-ollama-smoke</button>
+          </div>
+        </div>
+        <div>
+          <h2>Daily actions</h2>
+          <div class="form-row"><label>Model</label><input id="model" value="qwen2.5-coder:7b"></div>
+          <div class="form-row"><label>Base URL</label><input id="baseUrl" value="http://openclaw-shared-ollama:11434/v1"></div>
+          <div class="actions">
+            <button onclick="runSlotAction('gateway-refresh')">gateway-refresh</button>
+            <button onclick="runSlotAction('heartbeat-disable')">heartbeat-disable</button>
+            <button onclick="runSlotAction('heartbeat-ollama')">heartbeat-ollama</button>
+            <button onclick="runSlotAction('ollama-provider')">ollama-provider</button>
+            <button onclick="runSlotAction('ollama-default')">ollama-default</button>
+          </div>
+        </div>
+        <div>
+          <h2>NAS changes</h2>
+          <div class="form-row"><label>Share</label><input id="share" placeholder="//HOST/SHARE"></div>
+          <div class="form-row"><label>Confirm</label><input id="confirm" placeholder="repeat slot or share"></div>
+          <div class="actions">
+            <button onclick="runSlotAction('nas-approve-share')">nas-approve-share</button>
+            <button onclick="runSlotAction('nas-register')">nas-register</button>
+            <button class="danger" onclick="runSlotAction('nas-unregister')">nas-unregister</button>
+          </div>
+        </div>
+        <div>
+          <div class="output-title">
+            <h2>Output</h2>
+            <span class="label" id="lastRun"></span>
+          </div>
+          <pre id="output">No command run yet.</pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const CSRF = {token};
+    let state = null;
+    let selectedSlot = "";
+
+    function escapeHtml(value) {{
+      return String(value ?? "").replace(/[&<>"']/g, ch => ({{
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }}[ch]));
+    }}
+
+    function pill(value) {{
+      const text = String(value || "missing");
+      const cls = text === "PASS" || text === "pass" || text === "ready" ? "ok" :
+        text === "FAIL" || text === "fail" ? "bad" :
+        text === "WARN" || text === "warn" ? "warn" : "";
+      return `<span class="pill ${{cls}}">${{escapeHtml(text)}}</span>`;
+    }}
+
+    function metric(label, value, cls = "") {{
+      return `<div class="metric"><div class="label">${{escapeHtml(label)}}</div><div class="value ${{cls}}">${{escapeHtml(value)}}</div></div>`;
+    }}
+
+    async function fetchJson(url, options = {{}}) {{
+      const response = await fetch(url, options);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || response.statusText);
+      return data;
+    }}
+
+    async function refreshSummary() {{
+      document.getElementById("summary").innerHTML = metric("Loading", "...");
+      state = await fetchJson("/api/summary");
+      renderSummary();
+      renderSlots();
+      if (!selectedSlot && state.slots.length) selectSlot(state.slots[0].slot);
+    }}
+
+    function renderSummary() {{
+      const baseline = state.baseline || {{}};
+      const drift = state.drift || {{}};
+      const ollama = state.ollama_status || {{}};
+      const usage = state.usage_summary || {{}};
+      const baselineValue = baseline.match ? "match" : "mismatch";
+      const summary = [
+        metric("Baseline", baselineValue, baseline.match ? "ok" : "bad"),
+        metric("Drift", drift.summary || "missing", drift.summary === "PASS" ? "ok" : "bad"),
+        metric("Failed slots", state.failed_slots ?? 0, state.failed_slots ? "bad" : "ok"),
+        metric("Ollama", ollama.exit_code === 0 ? "ok" : "check failed", ollama.exit_code === 0 ? "ok" : "warn"),
+        metric("Usage check", usage.exit_code === 0 ? "ok" : "check failed", usage.exit_code === 0 ? "ok" : "warn"),
+        metric("Groupware/KakaoWork", "pending access", "muted")
+      ];
+      document.getElementById("summary").innerHTML = summary.join("");
+    }}
+
+    function renderSlots() {{
+      const tbody = document.getElementById("slots");
+      tbody.innerHTML = state.slots.map(slot => `
+        <tr onclick="selectSlot('${{escapeHtml(slot.slot)}}')" data-slot="${{escapeHtml(slot.slot)}}" data-selected="${{slot.slot === selectedSlot}}">
+          <td><strong>${{escapeHtml(slot.slot)}}</strong></td>
+          <td>${{pill(slot.status)}}</td>
+          <td>${{escapeHtml(slot.subdomain)}}</td>
+          <td>${{escapeHtml(slot.mount_name || "")}}<br><span class="muted">${{escapeHtml(slot.nas_share || "")}}</span></td>
+          <td>${{pill(slot.gate_status || "unknown")}}<br><span class="muted">${{escapeHtml(slot.gate_checked_at || "")}}</span></td>
+          <td>${{pill(slot.drift_result)}}</td>
+        </tr>
+      `).join("");
+    }}
+
+    function selectSlot(slot) {{
+      selectedSlot = slot;
+      renderSlots();
+      const item = state.slots.find(row => row.slot === slot) || {{}};
+      document.getElementById("detailTitle").textContent = `${{slot}} Detail`;
+      document.getElementById("slotMeta").innerHTML =
+        `${{escapeHtml(item.subdomain || "")}} · ${{escapeHtml(item.nas_share || "")}} · ${{escapeHtml(item.image_tag || "")}}`;
+    }}
+
+    async function loadSlotDetail() {{
+      if (!selectedSlot) return;
+      setOutput("loading slot status...");
+      const data = await fetchJson(`/api/slot?slot=${{encodeURIComponent(selectedSlot)}}`);
+      const text = Object.entries(data.commands).map(([name, result]) =>
+        `## ${{name}}\\nexit=${{result.exit_code}} duration_ms=${{result.duration_ms}}\\n${{result.output}}`
+      ).join("\\n\\n");
+      setOutput(text, "slot status");
+    }}
+
+    function actionParams(action) {{
+      return {{
+        action,
+        slot: selectedSlot,
+        model: document.getElementById("model").value,
+        base_url: document.getElementById("baseUrl").value,
+        share: document.getElementById("share").value,
+        confirm: document.getElementById("confirm").value,
+        since: "24h"
+      }};
+    }}
+
+    async function runSlotAction(action) {{
+      if (!selectedSlot) return;
+      await runAction(actionParams(action));
+    }}
+
+    async function runGlobalAction(action) {{
+      await runAction({{ action }});
+    }}
+
+    async function runAction(params) {{
+      setOutput("running...");
+      try {{
+        const data = await fetchJson("/api/action", {{
+          method: "POST",
+          headers: {{ "Content-Type": "application/json", "X-CSRF-Token": CSRF }},
+          body: JSON.stringify(params)
+        }});
+        const result = data.result;
+        setOutput(`exit=${{result.exit_code}} duration_ms=${{result.duration_ms}}\\n${{result.output}}`, params.action);
+      }} catch (error) {{
+        setOutput(`ERROR: ${{error.message}}`, params.action);
+      }}
+    }}
+
+    function setOutput(text, label = "") {{
+      document.getElementById("output").textContent = text;
+      document.getElementById("lastRun").textContent = label;
+    }}
+
+    refreshSummary().catch(error => setOutput(`ERROR: ${{error.message}}`, "summary"));
+  </script>
+</body>
+</html>
+"""
+
+
+class RequestHandler(BaseHTTPRequestHandler):
+    server_version = "OpenClawOpsConsole/1.0"
+
+    @property
+    def app(self) -> OpsConsole:
+        return self.server.app  # type: ignore[attr-defined]
+
+    def log_message(self, fmt: str, *args: Any) -> None:
+        sys.stderr.write("%s - - [%s] %s\n" % (self.client_address[0], self.log_date_time_string(), fmt % args))
+
+    def send_json(self, status: int, payload: dict[str, Any]) -> None:
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_html(self, body: str) -> None:
+        data = body.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def do_GET(self) -> None:
+        parsed = urlparse(self.path)
+        try:
+            if parsed.path == "/":
+                self.send_html(html_page(self.app.csrf))
+                return
+            if parsed.path == "/api/summary":
+                self.send_json(200, self.app.summary())
+                return
+            if parsed.path == "/api/slot":
+                params = parse_qs(parsed.query)
+                slot = first_param(params, "slot")
+                self.send_json(200, self.app.slot_detail(slot))
+                return
+            self.send_json(404, {"error": "not found"})
+        except Exception as exc:
+            self.send_json(500, {"error": str(exc)})
+
+    def do_POST(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path != "/api/action":
+            self.send_json(404, {"error": "not found"})
+            return
+
+        token = self.headers.get("X-CSRF-Token", "")
+        if token != self.app.csrf:
+            self.send_json(403, {"error": "invalid CSRF token"})
+            return
+
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+            if length > 32 * 1024:
+                self.send_json(413, {"error": "request too large"})
+                return
+            payload = json.loads(self.rfile.read(length).decode("utf-8") or "{}")
+            action = str(payload.get("action", ""))
+            if not action:
+                raise ValueError("missing action")
+            self.send_json(200, self.app.execute_action(action, payload))
+        except Exception as exc:
+            self.send_json(400, {"error": str(exc)})
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="OpenClaw localhost ops console")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=18088)
+    parser.add_argument("--registry", default=DEFAULT_REGISTRY)
+    parser.add_argument("--manifest", default=DEFAULT_MANIFEST)
+    parser.add_argument("--drift-report", default=DEFAULT_DRIFT_REPORT)
+    parser.add_argument("--actions-log", default=DEFAULT_ACTIONS_LOG)
+    parser.add_argument("--control", default=DEFAULT_CONTROL)
+    parser.add_argument("--base-domain", default="ji-tech.co.kr")
+    parser.add_argument("--max-output-bytes", type=int, default=DEFAULT_MAX_OUTPUT_BYTES)
+    parser.add_argument("--no-sudo", action="store_true", help=argparse.SUPPRESS)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    validate_loopback(args.host)
+    if args.max_output_bytes < 4096 or args.max_output_bytes > 256 * 1024:
+        raise SystemExit("error: --max-output-bytes must be between 4096 and 262144")
+
+    app = OpsConsole(args)
+    server = ThreadingHTTPServer((args.host, args.port), RequestHandler)
+    server.app = app  # type: ignore[attr-defined]
+    print(f"openclaw_ops_console=http://{args.host}:{args.port}", flush=True)
+    server.serve_forever()
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

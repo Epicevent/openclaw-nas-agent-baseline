@@ -175,6 +175,7 @@ tar -C "$script_dir" --exclude-from="$tmp_exclude" -cf - . | tar -C "$prefix" -x
 
 chmod +x "$prefix/install.sh" "$prefix"/container/*.sh 2>/dev/null || true
 find "$prefix/scripts" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+find "$prefix/admin-cli/bin" -type f -exec chmod +x {} + 2>/dev/null || true
 
 if [[ "$(id -u)" -eq 0 ]]; then
   chown -R root:root "$prefix"
