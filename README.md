@@ -56,7 +56,7 @@ OpenClaw는 계정별 컨테이너에서 실행한다.
 ```
 
 이 manifest의 `source_commit`이 서버에 실제 설치된 공개 repo 기준이다.
-테스트 운영에서는 private 원장(`/srv/openclaw-ops/slots.yaml`)의
+`/srv/openclaw-ops/slots.yaml`이 있으면 `install.sh`가 private 원장의
 `baseline_commit`도 같은 commit으로 갱신한다. drift checker는 원장의
 `baseline_commit`과 설치본 manifest의 `source_commit`이 다르면 fail 처리한다.
 `install.sh --check`는 문서 정합성 검사도 함께 실행한다.

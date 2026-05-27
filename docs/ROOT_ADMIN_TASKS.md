@@ -69,8 +69,8 @@ test "$source_commit" = "$BASELINE_COMMIT"
 echo "installed_source_commit=$source_commit"
 ```
 
-테스트 운영에서는 private 원장(`/srv/openclaw-ops/slots.yaml`)의
-`baseline_commit`도 `installed_source_commit`과 같은 값으로 갱신한다.
+`/srv/openclaw-ops/slots.yaml`이 있으면 `install.sh`가 private 원장의
+`baseline_commit`을 `installed_source_commit`과 같은 값으로 갱신한다.
 
 `--set-password`는 `svcops` 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
 `svcops-control.sh` wrapper만 비밀번호 없이 실행하게 열어 둔다. PM2 drift monitor는
