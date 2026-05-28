@@ -610,6 +610,10 @@ def html_page(csrf: str) -> str:
       font-weight: 600;
       min-height: 38px;
     }}
+    button:disabled {{
+      cursor: wait;
+      opacity: 0.56;
+    }}
     button.primary {{ background: var(--blue); border-color: var(--blue); color: #fff; }}
     button.danger {{ border-color: #e3aaa5; color: var(--bad); background: var(--bad-bg); }}
     button.warn {{ border-color: #e3ca8d; color: var(--warn); background: var(--warn-bg); }}
@@ -680,8 +684,10 @@ def html_page(csrf: str) -> str:
     }}
     th {{ color: #46525f; font-size: 12px; white-space: nowrap; }}
     tr[data-selected="true"] {{ background: var(--blue-bg); }}
-    tr[data-attention="true"] {{ box-shadow: inset 4px 0 0 var(--warn); }}
-    tr[data-failed="true"] {{ box-shadow: inset 4px 0 0 var(--bad); }}
+    tr[data-attention="true"] {{ background: var(--warn-bg); box-shadow: inset 4px 0 0 var(--warn); }}
+    tr[data-failed="true"] {{ background: var(--bad-bg); box-shadow: inset 4px 0 0 var(--bad); }}
+    tr[data-selected="true"][data-attention="true"] {{ background: #fff1cf; }}
+    tr[data-selected="true"][data-failed="true"] {{ background: #ffe4e0; }}
     tr:hover {{ background: #f8fbff; }}
     .pill {{
       display: inline-block;
@@ -725,6 +731,31 @@ def html_page(csrf: str) -> str:
       border-color: #e7c0bb;
       background: #fff8f7;
     }}
+    .output-panel {{
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfdff;
+      position: sticky;
+      top: 84px;
+      z-index: 4;
+    }}
+    .busy-text {{
+      display: none;
+      color: var(--warn);
+      font-weight: 750;
+    }}
+    body.is-busy .busy-text {{ display: inline; }}
+    .nas-lock {{
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 8px 0;
+      color: var(--bad);
+      font-size: 13px;
+      font-weight: 700;
+    }}
+    .nas-lock input {{ min-width: auto; }}
     .actions {{
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -820,6 +851,13 @@ def html_page(csrf: str) -> str:
       <div id="slotMeta" class="muted">왼쪽에서 슬롯을 선택하세요.</div>
       <div class="slot-cards" id="slotCards"></div>
       <div class="detail-grid">
+        <div class="output-panel">
+          <div class="output-title">
+            <h2>실행 결과</h2>
+            <span class="label"><span class="busy-text">실행 중...</span> <span id="lastRun"></span></span>
+          </div>
+          <pre id="output">아직 실행한 명령이 없습니다.</pre>
+        </div>
         <div class="action-group">
           <h3>점검</h3>
           <div class="actions">
@@ -848,20 +886,14 @@ def html_page(csrf: str) -> str:
         <div class="action-group risky">
           <h3>NAS 변경</h3>
           <div class="label">데이터 접근 범위가 바뀌는 작업입니다. 확인값을 다시 입력해야 실행됩니다.</div>
+          <label class="nas-lock"><input type="checkbox" id="nasUnlock" onchange="updateNasActionState()"> NAS 변경 버튼 활성화</label>
           <div class="form-row"><label>Share</label><input id="share" placeholder="//HOST/SHARE"></div>
           <div class="form-row"><label>확인</label><input id="confirm" placeholder="slot 또는 share를 다시 입력"></div>
           <div class="actions">
-            <button class="warn" onclick="runSlotAction('nas-approve-share')">요청 승인</button>
-            <button class="warn" onclick="runSlotAction('nas-register')">NAS 등록</button>
-            <button class="danger" onclick="runSlotAction('nas-unregister')">NAS 해제</button>
+            <button class="warn nas-action" onclick="runSlotAction('nas-approve-share')">요청 승인</button>
+            <button class="warn nas-action" onclick="runSlotAction('nas-register')">NAS 등록</button>
+            <button class="danger nas-action" onclick="runSlotAction('nas-unregister')">NAS 해제</button>
           </div>
-        </div>
-        <div>
-          <div class="output-title">
-            <h2>실행 결과</h2>
-            <span class="label" id="lastRun"></span>
-          </div>
-          <pre id="output">아직 실행한 명령이 없습니다.</pre>
         </div>
       </div>
     </section>
@@ -1051,8 +1083,34 @@ def html_page(csrf: str) -> str:
       }};
     }}
 
+    function isNasMutation(action) {{
+      return ["nas-approve-share", "nas-register", "nas-unregister"].includes(action);
+    }}
+
+    function updateNasActionState() {{
+      const unlocked = !!document.getElementById("nasUnlock")?.checked;
+      for (const button of document.querySelectorAll(".nas-action")) {{
+        button.disabled = !unlocked || document.body.classList.contains("is-busy");
+      }}
+    }}
+
+    function setBusy(isBusy) {{
+      document.body.classList.toggle("is-busy", isBusy);
+      for (const button of document.querySelectorAll("button")) {{
+        if (button.classList.contains("nas-action")) {{
+          continue;
+        }}
+        button.disabled = isBusy;
+      }}
+      updateNasActionState();
+    }}
+
     async function runSlotAction(action) {{
       if (!selectedSlot) return;
+      if (isNasMutation(action) && !document.getElementById("nasUnlock").checked) {{
+        setOutput("NAS 변경은 먼저 'NAS 변경 버튼 활성화'를 체크해야 실행됩니다.", action);
+        return;
+      }}
       await runAction(actionParams(action));
     }}
 
@@ -1062,6 +1120,7 @@ def html_page(csrf: str) -> str:
 
     async function runAction(params) {{
       setOutput("실행 중입니다...");
+      setBusy(true);
       try {{
         const data = await fetchJson("/api/action", {{
           method: "POST",
@@ -1076,6 +1135,8 @@ def html_page(csrf: str) -> str:
         }}
       }} catch (error) {{
         setOutput(`ERROR: ${{error.message}}`, params.action);
+      }} finally {{
+        setBusy(false);
       }}
     }}
 
@@ -1084,6 +1145,7 @@ def html_page(csrf: str) -> str:
       document.getElementById("lastRun").textContent = label;
     }}
 
+    updateNasActionState();
     refreshSummary().catch(error => setOutput(`ERROR: ${{error.message}}`, "summary"));
   </script>
 </body>
