@@ -31,6 +31,7 @@ SHARE_RE = re.compile(r"^//[^\s/,]+/[^\s/,]+$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/\-]{0,127}$")
 BASE_URL_RE = re.compile(r"^https?://[A-Za-z0-9._:\-/]+$")
 SINCE_RE = re.compile(r"^[0-9]+[mhd]$")
+QUERY_RE = re.compile(r"^[^\r\n]{1,160}$")
 
 SECRET_VALUE_RE = re.compile(
     r"(?i)\b([A-Za-z0-9_]*(?:api[_-]?key|token|password|passwd|credential|secret)[A-Za-z0-9_]*)"
@@ -222,6 +223,9 @@ def sanitize_params(params: dict[str, Any]) -> dict[str, Any]:
             continue
         if key == "confirm":
             continue
+        if key == "query":
+            clean[key] = f"[QUERY length={len(str(value))}]"
+            continue
         if any(item in lowered for item in SENSITIVE_PARAM_KEYS):
             clean[key] = "[REDACTED]"
         else:
@@ -327,6 +331,12 @@ def valid_base_url(value: str) -> str:
 def valid_since(value: str) -> str:
     if not SINCE_RE.match(value or ""):
         raise ValueError("invalid since window")
+    return value
+
+
+def valid_query(value: str) -> str:
+    if not QUERY_RE.match(value or ""):
+        raise ValueError("invalid search query")
     return value
 
 
@@ -437,6 +447,7 @@ class OpsConsole:
         valid_slot(slot)
         commands = {
             "nas-status": ["nas-status", slot],
+            "nas-tree": ["nas-tree", slot],
             "heartbeat-status": ["heartbeat-status", slot],
             "image-status": ["image-status", slot],
             "usage": ["usage", slot, "24h"],
@@ -453,11 +464,14 @@ class OpsConsole:
         base_url = first_param(params, "base_url", DEFAULT_BASE_URL)
         confirm = first_param(params, "confirm")
         share = first_param(params, "share")
+        query = first_param(params, "query")
 
         if action in {
             "check",
             "nas-status",
             "nas-verify",
+            "nas-tree",
+            "nas-search-smoke",
             "usage",
             "heartbeat-status",
             "image-status",
@@ -479,6 +493,10 @@ class OpsConsole:
             return ["nas-status", slot], 90
         if action == "nas-verify":
             return ["nas-verify", slot], 180
+        if action == "nas-tree":
+            return ["nas-tree", slot], 90
+        if action == "nas-search-smoke":
+            return ["nas-search-smoke", slot, valid_query(query)], 90
         if action == "usage":
             return ["usage", slot, valid_since(since)], 90
         if action == "heartbeat-status":
@@ -716,6 +734,38 @@ def html_page(csrf: str) -> str:
       background: #fbfdff;
       min-height: 66px;
     }}
+    .nas-tree-panel {{
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fbfdff;
+      margin: 10px 0;
+    }}
+    .nas-tree {{
+      display: grid;
+      gap: 4px;
+      max-height: 340px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      padding: 8px;
+      font-size: 12px;
+    }}
+    .tree-row {{
+      display: grid;
+      grid-template-columns: 72px minmax(220px, 1fr) minmax(190px, auto);
+      gap: 8px;
+      align-items: center;
+      border-bottom: 1px solid #edf2f6;
+      padding: 4px 2px;
+    }}
+    .tree-row:last-child {{ border-bottom: 0; }}
+    .tree-path {{ overflow-wrap: anywhere; }}
+    .tree-meta {{ color: var(--muted); }}
+    .tree-file {{ color: #2d4f76; }}
+    .tree-dir {{ color: #174a2f; font-weight: 750; }}
+    .tree-status {{ text-align: right; }}
     .detail-grid {{
       display: grid;
       grid-template-columns: 1fr;
@@ -850,6 +900,18 @@ def html_page(csrf: str) -> str:
       </div>
       <div id="slotMeta" class="muted">왼쪽에서 슬롯을 선택하세요.</div>
       <div class="slot-cards" id="slotCards"></div>
+      <div class="nas-tree-panel">
+        <div class="toolbar between">
+          <h2>NAS 구조</h2>
+          <div class="toolbar">
+            <input id="searchQuery" placeholder="검색 smoke test 입력">
+            <button onclick="loadNasTree()">구조 불러오기</button>
+            <button onclick="runSlotAction('nas-search-smoke')">검색 확인</button>
+          </div>
+        </div>
+        <div id="nasTreeMeta" class="muted">OpenClaw 컨테이너가 실제로 보는 /home/node/nas_docs 기준입니다.</div>
+        <div id="nasTree" class="nas-tree"></div>
+      </div>
       <div class="detail-grid">
         <div class="output-panel">
           <div class="output-title">
@@ -864,6 +926,7 @@ def html_page(csrf: str) -> str:
             <button onclick="runSlotAction('check')">전체 점검</button>
             <button onclick="runSlotAction('nas-status')">NAS 상태</button>
             <button onclick="runSlotAction('nas-verify')">NAS 검증</button>
+            <button onclick="loadNasTree()">NAS 구조</button>
             <button onclick="runSlotAction('usage')">사용량</button>
             <button onclick="runSlotAction('heartbeat-status')">하트비트</button>
             <button onclick="runSlotAction('image-status')">이미지</button>
@@ -1059,16 +1122,90 @@ def html_page(csrf: str) -> str:
         <div class="slot-card"><div class="label">Release gate</div><div class="value">${{pill(item.gate_status || "missing")}}</div><div class="subline">${{escapeHtml(item.gate_checked_at || "")}}</div></div>
         <div class="slot-card"><div class="label">Drift</div><div class="value">${{pill(item.drift_result)}}</div><div class="subline">${{isAttention(item) ? "확인 필요" : "정상 범위"}}</div></div>
       `;
+      document.getElementById("nasTreeMeta").textContent = "OpenClaw 컨테이너가 실제로 보는 /home/node/nas_docs 기준입니다.";
+      document.getElementById("nasTree").innerHTML = "";
+    }}
+
+    function parseKeyValueLines(output) {{
+      const meta = {{}};
+      for (const line of (output || "").split("\\n")) {{
+        const match = line.match(/^([A-Za-z0-9_]+)=(.*)$/);
+        if (match) meta[match[1]] = match[2];
+      }}
+      return meta;
+    }}
+
+    function renderNasTreeFromOutput(output) {{
+      const meta = parseKeyValueLines(output || "");
+      const rows = [];
+      for (const line of (output || "").split("\\n")) {{
+        if (!line.startsWith("TREE ")) continue;
+        try {{
+          rows.push(JSON.parse(line.slice(5)));
+        }} catch (error) {{
+          // Ignore malformed rows; raw command output remains visible in the output panel.
+        }}
+      }}
+
+      const metaEl = document.getElementById("nasTreeMeta");
+      const treeEl = document.getElementById("nasTree");
+      const status = meta.tree_status || meta.root_state || "unknown";
+      const root = meta.container_root || "/home/node/nas_docs";
+      const reported = meta.tree_entries_reported || String(rows.length);
+      const omitted = meta.tree_entries_omitted && meta.tree_entries_omitted !== "0"
+        ? ` · omitted ${{escapeHtml(meta.tree_entries_omitted)}}`
+        : "";
+      metaEl.innerHTML = `${{escapeHtml(root)}} · 상태 ${{pill(status)}} · 항목 ${{escapeHtml(reported)}}${{omitted}}`;
+
+      if (rows.length === 0) {{
+        treeEl.innerHTML = `
+          <div class="tree-row">
+            <span class="tree-status">${{escapeHtml(status)}}</span>
+            <span class="tree-meta">${{escapeHtml(meta.container_status || meta.root_state || "구조 정보 없음")}}</span>
+          </div>
+        `;
+        return;
+      }}
+
+      treeEl.innerHTML = rows.map(row => {{
+        const depth = Math.max(0, Math.min(Number(row.depth || 0), 8));
+        const kind = row.kind || "unknown";
+        const isDir = kind === "dir" || kind === "root";
+        const parts = [];
+        if (row.state) parts.push(row.state);
+        if (row.mount_state) parts.push(row.mount_state);
+        if (row.fstype) parts.push(row.fstype);
+        if (row.dir_count !== undefined) parts.push(`folders ${{row.dir_count}}`);
+        if (row.file_count !== undefined) parts.push(`files ${{row.file_count}}`);
+        if (row.entry_count !== undefined) parts.push(`entries ${{row.entry_count}}`);
+        if (row.omitted) parts.push(`omitted ${{row.omitted}}`);
+        if (row.size !== undefined) parts.push(`${{row.size}} bytes`);
+        return `
+          <div class="tree-row" style="padding-left:${{depth * 18}}px">
+            <span class="${{isDir ? "tree-dir" : "tree-file"}}">${{isDir ? "[dir]" : "[file]"}}</span>
+            <span class="tree-path">${{escapeHtml(row.path || "")}}</span>
+            <span class="tree-meta">${{escapeHtml(parts.join(" | "))}}</span>
+          </div>
+        `;
+      }}).join("");
     }}
 
     async function loadSlotDetail() {{
       if (!selectedSlot) return;
       setOutput("슬롯 상태를 불러오는 중입니다...");
       const data = await fetchJson(`/api/slot?slot=${{encodeURIComponent(selectedSlot)}}`);
+      if (data.commands && data.commands["nas-tree"]) {{
+        renderNasTreeFromOutput(data.commands["nas-tree"].output);
+      }}
       const text = Object.entries(data.commands).map(([name, result]) =>
         `## ${{name}}\\nexit=${{result.exit_code}} duration_ms=${{result.duration_ms}}\\n${{result.output}}`
       ).join("\\n\\n");
       setOutput(text, "slot status");
+    }}
+
+    async function loadNasTree() {{
+      if (!selectedSlot) return;
+      await runAction(actionParams("nas-tree"));
     }}
 
     function actionParams(action) {{
@@ -1079,6 +1216,7 @@ def html_page(csrf: str) -> str:
         base_url: document.getElementById("baseUrl").value,
         share: document.getElementById("share").value,
         confirm: document.getElementById("confirm").value,
+        query: document.getElementById("searchQuery").value,
         since: "24h"
       }};
     }}
@@ -1129,6 +1267,9 @@ def html_page(csrf: str) -> str:
         }});
         const result = data.result;
         setOutput(`exit=${{result.exit_code}} duration_ms=${{result.duration_ms}}\\n${{result.output}}`, params.action);
+        if (params.action === "nas-tree") {{
+          renderNasTreeFromOutput(result.output);
+        }}
         if (["check", "nas-verify", "gateway-refresh", "heartbeat-disable", "heartbeat-ollama", "ollama-provider", "ollama-default", "nas-approve-share", "nas-register", "nas-unregister"].includes(params.action)) {{
           await refreshSummary();
           if (selectedSlot) selectSlot(selectedSlot);

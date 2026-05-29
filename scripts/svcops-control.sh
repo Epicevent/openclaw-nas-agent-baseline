@@ -12,6 +12,8 @@ Usage:
   svcops-control.sh nas-approve-share USER
   svcops-control.sh nas-verify USER
   svcops-control.sh nas-verify-all START END
+  svcops-control.sh nas-tree USER
+  svcops-control.sh nas-search-smoke USER QUERY
   svcops-control.sh nas-register USER SHARE
   svcops-control.sh nas-register-all START END SHARE
   svcops-control.sh nas-unregister USER
@@ -637,6 +639,21 @@ case "$command_name" in
       fi
     done
     exit "$failed"
+    ;;
+
+  nas-tree)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    bash "$script_dir/openclaw-nas-container-view.sh" tree --user "$target_user"
+    ;;
+
+  nas-search-smoke)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    query="$2"
+    validate_user "$target_user"
+    bash "$script_dir/openclaw-nas-container-view.sh" search-smoke --user "$target_user" --query "$query"
     ;;
 
   nas-register|nas-prepare)
