@@ -47,6 +47,10 @@ UID/GID from `PUID` and `PGID`.
 target slot compose to run `hermes gateway run`, keep Hermes state under
 `/home/ocN/.hermes`, and mount the slot NAS read-only into the container.
 
+Hermes dashboard publishing is not enabled by default. The dashboard needs a
+login/auth provider before it is exposed through the public Apache subdomain.
+The `--insecure-dashboard` install option exists only for isolated lab slots.
+
 After the image is available in GHCR, run the server-side rollout commands as
 the restricted operations account through `svcops-control.sh`.
 

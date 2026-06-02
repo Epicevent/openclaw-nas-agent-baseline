@@ -16,6 +16,8 @@ Options:
   --host HOST           Public subdomain. Default: USER.BASE_DOMAIN.
   --base-domain NAME    Base domain. Default: ji-tech.co.kr.
   --force               Replace existing gateway container and compose files.
+  --insecure-dashboard  Publish the Hermes dashboard without a login gate.
+                        Temporary lab use only. Do not use for customer slots.
 
 Run as root/admin.
 USAGE
@@ -26,6 +28,7 @@ image=""
 host=""
 base_domain="${OPENCLAW_BASE_DOMAIN:-ji-tech.co.kr}"
 force=0
+insecure_dashboard=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -47,6 +50,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --force)
       force=1
+      shift
+      ;;
+    --insecure-dashboard)
+      insecure_dashboard=1
       shift
       ;;
     -h|--help)
@@ -102,6 +109,12 @@ cli_container="openclaw-${target_user}-openclaw-cli-1"
 
 if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
   echo "error: invalid host: $host" >&2
+  exit 2
+fi
+
+if [[ "$insecure_dashboard" -ne 1 ]]; then
+  echo "error: Hermes public dashboard is not enabled by default." >&2
+  echo "hint: configure a dashboard auth provider first, or use --insecure-dashboard only for an isolated lab slot." >&2
   exit 2
 fi
 

@@ -209,12 +209,20 @@ echo "updated_config=$config_path"
 echo "updated_runtime_env=$runtime_env_path"
 
 if [[ "$write_apache" -eq 1 ]]; then
-  bash "$script_dir/write-apache-proxy-conf.sh" \
-    --user "$target_user" \
-    --mode subdomain \
-    --host "$host" \
-    --base-domain "$base_domain" \
+  apache_args=(
+    --user "$target_user"
+    --mode subdomain
+    --host "$host"
+    --base-domain "$base_domain"
     --apply
+  )
+  if [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
+    apache_args+=(
+      --output "/etc/apache2/openclaw/apache-subdomain-${target_user}.conf"
+      --reload
+    )
+  fi
+  bash "$script_dir/write-apache-proxy-conf.sh" "${apache_args[@]}"
 fi
 
 if [[ "$recreate" -eq 1 ]]; then
