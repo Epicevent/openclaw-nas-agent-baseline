@@ -744,7 +744,6 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
     docker_pull(image_ref)
     family = image.get("family", "")
     previous_family = current_runtime_family(target_user)
-    update_slot_assignment(args.slots, target_user, image, channel)
     if family == "hermes":
         rc, out = install_hermes_slot(args.control, args.slots, target_user, image_ref)
     elif previous_family == "hermes":
@@ -752,6 +751,8 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
     else:
         update_env_image(target_user, image_ref)
         rc, out = refresh_gateway(args.control, target_user)
+    if rc == 0:
+        update_slot_assignment(args.slots, target_user, image, channel)
     output = (
         f"target_user={target_user}\n"
         f"image_name={image['name']}\n"

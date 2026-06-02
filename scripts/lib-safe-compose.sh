@@ -173,7 +173,7 @@ openclaw_assert_safe_openclaw_config_file() {
 
 openclaw_assert_safe_compose_dir() {
   local target_user="$1" compose_dir="$2"
-  local target_home expected resolved required optional env_file
+  local target_home expected resolved required optional env_file runtime_family
 
   target_home="$(getent passwd "$target_user" | cut -d: -f6)"
   [[ -n "$target_home" ]] || openclaw_safe_fail "compose_user_missing=$target_user" || return 1
@@ -194,7 +194,23 @@ openclaw_assert_safe_compose_dir() {
     openclaw_safe_fail "compose_dir_writable_by_group_or_other=$compose_dir" || return 1
   fi
 
-  for required in docker-compose.yml docker-compose.host-user.yml; do
+  env_file="$compose_dir/.env"
+  if [[ -e "$env_file" ]]; then
+    openclaw_assert_root_owned_file "$env_file" "compose_env" || return 1
+    if find "$env_file" -maxdepth 0 -perm /077 2>/dev/null | grep -q .; then
+      openclaw_safe_fail "compose_env_too_permissive=$env_file" || return 1
+    fi
+    runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$env_file" 2>/dev/null || true)"
+  fi
+
+  openclaw_assert_root_owned_file "$compose_dir/docker-compose.yml" "compose_file" || return 1
+  if [[ "$runtime_family" != "hermes" ]]; then
+    openclaw_assert_root_owned_file "$compose_dir/docker-compose.host-user.yml" "compose_file" || return 1
+  fi
+
+  for required in docker-compose.host-user.yml; do
+    [[ "$runtime_family" == "hermes" && ! -e "$compose_dir/$required" ]] && continue
+    [[ -e "$compose_dir/$required" ]] || continue
     openclaw_assert_root_owned_file "$compose_dir/$required" "compose_file" || return 1
   done
 
@@ -203,12 +219,4 @@ openclaw_assert_safe_compose_dir() {
       openclaw_assert_root_owned_file "$compose_dir/$optional" "compose_file" || return 1
     fi
   done
-
-  env_file="$compose_dir/.env"
-  if [[ -e "$env_file" ]]; then
-    openclaw_assert_root_owned_file "$env_file" "compose_env" || return 1
-    if find "$env_file" -maxdepth 0 -perm /077 2>/dev/null | grep -q .; then
-      openclaw_safe_fail "compose_env_too_permissive=$env_file" || return 1
-    fi
-  fi
 }
