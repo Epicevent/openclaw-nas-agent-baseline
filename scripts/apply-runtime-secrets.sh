@@ -340,6 +340,16 @@ PY
 
 chown "$secret_owner" "$secret_runtime_env_path"
 chmod 0600 "$secret_runtime_env_path"
+if [[ "$runtime_family" == "hermes" ]]; then
+  hermes_config_path="$target_home/.hermes/config.yaml"
+  if python3 "$script_dir/hermes-runtime-config.py" has-gemini-key --env "$secret_runtime_env_path"; then
+    python3 "$script_dir/hermes-runtime-config.py" set-gemini --config "$hermes_config_path"
+    chown "$runtime_user:$data_group" "$hermes_config_path"
+    chmod 0600 "$hermes_config_path"
+  else
+    echo "hermes_config_update=skipped_no_gemini_key"
+  fi
+fi
 if [[ "$runtime_family" != "hermes" && -f "$target_home/.openclaw/openclaw.json" ]]; then
   chown "$runtime_user:$runtime_user" "$target_home/.openclaw/openclaw.json"
   chmod 0600 "$target_home/.openclaw/openclaw.json"

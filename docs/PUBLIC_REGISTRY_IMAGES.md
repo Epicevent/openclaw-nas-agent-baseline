@@ -75,11 +75,15 @@ deployment, that container path maps to the host as:
 ```text
 /opt/data/.env                 # inside container
 /home/ocN/.hermes/.env         # host bind mount
+/opt/data/config.yaml          # inside container
+/home/ocN/.hermes/config.yaml  # host bind mount
 ```
 
 When converting an existing OpenClaw slot to a Hermes image, the rollout moves
 allowlisted provider keys from the previous slot compose `.env` into
 `/home/ocN/.hermes/.env`, such as `GEMINI_API_KEY` or `GOOGLE_API_KEY`. The
+same operation writes `/home/ocN/.hermes/config.yaml` so Hermes selects the
+Gemini provider and model instead of merely storing the key. The
 previous compose `.env` is also saved as:
 
 ```text
@@ -88,8 +92,17 @@ previous compose `.env` is also saved as:
 
 If a slot was converted before this preservation behavior existed, re-inject the
 provider key through the normal runtime secret path. For Hermes slots,
-`apply-runtime-secrets.sh` writes provider keys to `/home/ocN/.hermes/.env`; for
+`apply-runtime-secrets.sh` writes provider keys to `/home/ocN/.hermes/.env` and
+updates `/home/ocN/.hermes/config.yaml` when a Gemini/Google key is present; for
 OpenClaw slots it writes them to the existing compose runtime env path.
+
+Check both the key state and the selected Hermes provider without printing
+secret values:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  runtime-secret-status ocN
+```
 
 Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
 slot-local runtime secret state and is not stored in public image metadata.

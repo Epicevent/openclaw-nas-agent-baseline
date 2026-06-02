@@ -334,6 +334,13 @@ EOF
 cat "$provider_secret_env" >> "$hermes_home/.env"
 chown "$runtime_user:$data_group" "$hermes_home/.env"
 chmod 0600 "$hermes_home/.env"
+if python3 "$script_dir/hermes-runtime-config.py" has-gemini-key --env "$hermes_home/.env"; then
+  python3 "$script_dir/hermes-runtime-config.py" set-gemini --config "$hermes_home/config.yaml"
+  chown "$runtime_user:$data_group" "$hermes_home/config.yaml"
+  chmod 0600 "$hermes_home/config.yaml"
+else
+  echo "hermes_config_update=skipped_no_gemini_key"
+fi
 
 cat > "$compose_dir/docker-compose.yml" <<EOF
 services:

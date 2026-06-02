@@ -383,7 +383,7 @@ redact_sensitive_output() {
 }
 
 runtime_secret_status() {
-  local target_user="$1" target_home runtime_family env_path key found_any
+  local target_user="$1" target_home runtime_family env_path key found_any config_path
   local -a env_paths provider_keys
 
   target_home="$(customer_home "$target_user")"
@@ -439,6 +439,10 @@ runtime_secret_status() {
     done
     [[ "$found_any" -eq 1 ]] || echo "provider_keys=missing"
   done
+  if [[ "$runtime_family" == "hermes" ]]; then
+    config_path="$target_home/.hermes/config.yaml"
+    python3 "$script_dir/hermes-runtime-config.py" status --config "$config_path" || true
+  fi
 }
 
 slot_runtime_family() {
