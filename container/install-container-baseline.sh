@@ -89,7 +89,8 @@ for package_name in fonts-noto-cjk-extra fonts-nanum; do
   fi
 done
 
-if apt-cache show unoconv >/dev/null 2>&1; then
+unoconv_candidate="$(apt-cache policy unoconv | awk '/Candidate:/ {print $2; exit}')"
+if [[ -n "$unoconv_candidate" && "$unoconv_candidate" != "(none)" ]]; then
   apt-get install -y --no-install-recommends unoconv
 fi
 
