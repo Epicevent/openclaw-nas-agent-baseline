@@ -76,17 +76,26 @@ apt-get install -y --no-install-recommends \
   pymupdf
 
 if [[ -x /opt/hermes/.venv/bin/python ]]; then
-  /opt/hermes/.venv/bin/python -m pip install --no-cache-dir \
-    python-docx \
-    pandas \
-    openpyxl \
-    python-pptx \
-    lxml \
-    beautifulsoup4 \
-    pypdf \
-    pdfplumber \
-    pymupdf \
+  hermes_python="/opt/hermes/.venv/bin/python"
+  hermes_doc_packages=(
+    python-docx
+    pandas
+    openpyxl
+    python-pptx
+    lxml
+    beautifulsoup4
+    pypdf
+    pdfplumber
+    pymupdf
     pyhwp
+  )
+  if command -v uv >/dev/null 2>&1; then
+    uv pip install --python "$hermes_python" --no-cache "${hermes_doc_packages[@]}"
+  else
+    "$hermes_python" -m pip --version >/dev/null 2>&1 \
+      || "$hermes_python" -m ensurepip --upgrade
+    "$hermes_python" -m pip install --no-cache-dir "${hermes_doc_packages[@]}"
+  fi
 fi
 
 if grep -q '^# *ko_KR.UTF-8 UTF-8' /etc/locale.gen; then
