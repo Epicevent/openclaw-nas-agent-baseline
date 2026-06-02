@@ -338,7 +338,7 @@ def image_release_from_ref(ref: str, name: str | None = None) -> dict[str, str]:
         "digest": digest,
         "image_id": image_id,
         "status": "candidate",
-        "role": "custom" if "dashboard" in release_name else "baseline",
+        "role": "hermes" if release_name.startswith("hermes-") else "custom" if "dashboard" in release_name else "baseline",
         "created_at": created_at,
         "updated_at": now_iso(),
         "aliases": aliases,
@@ -588,6 +588,57 @@ def refresh_gateway(control: Path, target_user: str) -> tuple[int, str]:
     return run([str(control), "gateway-refresh", target_user], timeout=300)
 
 
+def slot_host(slots_path: Path, target_user: str) -> str:
+    _, slots = parse_slots(slots_path)
+    slot = next((item for item in slots if item.get("slot") == target_user), None)
+    return (slot or {}).get("subdomain") or f"{target_user}.ji-tech.co.kr"
+
+
+def current_runtime_family(target_user: str) -> str:
+    env_path = Path(f"/home/{target_user}/openclaw/.env")
+    if not env_path.exists():
+        return ""
+    for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("OPENCLAW_RUNTIME_FAMILY="):
+            return unquote(line.split("=", 1)[1])
+    return "openclaw"
+
+
+def install_openclaw_slot(control: Path, slots_path: Path, target_user: str, image_ref: str) -> tuple[int, str]:
+    script_dir = control.parent
+    return run(
+        [
+            str(script_dir / "install-customer-slot-from-image.sh"),
+            "--user",
+            target_user,
+            "--host",
+            slot_host(slots_path, target_user),
+            "--image",
+            image_ref,
+            "--force",
+            "--check",
+        ],
+        timeout=1200,
+    )
+
+
+def install_hermes_slot(control: Path, slots_path: Path, target_user: str, image_ref: str) -> tuple[int, str]:
+    script_dir = control.parent
+    return run(
+        [
+            str(script_dir / "install-hermes-slot-from-image.sh"),
+            "--user",
+            target_user,
+            "--host",
+            slot_host(slots_path, target_user),
+            "--image",
+            image_ref,
+            "--force",
+        ],
+        timeout=900,
+    )
+
+
 def append_action(path: Path, action: str, payload: dict[str, Any], exit_code: int, output: str) -> None:
     event = {
         "timestamp": now_iso(),
@@ -612,7 +663,7 @@ def cmd_list(args: argparse.Namespace) -> int:
     for channel, image_name in sorted((state.get("channels") or {}).items()):
         print(f"channel={channel} image={image_name}")
     for image in sorted(state.get("images", []), key=lambda item: item.get("name", "")):
-        print(f"image={image.get('name')} status={image.get('status')} ref={image.get('registry_ref')} runtime_ref={image.get('runtime_ref')} image_id={image.get('image_id')}")
+        print(f"image={image.get('name')} family={image.get('family')} status={image.get('status')} ref={image.get('registry_ref')} runtime_ref={image.get('runtime_ref')} image_id={image.get('image_id')}")
     return 0
 
 
@@ -691,12 +742,20 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
     target_user = validate_slot(slot)
     image_ref = image.get("runtime_ref") or image.get("registry_ref") or image["name"]
     docker_pull(image_ref)
-    update_env_image(target_user, image_ref)
+    family = image.get("family", "")
+    previous_family = current_runtime_family(target_user)
     update_slot_assignment(args.slots, target_user, image, channel)
-    rc, out = refresh_gateway(args.control, target_user)
+    if family == "hermes":
+        rc, out = install_hermes_slot(args.control, args.slots, target_user, image_ref)
+    elif previous_family == "hermes":
+        rc, out = install_openclaw_slot(args.control, args.slots, target_user, image_ref)
+    else:
+        update_env_image(target_user, image_ref)
+        rc, out = refresh_gateway(args.control, target_user)
     output = (
         f"target_user={target_user}\n"
         f"image_name={image['name']}\n"
+        f"image_family={family or 'openclaw'}\n"
         f"image_channel={channel}\n"
         f"runtime_ref={image_ref}\n"
         f"{out}"

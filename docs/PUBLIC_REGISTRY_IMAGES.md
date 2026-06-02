@@ -17,6 +17,7 @@ Example official image tags:
 ghcr.io/epicevent/openclaw-nas-agent:baseline-20260522
 ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1
 ghcr.io/epicevent/openclaw-nas-agent:document-heavy-20260602-r1
+ghcr.io/epicevent/openclaw-nas-agent:hermes-20260602-r1
 ```
 
 ## Release Flow
@@ -25,6 +26,7 @@ The public image is built and pushed by GitHub Actions:
 
 ```text
 .github/workflows/publish-openclaw-nas-agent-image.yml
+.github/workflows/publish-hermes-nas-agent-image.yml
 ```
 
 The `dashboard-20260602-r1` image uses the overlay in:
@@ -32,6 +34,14 @@ The `dashboard-20260602-r1` image uses the overlay in:
 ```text
 image-overlays/dashboard-20260602-r1
 ```
+
+The `hermes-20260602-r1` image is a derived Hermes Agent image. It uses
+`nousresearch/hermes-agent:v2026.5.29.2` as its base and installs the same NAS
+Agent document baseline packages from `container/Dockerfile`.
+
+`family=hermes` images are not a plain OpenClaw image swap. Rollout rewrites the
+target slot compose to run `hermes gateway run`, keep Hermes state under
+`/home/ocN/.hermes`, and mount the slot NAS read-only into the container.
 
 After the image is available in GHCR, run the server-side rollout commands as
 the restricted operations account through `svcops-control.sh`.

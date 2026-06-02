@@ -1,0 +1,70 @@
+name: Publish Hermes NAS Agent Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-hermes-nas-agent-image.yml"
+      - "container/**"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_REF: ghcr.io/epicevent/openclaw-nas-agent:hermes-20260602-r1
+  HERMES_BASE_IMAGE: nousresearch/hermes-agent:v2026.5.29.2
+
+jobs:
+  publish:
+    name: Build and push hermes-20260602-r1
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout baseline repo
+        uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build Hermes NAS Agent image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg BASE_IMAGE="$HERMES_BASE_IMAGE" \
+            --build-arg RUNTIME_USER=hermes \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.base.name=$HERMES_BASE_IMAGE" \
+            --label "org.opencontainers.image.title=OpenClaw NAS Agent Hermes hermes-20260602-r1" \
+            -t "$IMAGE_REF" \
+            -f container/Dockerfile .
+
+      - name: Check final image for baked secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "$IMAGE_REF" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -Eiv '^(PATH|NODE_|PNPM_|NPM_|LANG|LANGUAGE|LC_ALL|HOME|YARN_|COREPACK_|OPENCLAW_PREFER_PNPM|HERMES_|UV_|VIRTUAL_ENV|PYTHONPATH|PIP_|PLAYWRIGHT_)=' \
+            | grep -Ei '(api[_-]?key|token|password|passwd|credential|secret)' && {
+              echo "Secret-looking env key found in final image" >&2
+              exit 1
+            } || true
+
+      - name: Push image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_REF"
+
+      - name: Show pushed image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "$IMAGE_REF" \
+            --format 'image_id={{.Id}} repo_digests={{json .RepoDigests}} os={{.Os}} arch={{.Architecture}}'

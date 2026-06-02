@@ -45,6 +45,7 @@ openclaw_assert_managed_slot_prewrite() {
     "$target_home/.config" \
     "$target_home/.config/openclaw" \
     "$target_home/.openclaw-auth-profile-secrets" \
+    "$target_home/.hermes" \
     "$target_home/.openclaw-recovery" \
     "$target_home/.openclaw-nas" \
     "$target_home/.openclaw-nas/credentials" \

@@ -3,6 +3,7 @@
 # Usage:
 #   docker build \
 #     --build-arg BASE_IMAGE=<current-openclaw-runtime-image> \
+#     --build-arg RUNTIME_USER=node \
 #     -t openclaw-nas-agent:baseline \
 #     -f container/Dockerfile .
 #
@@ -10,6 +11,7 @@
 # In production, pass the exact image currently used by the OpenClaw container.
 ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
+ARG RUNTIME_USER=node
 
 USER root
 
@@ -22,7 +24,7 @@ ENV LANG=ko_KR.UTF-8 \
     LANGUAGE=ko_KR:ko \
     LC_ALL=ko_KR.UTF-8
 
-USER node
+USER ${RUNTIME_USER}
 
 LABEL org.opencontainers.image.title="OpenClaw NAS Agent Baseline"
 LABEL org.opencontainers.image.description="Document-reading baseline packages for OpenClaw containers with per-user NAS mounts"

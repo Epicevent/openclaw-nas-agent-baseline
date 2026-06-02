@@ -28,6 +28,7 @@ Usage:
   svcops-control.sh image-rollout-range START END IMAGE
   svcops-control.sh image-rollout-slot USER IMAGE
   svcops-control.sh image-rollback USER
+  svcops-control.sh hermes-install USER IMAGE
   svcops-control.sh usage USER [SINCE]
   svcops-control.sh usage-all START END [SINCE]
   svcops-control.sh shared-ollama-status
@@ -377,7 +378,15 @@ shared_ollama_base_url() {
 
 compose_files() {
   local compose_dir="$1"
+  local runtime_family=""
+  if [[ -f "$compose_dir/.env" ]]; then
+    runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$compose_dir/.env" 2>/dev/null || true)"
+  fi
   printf '%s\n' -f docker-compose.yml
+  if [[ "$runtime_family" == "hermes" ]]; then
+    [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
+    return 0
+  fi
   [[ -f "$compose_dir/docker-compose.extra.yml" ]] && printf '%s\n' -f docker-compose.extra.yml
   [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
   [[ -f "$compose_dir/docker-compose.shared-ollama.yml" ]] && printf '%s\n' -f docker-compose.shared-ollama.yml
@@ -840,6 +849,16 @@ container_image_id={{.Image}}'
     target_user="$1"
     validate_user "$target_user"
     python3 "$script_dir/openclaw-image-release-control.py" rollback "$target_user"
+    ;;
+
+  hermes-install)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    bash "$script_dir/install-hermes-slot-from-image.sh" \
+      --user "$target_user" \
+      --image "$2" \
+      --force
     ;;
 
   usage)
