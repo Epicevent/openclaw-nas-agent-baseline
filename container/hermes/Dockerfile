@@ -37,6 +37,8 @@ RUN chmod +x /tmp/install-container-baseline.sh \
 
 COPY container/hermes/openclaw-hermes-entrypoint.sh /usr/local/bin/openclaw-hermes-entrypoint
 RUN chmod 0755 /usr/local/bin/openclaw-hermes-entrypoint \
+  && mkdir -p /etc/services.d/hermes-workspace \
+  && cp /usr/local/bin/openclaw-hermes-entrypoint /etc/services.d/hermes-workspace/run \
   && chmod -R a+rX /opt/hermes-workspace
 
 ENV LANG=ko_KR.UTF-8 \
@@ -56,7 +58,8 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
   CMD curl -fsS http://127.0.0.1:3000/ >/dev/null || exit 1
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/openclaw-hermes-entrypoint"]
+ENTRYPOINT ["/init", "/opt/hermes/docker/main-wrapper.sh"]
+CMD ["gateway", "run"]
 
 LABEL org.opencontainers.image.title="OpenClaw Hermes Workspace NAS Agent"
 LABEL org.opencontainers.image.description="Single-container Hermes Agent + Hermes Workspace image with OpenClaw NAS document baseline"
