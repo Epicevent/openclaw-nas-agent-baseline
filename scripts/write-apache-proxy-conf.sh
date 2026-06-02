@@ -30,6 +30,8 @@ Options:
   --output FILE        Config path. Defaults:
                          subdomain: /home/USER/openclaw/deploy/apache-subdomain-USER.conf
                          path:      /home/USER/openclaw/deploy/apache-USER.conf
+                       With --apply, /etc/apache2/openclaw/apache-subdomain-USER.conf
+                       is also allowed for the server include path.
   --cert-live-name NAME Let's Encrypt live cert name. Default: BASE_DOMAIN.
   --cert-file FILE      Certificate file for subdomain VirtualHost.
   --cert-key FILE       Certificate key file for subdomain VirtualHost.
@@ -196,10 +198,11 @@ fi
 if [[ "$apply" -eq 1 ]]; then
   expected_output_subdomain="$target_home/openclaw/deploy/apache-subdomain-${target_user}.conf"
   expected_output_path="$target_home/openclaw/deploy/apache-${target_user}.conf"
+  expected_output_server="/etc/apache2/openclaw/apache-subdomain-${target_user}.conf"
   case "$output" in
-    "$expected_output_subdomain"|"$expected_output_path") ;;
+    "$expected_output_subdomain"|"$expected_output_path"|"$expected_output_server") ;;
     *)
-      echo "error: --output must stay on a managed deploy path: $expected_output_subdomain or $expected_output_path" >&2
+      echo "error: --output must stay on a managed Apache path: $expected_output_subdomain, $expected_output_path, or $expected_output_server" >&2
       exit 2
       ;;
   esac

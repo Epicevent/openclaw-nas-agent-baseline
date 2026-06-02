@@ -68,11 +68,26 @@ apt-get install -y --no-install-recommends \
   npm
 
 /usr/bin/python3 -m pip install --no-cache-dir --break-system-packages \
+  python-docx \
   python-pptx \
   pyhwp \
   pypdf \
   pdfplumber \
   pymupdf
+
+if [[ -x /opt/hermes/.venv/bin/python ]]; then
+  /opt/hermes/.venv/bin/python -m pip install --no-cache-dir \
+    python-docx \
+    pandas \
+    openpyxl \
+    python-pptx \
+    lxml \
+    beautifulsoup4 \
+    pypdf \
+    pdfplumber \
+    pymupdf \
+    pyhwp
+fi
 
 if grep -q '^# *ko_KR.UTF-8 UTF-8' /etc/locale.gen; then
   sed -i 's/^# *ko_KR.UTF-8 UTF-8/ko_KR.UTF-8 UTF-8/' /etc/locale.gen
@@ -104,6 +119,9 @@ fi
 
 if ! command -v 7z >/dev/null 2>&1 && command -v 7zz >/dev/null 2>&1; then
   ln -sf "$(command -v 7zz)" /usr/local/bin/7z
+fi
+if ! command -v 7zz >/dev/null 2>&1 && command -v 7z >/dev/null 2>&1; then
+  ln -sf "$(command -v 7z)" /usr/local/bin/7zz
 fi
 
 if command -v npm >/dev/null 2>&1; then

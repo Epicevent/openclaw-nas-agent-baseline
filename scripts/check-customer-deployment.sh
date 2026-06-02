@@ -90,7 +90,23 @@ fi
 
 container="openclaw-${target_user}-openclaw-gateway-1"
 deploy_subdomain_config_path="$target_home/openclaw/deploy/apache-subdomain-${target_user}.conf"
+runtime_env_path="$target_home/openclaw/.env"
+runtime_family="openclaw"
 failed=0
+
+if [[ -f "$runtime_env_path" ]]; then
+  runtime_family="$(
+    awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" {
+      value=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      gsub(/^'\''|'\''$/, "", value)
+      gsub(/^"|"$/, "", value)
+      print value
+      exit
+    }' "$runtime_env_path" 2>/dev/null || true
+  )"
+  runtime_family="${runtime_family:-openclaw}"
+fi
 
 pass() {
   printf 'PASS %s\n' "$1"
@@ -155,15 +171,26 @@ PY
 
 expected_gateway_port() {
   local actual_port
+  local container_port="18789"
 
-  actual_port="$(docker port "$container" 18789/tcp 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1 || true)"
+  if [[ "$runtime_family" == "hermes" ]]; then
+    container_port="9119"
+  fi
+
+  actual_port="$(docker port "$container" "${container_port}/tcp" 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1 || true)"
   if [[ -n "$actual_port" ]]; then
     printf '%s\n' "$actual_port"
     return 0
   fi
 
   if [[ "$target_user" =~ ^oc([0-9]+)$ ]]; then
-    printf '%s\n' "$((28789 + (${BASH_REMATCH[1]} - 1) * 100))"
+    local base_port
+    base_port=$((28789 + (${BASH_REMATCH[1]} - 1) * 100))
+    if [[ "$runtime_family" == "hermes" ]]; then
+      printf '%s\n' "$((base_port + 1))"
+    else
+      printf '%s\n' "$base_port"
+    fi
     return 0
   fi
 
@@ -195,7 +222,7 @@ check_public_openclaw_page() {
   http_code="$(sed -n 's/^http_code=//p' "$meta_file" | tail -1)"
   effective_url="$(sed -n 's/^url_effective=//p' "$meta_file" | tail -1)"
 
-  if [[ "$curl_rc" -eq 0 ]] && [[ "$http_code" =~ ^(2|3) ]] && grep -qi 'OpenClaw' "$body_file"; then
+  if [[ "$curl_rc" -eq 0 ]] && [[ "$http_code" =~ ^(2|3) ]] && grep -Eqi 'OpenClaw|Hermes' "$body_file"; then
     rm -f "$body_file" "$meta_file"
     return 0
   fi
@@ -249,6 +276,9 @@ isolation_args=(
   --expected-origin "$expected_origin"
 )
 if [[ "$skip_provider_key_check" -eq 1 ]]; then
+  isolation_args+=(--skip-provider-key-check)
+fi
+if [[ "$runtime_family" == "hermes" ]]; then
   isolation_args+=(--skip-provider-key-check)
 fi
 if bash "$script_dir/check-customer-mode-isolation.sh" \

@@ -162,6 +162,9 @@ OPENCLAW_EXTRA_MOUNTS='$nas_mount:/home/node/nas_docs:ro'
 HERMES_HOME='/opt/data'
 HERMES_DATA_DIR='/opt/data'
 HERMES_DASHBOARD='1'
+HERMES_DASHBOARD_HOST='0.0.0.0'
+HERMES_DASHBOARD_PORT='9119'
+HERMES_DASHBOARD_INSECURE='1'
 API_SERVER_ENABLED='true'
 API_SERVER_HOST='0.0.0.0'
 API_SERVER_KEY='$api_key'
@@ -186,6 +189,9 @@ services:
       HERMES_HOME: /opt/data
       HERMES_DATA_DIR: /opt/data
       HERMES_DASHBOARD: "1"
+      HERMES_DASHBOARD_HOST: 0.0.0.0
+      HERMES_DASHBOARD_PORT: "9119"
+      HERMES_DASHBOARD_INSECURE: "1"
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
       HOME: /opt/data/home
@@ -225,3 +231,24 @@ echo "dashboard_port=$dashboard_port"
 )
 
 docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
+
+apache_output="/etc/apache2/openclaw/apache-subdomain-${target_user}.conf"
+if [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
+  bash "$script_dir/write-apache-proxy-conf.sh" \
+    --user "$target_user" \
+    --mode subdomain \
+    --host "$host" \
+    --base-domain "$base_domain" \
+    --port "$dashboard_port" \
+    --output "$apache_output" \
+    --apply \
+    --reload
+else
+  bash "$script_dir/write-apache-proxy-conf.sh" \
+    --user "$target_user" \
+    --mode subdomain \
+    --host "$host" \
+    --base-domain "$base_domain" \
+    --port "$dashboard_port" \
+    --apply
+fi
