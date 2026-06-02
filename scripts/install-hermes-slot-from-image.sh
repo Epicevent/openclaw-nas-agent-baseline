@@ -112,12 +112,6 @@ if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
   exit 2
 fi
 
-if [[ "$insecure_dashboard" -ne 1 ]]; then
-  echo "error: Hermes public dashboard is not enabled by default." >&2
-  echo "hint: configure a dashboard auth provider first, or use --insecure-dashboard only for an isolated lab slot." >&2
-  exit 2
-fi
-
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "error: image not found: $image" >&2
   exit 1
@@ -212,8 +206,8 @@ services:
       LANGUAGE: ko_KR:ko
       LC_ALL: ko_KR.UTF-8
     ports:
-      - "\${OPENCLAW_GATEWAY_PORT:-$gateway_port}:8642"
-      - "\${OPENCLAW_BRIDGE_PORT:-$dashboard_port}:9119"
+      - "127.0.0.1:\${OPENCLAW_GATEWAY_PORT:-$gateway_port}:8642"
+      - "127.0.0.1:\${OPENCLAW_BRIDGE_PORT:-$dashboard_port}:9119"
     volumes:
       - $hermes_home:/opt/data
       - $nas_mount:/opt/data/nas_docs:ro
@@ -237,6 +231,11 @@ echo "image=$image"
 echo "host=$host"
 echo "gateway_port=$gateway_port"
 echo "dashboard_port=$dashboard_port"
+if [[ "$insecure_dashboard" -eq 1 ]]; then
+  echo "dashboard_exposure=public_insecure"
+else
+  echo "dashboard_exposure=local_only"
+fi
 
 (
   cd "$compose_dir"
@@ -246,7 +245,7 @@ echo "dashboard_port=$dashboard_port"
 docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
 
 apache_output="/etc/apache2/openclaw/apache-subdomain-${target_user}.conf"
-if [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
+if [[ "$insecure_dashboard" -eq 1 && -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
   bash "$script_dir/write-apache-proxy-conf.sh" \
     --user "$target_user" \
     --mode subdomain \
@@ -256,6 +255,41 @@ if [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
     --output "$apache_output" \
     --apply \
     --reload
+elif [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
+  tmp_apache="$(mktemp)"
+  cat > "$tmp_apache" <<EOF
+# Hermes local-only dashboard - ${target_user}
+# Public access is intentionally disabled. Use an SSH tunnel to 127.0.0.1:${dashboard_port}.
+<VirtualHost *:443>
+    ServerName ${host}
+
+    SSLEngine on
+    SSLCertificateFile      /etc/letsencrypt/live/${base_domain}/fullchain.pem
+    SSLCertificateKeyFile   /etc/letsencrypt/live/${base_domain}/privkey.pem
+
+    <Location />
+        Require all denied
+    </Location>
+
+    ErrorDocument 403 "Hermes dashboard is local-only. Use SSH tunnel to 127.0.0.1:${dashboard_port}."
+</VirtualHost>
+EOF
+  if [[ -f "$apache_output" ]]; then
+    backup="${apache_output}.$(date +%Y%m%d%H%M%S).bak"
+    cp -a "$apache_output" "$backup"
+    echo "backup=$backup"
+  fi
+  cat "$tmp_apache" > "$apache_output"
+  rm -f "$tmp_apache"
+  chown root:root "$apache_output"
+  chmod 0644 "$apache_output"
+  echo "written=$apache_output"
+  apache2ctl -t
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl reload apache2
+  else
+    service apache2 reload
+  fi
 else
   bash "$script_dir/write-apache-proxy-conf.sh" \
     --user "$target_user" \

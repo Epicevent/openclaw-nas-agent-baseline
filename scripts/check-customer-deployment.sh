@@ -390,9 +390,18 @@ else
     echo "INFO apache_vhost_config=${apache_vhost_path:-unknown}"
   fi
 
+  hermes_local_only_apache=0
+  if [[ "$runtime_family" == "hermes" && -n "$apache_vhost_path" && -f "$apache_vhost_path" ]] \
+    && grep -Fq "Hermes local-only dashboard" "$apache_vhost_path"; then
+    hermes_local_only_apache=1
+  fi
+
   expected_port="$(expected_gateway_port || true)"
   if [[ -n "$expected_port" && -n "$apache_vhost_path" && -f "$apache_vhost_path" ]]; then
-    if grep -Fq "127.0.0.1:${expected_port}" "$apache_vhost_path"; then
+    if [[ "$hermes_local_only_apache" -eq 1 ]]; then
+      pass "apache_backend_port_ok"
+      echo "INFO hermes_dashboard_exposure=local_only"
+    elif grep -Fq "127.0.0.1:${expected_port}" "$apache_vhost_path"; then
       pass "apache_backend_port_ok"
     else
       fail "apache_backend_port_ok"
@@ -409,7 +418,17 @@ else
     echo "INFO public_url_openclaw_page_ok=skipped"
   else
     public_url="$(public_url_for "$expected_origin" "$expected_basepath")"
-    if check_public_openclaw_page "$public_url"; then
+    if [[ "$hermes_local_only_apache" -eq 1 ]]; then
+      public_http_code="$(curl -k -sS --max-time 10 -o /dev/null -w '%{http_code}' "$public_url" 2>/dev/null || true)"
+      if [[ "$public_http_code" == "403" ]]; then
+        pass "public_url_openclaw_page_ok"
+        echo "INFO hermes_public_dashboard_disabled=403"
+      else
+        fail "public_url_openclaw_page_ok"
+        echo "INFO expected_public_http_code=403"
+        echo "INFO public_http_code=${public_http_code:-unknown}"
+      fi
+    elif check_public_openclaw_page "$public_url"; then
       pass "public_url_openclaw_page_ok"
     else
       fail "public_url_openclaw_page_ok"
