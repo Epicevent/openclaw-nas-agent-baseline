@@ -282,6 +282,8 @@ services:
       OPENCLAW_CONFIG_PATH: /home/node/.openclaw/openclaw.json
       OPENCLAW_STATE_DIR: /home/node/.openclaw
       OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      OPENCLAW_GATEWAY_PORT: "18789"
+      OPENCLAW_BRIDGE_PORT: "18790"
       OPENCLAW_NAS_CONTAINER_PATH: /home/node/nas_docs
       LANG: ko_KR.UTF-8
       LANGUAGE: ko_KR:ko
