@@ -21,6 +21,7 @@ Usage:
   svcops-control.sh image-status USER
   svcops-control.sh image-status-all START END
   svcops-control.sh container-logs USER [LINES]
+  svcops-control.sh runtime-secret-status USER
   svcops-control.sh image-list
   svcops-control.sh image-release-add REF [NAME]
   svcops-control.sh image-release-verify IMAGE
@@ -377,6 +378,65 @@ redact_sensitive_output() {
     -e 's/([A-Za-z0-9_]*(API[_-]?KEY|TOKEN|PASSWORD|PASSWD|CREDENTIAL|SECRET)[A-Za-z0-9_]*[=:" ]+)[^[:space:]",}]+/\1[REDACTED]/Ig' \
     -e 's/(Bearer )[A-Za-z0-9._~+\/=-]+/\1[REDACTED]/Ig' \
     -e 's/(sk-[A-Za-z0-9_-]{8})[A-Za-z0-9_-]+/\1[REDACTED]/g'
+}
+
+runtime_secret_status() {
+  local target_user="$1" target_home runtime_family env_path key found_any
+  local -a env_paths provider_keys
+
+  target_home="$(customer_home "$target_user")"
+  runtime_family="openclaw"
+  if [[ -f "$target_home/openclaw/.env" ]]; then
+    runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$target_home/openclaw/.env" 2>/dev/null || true)"
+    runtime_family="${runtime_family:-openclaw}"
+  fi
+
+  provider_keys=(
+    ANTHROPIC_API_KEY
+    DEEPSEEK_API_KEY
+    ELEVENLABS_API_KEY
+    GEMINI_API_KEY
+    GOOGLE_API_KEY
+    GROQ_API_KEY
+    MISTRAL_API_KEY
+    OPENAI_API_KEY
+    OPENROUTER_API_KEY
+    PERPLEXITY_API_KEY
+    TOGETHER_API_KEY
+    XAI_API_KEY
+  )
+
+  if [[ "$runtime_family" == "hermes" ]]; then
+    env_paths=(
+      "$target_home/.hermes/.env"
+      "$target_home/.hermes/home/.hermes/.env"
+    )
+  else
+    env_paths=("$target_home/openclaw/.env")
+  fi
+
+  echo "target_user=$target_user"
+  echo "runtime_family=$runtime_family"
+  for env_path in "${env_paths[@]}"; do
+    echo "env_file=$env_path"
+    if [[ ! -f "$env_path" ]]; then
+      echo "env_file_state=missing"
+      continue
+    fi
+    if [[ -L "$env_path" ]]; then
+      echo "env_file_state=symlink_refused"
+      continue
+    fi
+    echo "env_file_state=present"
+    found_any=0
+    for key in "${provider_keys[@]}"; do
+      if awk -F= -v k="$key" '$1 == k && length($2) > 0 { found=1 } END { exit found ? 0 : 1 }' "$env_path"; then
+        echo "$key=present"
+        found_any=1
+      fi
+    done
+    [[ "$found_any" -eq 1 ]] || echo "provider_keys=missing"
+  done
 }
 
 shared_ollama_base_url() {
@@ -819,6 +879,13 @@ container_image_id={{.Image}}'
     echo "container=$container"
     echo "log_tail=$lines"
     docker logs --tail "$lines" "$container" 2>&1 | redact_sensitive_output
+    ;;
+
+  runtime-secret-status)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    runtime_secret_status "$target_user"
     ;;
 
   image-status-all)
