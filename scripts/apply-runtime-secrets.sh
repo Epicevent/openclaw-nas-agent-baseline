@@ -352,10 +352,12 @@ if [[ "$restart_gateway" -eq 1 ]]; then
     cd "$compose_dir"
     export COMPOSE_PROJECT_NAME="openclaw-$target_user"
     compose_args=(-f docker-compose.yml)
-    [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
-    [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
-    [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
-    [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
+    if [[ "$runtime_family" != "hermes" ]]; then
+      [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
+      [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
+      [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
+      [[ -f docker-compose.sandbox.yml ]] && compose_args+=(-f docker-compose.sandbox.yml)
+    fi
     docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
   )
 
