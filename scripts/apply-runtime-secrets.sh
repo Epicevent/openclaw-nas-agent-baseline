@@ -111,6 +111,10 @@ host="${host:-${target_user}.${base_domain}}"
 origin="https://${host}"
 compose_dir="$target_home/openclaw"
 container="openclaw-${target_user}-openclaw-gateway-1"
+runtime_family="openclaw"
+secret_runtime_env_path="$compose_dir/.env"
+data_group="${target_user}_data"
+secret_owner="root:root"
 
 if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
   echo "error: invalid host: $host" >&2
@@ -142,11 +146,42 @@ echo "env_file=$env_file"
 
 openclaw_assert_managed_slot_prewrite "$target_user"
 openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
-openclaw_assert_safe_openclaw_config_file "$target_user" "$target_home/.openclaw/openclaw.json"
+
+if [[ -f "$compose_dir/.env" ]]; then
+  runtime_family="$(
+    awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" {
+      value=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      gsub(/^'\''|'\''$/, "", value)
+      gsub(/^"|"$/, "", value)
+      print value
+      exit
+    }' "$compose_dir/.env" 2>/dev/null || true
+  )"
+  runtime_family="${runtime_family:-openclaw}"
+fi
+
+if [[ "$runtime_family" == "hermes" ]]; then
+  secret_runtime_env_path="$target_home/.hermes/.env"
+  secret_owner="$runtime_user:$data_group"
+  mkdir -p "$target_home/.hermes"
+  if [[ -L "$target_home/.hermes" || -L "$secret_runtime_env_path" ]]; then
+    echo "error: Hermes env path must not be a symlink: $secret_runtime_env_path" >&2
+    exit 1
+  fi
+  chown "$runtime_user:$data_group" "$target_home/.hermes"
+  chmod 0750 "$target_home/.hermes"
+else
+  openclaw_assert_safe_openclaw_config_file "$target_user" "$target_home/.openclaw/openclaw.json"
+fi
+
+echo "runtime_family=$runtime_family"
+echo "secret_runtime_env_path=$secret_runtime_env_path"
 
 OPENCLAW_SECRET_ENV_FILE="$env_file" \
-OPENCLAW_SECRET_RUNTIME_ENV_PATH="$compose_dir/.env" \
+OPENCLAW_SECRET_RUNTIME_ENV_PATH="$secret_runtime_env_path" \
 OPENCLAW_SECRET_CONFIG_PATH="$target_home/.openclaw/openclaw.json" \
+OPENCLAW_SECRET_RUNTIME_FAMILY="$runtime_family" \
 python3 - <<'PY'
 import json
 import os
@@ -159,6 +194,7 @@ from pathlib import Path
 env_file = Path(os.environ["OPENCLAW_SECRET_ENV_FILE"])
 runtime_env_path = Path(os.environ["OPENCLAW_SECRET_RUNTIME_ENV_PATH"])
 config_path = Path(os.environ["OPENCLAW_SECRET_CONFIG_PATH"])
+runtime_family = os.environ.get("OPENCLAW_SECRET_RUNTIME_FAMILY", "openclaw")
 
 allowed_keys = {
     "ANTHROPIC_API_KEY",
@@ -288,7 +324,7 @@ if not values:
 upsert_env_file(runtime_env_path, values)
 
 removed_api_keys = 0
-if config_path.exists():
+if runtime_family != "hermes" and config_path.exists():
     data = json.loads(config_path.read_text(encoding="utf-8") or "{}")
     removed_api_keys = strip_literal_api_keys(data)
     if removed_api_keys:
@@ -302,9 +338,9 @@ summary = {
 print(json.dumps(summary, indent=2, ensure_ascii=False))
 PY
 
-chown root:root "$compose_dir/.env"
-chmod 0600 "$compose_dir/.env"
-if [[ -f "$target_home/.openclaw/openclaw.json" ]]; then
+chown "$secret_owner" "$secret_runtime_env_path"
+chmod 0600 "$secret_runtime_env_path"
+if [[ "$runtime_family" != "hermes" && -f "$target_home/.openclaw/openclaw.json" ]]; then
   chown "$runtime_user:$runtime_user" "$target_home/.openclaw/openclaw.json"
   chmod 0600 "$target_home/.openclaw/openclaw.json"
 fi

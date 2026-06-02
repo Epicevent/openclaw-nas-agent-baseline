@@ -30,6 +30,7 @@ COPY container/install-container-baseline.sh /tmp/install-container-baseline.sh
 RUN chmod +x /tmp/install-container-baseline.sh \
   && /tmp/install-container-baseline.sh \
   && rm -f /tmp/install-container-baseline.sh \
+  && python3 -m pip install --no-cache-dir 'hermes-agent[web,pty]' \
   && apt-get update \
   && apt-get install -y --no-install-recommends tini procps gosu \
   && apt-get clean \

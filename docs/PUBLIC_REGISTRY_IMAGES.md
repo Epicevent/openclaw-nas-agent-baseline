@@ -55,14 +55,38 @@ openclaw-gateway     ghcr.io/epicevent/openclaw-nas-agent:<hermes-workspace tag>
 
 The container runs both Hermes Agent and Hermes Workspace. The public Apache
 subdomain points to Workspace on container port `3000`. Hermes Agent API and the
-raw Hermes dashboard stay on container-local loopback ports. The slot NAS is
-mounted read-only into the same container at:
+raw Hermes dashboard stay on container-local loopback ports. The entrypoint
+starts both `hermes gateway run` and `hermes dashboard` so Workspace can use the
+extended Hermes APIs for settings, sessions, skills, config, MCP, and jobs. The
+slot NAS is mounted read-only into the same container at:
 
 ```text
 /workspace/nas_docs
 /opt/data/nas_docs
 /home/node/nas_docs
 ```
+
+Hermes Agent stores provider API keys in its own profile env file. In this
+deployment, that container path maps to the host as:
+
+```text
+/opt/data/.env                 # inside container
+/home/ocN/.hermes/.env         # host bind mount
+```
+
+When converting an existing OpenClaw slot to a Hermes image, the rollout moves
+allowlisted provider keys from the previous slot compose `.env` into
+`/home/ocN/.hermes/.env`, such as `GEMINI_API_KEY` or `GOOGLE_API_KEY`. The
+previous compose `.env` is also saved as:
+
+```text
+/home/ocN/openclaw/.env.bak.hermes-YYYYMMDDHHMMSS
+```
+
+If a slot was converted before this preservation behavior existed, re-inject the
+provider key through the normal runtime secret path. For Hermes slots,
+`apply-runtime-secrets.sh` writes provider keys to `/home/ocN/.hermes/.env`; for
+OpenClaw slots it writes them to the existing compose runtime env path.
 
 Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
 slot-local runtime secret state and is not stored in public image metadata.

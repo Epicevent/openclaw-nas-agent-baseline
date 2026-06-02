@@ -153,6 +153,92 @@ print(secrets.token_hex(32))
 PY
 )"
 
+provider_secret_env="$(mktemp)"
+trap 'rm -f "$provider_secret_env"' EXIT
+provider_secret_count=0
+env_backup=""
+secret_sources=()
+[[ -f "$compose_dir/.env" ]] && secret_sources+=("$compose_dir/.env")
+[[ -f "$hermes_home/.env" ]] && secret_sources+=("$hermes_home/.env")
+if [[ -f "$compose_dir/.env" ]]; then
+  env_backup="$compose_dir/.env.bak.hermes-$(date +%Y%m%d%H%M%S)"
+  cp -a "$compose_dir/.env" "$env_backup"
+  chown root:root "$env_backup"
+  chmod 0600 "$env_backup"
+fi
+if [[ "${#secret_sources[@]}" -gt 0 ]]; then
+  provider_secret_count="$(
+    OPENCLAW_EXISTING_ENVS="$(IFS=:; printf '%s' "${secret_sources[*]}")" \
+    OPENCLAW_PROVIDER_SECRET_ENV="$provider_secret_env" \
+    python3 - <<'PY'
+import os
+import re
+import shlex
+from pathlib import Path
+
+existing_envs = [Path(item) for item in os.environ["OPENCLAW_EXISTING_ENVS"].split(":") if item]
+out_path = Path(os.environ["OPENCLAW_PROVIDER_SECRET_ENV"])
+
+allowed_keys = {
+    "ANTHROPIC_API_KEY",
+    "DEEPSEEK_API_KEY",
+    "ELEVENLABS_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "MISTRAL_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "PERPLEXITY_API_KEY",
+    "TOGETHER_API_KEY",
+    "XAI_API_KEY",
+}
+
+key_re = re.compile(r"^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$")
+
+
+def parse_value(raw: str) -> str:
+    raw = raw.strip()
+    if not raw:
+        return ""
+    if raw[0] in ("'", '"'):
+        try:
+            parts = shlex.split(raw, posix=True)
+            return parts[0] if parts else ""
+        except ValueError:
+            return raw.strip("'\"")
+    return raw
+
+
+def quote_env(value: str) -> str:
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+
+values: dict[str, str] = {}
+for existing_env in existing_envs:
+    for line in existing_env.read_text(encoding="utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        m = key_re.match(line)
+        if not m:
+            continue
+        key = m.group(1)
+        if key in allowed_keys:
+            value = parse_value(m.group(2))
+            if value:
+                values[key] = value
+
+out_path.write_text(
+    "".join(f"{key}={quote_env(values[key])}\n" for key in sorted(values)),
+    encoding="utf-8",
+)
+print(len(values))
+PY
+  )"
+fi
+chmod 0600 "$provider_secret_env"
+
 workspace_secret_file="/srv/openclaw-ops/reports/hermes-workspace-${target_user}.password"
 workspace_password=""
 if [[ -f "$workspace_secret_file" ]]; then
@@ -215,6 +301,30 @@ LANGUAGE='ko_KR:ko'
 LC_ALL='ko_KR.UTF-8'
 EOF
 
+cat > "$hermes_home/.env" <<EOF
+API_SERVER_ENABLED='true'
+API_SERVER_HOST='127.0.0.1'
+API_SERVER_KEY='$api_key'
+HERMES_API_TOKEN='$api_key'
+CLAUDE_API_TOKEN='$api_key'
+CLAUDE_DASHBOARD_TOKEN='$api_key'
+HERMES_PASSWORD='$workspace_password'
+HERMES_HOME='/opt/data'
+HERMES_DATA_DIR='/opt/data'
+HERMES_WORKSPACE_DIR='/workspace'
+HERMES_API_URL='http://127.0.0.1:8642'
+HERMES_DASHBOARD_URL='http://127.0.0.1:9119'
+HERMES_DASHBOARD='1'
+HERMES_DASHBOARD_HOST='127.0.0.1'
+HERMES_DASHBOARD_PORT='9119'
+HERMES_DASHBOARD_INSECURE='1'
+COOKIE_SECURE='1'
+TRUST_PROXY='1'
+EOF
+cat "$provider_secret_env" >> "$hermes_home/.env"
+chown "$runtime_user:$data_group" "$hermes_home/.env"
+chmod 0600 "$hermes_home/.env"
+
 cat > "$compose_dir/docker-compose.yml" <<EOF
 services:
   openclaw-gateway:
@@ -269,6 +379,10 @@ echo "hermes_home=$hermes_home"
 echo "image=$image"
 echo "host=$host"
 echo "workspace_port=$workspace_port"
+if [[ -n "$env_backup" ]]; then
+  echo "env_backup=$env_backup"
+fi
+echo "provider_secret_keys_preserved=$provider_secret_count"
 echo "workspace_password_file=$workspace_secret_file"
 if [[ "$local_only_dashboard" -eq 1 ]]; then
   echo "workspace_exposure=local_only"

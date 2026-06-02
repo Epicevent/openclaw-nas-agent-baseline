@@ -7,6 +7,9 @@ HERMES_WORKSPACE_DIR="${HERMES_WORKSPACE_DIR:-/workspace}"
 HERMES_API_URL="${HERMES_API_URL:-http://127.0.0.1:8642}"
 HERMES_DASHBOARD_URL="${HERMES_DASHBOARD_URL:-http://127.0.0.1:9119}"
 HERMES_API_TOKEN="${HERMES_API_TOKEN:-${API_SERVER_KEY:-}}"
+API_SERVER_KEY="${API_SERVER_KEY:-$HERMES_API_TOKEN}"
+CLAUDE_API_TOKEN="${CLAUDE_API_TOKEN:-$HERMES_API_TOKEN}"
+CLAUDE_DASHBOARD_TOKEN="${CLAUDE_DASHBOARD_TOKEN:-$HERMES_API_TOKEN}"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-3000}"
 HOME="${HOME:-$HERMES_HOME/home}"
@@ -17,6 +20,9 @@ export HERMES_WORKSPACE_DIR
 export HERMES_API_URL
 export HERMES_DASHBOARD_URL
 export HERMES_API_TOKEN
+export API_SERVER_KEY
+export CLAUDE_API_TOKEN
+export CLAUDE_DASHBOARD_TOKEN
 export HOST
 export PORT
 export HOME
@@ -39,12 +45,16 @@ if [[ "$(id -u)" -eq 0 && -n "${HERMES_UID:-${PUID:-}}" && -n "${HERMES_GID:-${P
 fi
 
 gateway_pid=""
+dashboard_pid=""
 workspace_pid=""
 
 shutdown() {
   local rc=$?
   if [[ -n "$workspace_pid" ]]; then
     kill "$workspace_pid" >/dev/null 2>&1 || true
+  fi
+  if [[ -n "$dashboard_pid" ]]; then
+    kill "$dashboard_pid" >/dev/null 2>&1 || true
   fi
   if [[ -n "$gateway_pid" ]]; then
     kill "$gateway_pid" >/dev/null 2>&1 || true
@@ -67,8 +77,24 @@ for _ in $(seq 1 90); do
   sleep 1
 done
 
+"${run_as[@]}" hermes dashboard \
+  --host "${HERMES_DASHBOARD_HOST:-127.0.0.1}" \
+  --port "${HERMES_DASHBOARD_PORT:-9119}" \
+  --no-open &
+dashboard_pid="$!"
+
+for _ in $(seq 1 90); do
+  if curl -fsS "$HERMES_DASHBOARD_URL" >/dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$dashboard_pid" >/dev/null 2>&1; then
+    wait "$dashboard_pid"
+  fi
+  sleep 1
+done
+
 cd /opt/hermes-workspace
 "${run_as[@]}" node "--max-old-space-size=${NODE_MAX_OLD_SPACE_SIZE:-2048}" server-entry.js &
 workspace_pid="$!"
 
-wait -n "$gateway_pid" "$workspace_pid"
+wait -n "$gateway_pid" "$dashboard_pid" "$workspace_pid"
