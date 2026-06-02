@@ -67,7 +67,7 @@ apt-get install -y --no-install-recommends \
   nodejs \
   npm
 
-python3 -m pip install --no-cache-dir --break-system-packages \
+/usr/bin/python3 -m pip install --no-cache-dir --break-system-packages \
   python-pptx \
   pyhwp \
   pypdf \
