@@ -81,6 +81,16 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
   image-rollout-slot oc15 dashboard-20260602-r1
 ```
 
+Apply one official image to a slot range:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-rollout-range 1 20 dashboard-20260602-r1
+```
+
+This is the explicit full-slot operation. It still requires the image to be
+registered and verified first.
+
 Check running images:
 
 ```bash

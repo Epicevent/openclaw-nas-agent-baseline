@@ -85,6 +85,15 @@ def validate_slot(name: str) -> str:
     return name
 
 
+def validate_slot_number(value: str) -> int:
+    if not re.match(r"^[0-9]+$", value or ""):
+        raise SystemExit(f"error: invalid slot number: {value}")
+    number = int(value)
+    if number < 1 or number > 999:
+        raise SystemExit(f"error: slot number out of range: {value}")
+    return number
+
+
 def validate_ref(ref: str) -> str:
     if not ref or any(ch.isspace() for ch in ref) or ref.startswith("-"):
         raise SystemExit(f"error: invalid image ref: {ref}")
@@ -474,6 +483,17 @@ def slot_numbers_for_channel(channel: str, slots: list[dict[str, str]]) -> list[
     return []
 
 
+def slot_numbers_for_range(start: str, end: str, slots: list[dict[str, str]]) -> list[str]:
+    start_number = validate_slot_number(start)
+    end_number = validate_slot_number(end)
+    if start_number > end_number:
+        raise SystemExit("error: START must be less than or equal to END")
+    if end_number - start_number + 1 > 100:
+        raise SystemExit("error: rollout range is too large")
+    names = {slot.get("slot", "") for slot in slots}
+    return [f"oc{i}" for i in range(start_number, end_number + 1) if f"oc{i}" in names]
+
+
 def update_slot_assignment(slots_path: Path, slot_name: str, image: dict[str, str], channel: str) -> None:
     if not slots_path.exists():
         return
@@ -723,6 +743,32 @@ def cmd_rollout(args: argparse.Namespace) -> int:
     return failed
 
 
+def cmd_rollout_range(args: argparse.Namespace) -> int:
+    state = parse_images(args.images)
+    image = find_image(state, args.image)
+    if not image:
+        raise SystemExit(f"error: image not found: {args.image}")
+    if image.get("status") not in ROLLABLE_STATUSES:
+        raise SystemExit(f"error: image status does not allow rollout: {image.get('status')}")
+    _, slots = parse_slots(args.slots)
+    targets = slot_numbers_for_range(args.start, args.end, slots)
+    if not targets:
+        raise SystemExit(f"error: no slots selected for range: {args.start}-{args.end}")
+    channel = validate_channel(args.channel or f"range-{args.start}-{args.end}")
+    print(f"target_range=oc{args.start}..oc{args.end}")
+    print(f"target_count={len(targets)}")
+    print(f"image_name={image['name']}")
+    print(f"image_channel={channel}")
+    failed = 0
+    for slot in targets:
+        print(f"== {slot} ==")
+        rc, output = apply_image_to_slot(args, slot, image, channel)
+        print(output, end="" if output.endswith("\n") else "\n")
+        if rc != 0:
+            failed = 1
+    return failed
+
+
 def cmd_rollback(args: argparse.Namespace) -> int:
     _, slots = parse_slots(args.slots)
     slot = next((item for item in slots if item.get("slot") == args.user), None)
@@ -781,6 +827,13 @@ def build_parser() -> argparse.ArgumentParser:
     rollout = sub.add_parser("rollout")
     rollout.add_argument("channel")
     rollout.set_defaults(func=cmd_rollout)
+
+    rollout_range = sub.add_parser("rollout-range")
+    rollout_range.add_argument("start")
+    rollout_range.add_argument("end")
+    rollout_range.add_argument("image")
+    rollout_range.add_argument("--channel", default="")
+    rollout_range.set_defaults(func=cmd_rollout_range)
 
     rollout_slot = sub.add_parser("rollout-slot")
     rollout_slot.add_argument("user")

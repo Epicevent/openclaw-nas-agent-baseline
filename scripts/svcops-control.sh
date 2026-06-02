@@ -25,6 +25,7 @@ Usage:
   svcops-control.sh image-release-verify IMAGE
   svcops-control.sh image-release-promote IMAGE CHANNEL
   svcops-control.sh image-rollout CHANNEL
+  svcops-control.sh image-rollout-range START END IMAGE
   svcops-control.sh image-rollout-slot USER IMAGE
   svcops-control.sh image-rollback USER
   svcops-control.sh usage USER [SINCE]
@@ -814,6 +815,17 @@ container_image_id={{.Image}}'
   image-rollout)
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     python3 "$script_dir/openclaw-image-release-control.py" rollout "$1"
+    ;;
+
+  image-rollout-range)
+    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    python3 "$script_dir/openclaw-image-release-control.py" rollout-range "$start" "$end" "$3"
     ;;
 
   image-rollout-slot)

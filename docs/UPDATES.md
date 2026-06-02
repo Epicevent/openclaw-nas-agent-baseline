@@ -58,6 +58,15 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
   image-rollout oc15-20-test
 ```
 
+## 전체 slot 적용
+
+검증된 이미지를 `oc1`부터 `oc20`까지 직접 적용한다.
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-rollout-range 1 20 "$IMAGE_NAME"
+```
+
 ## 확인
 
 ```bash
