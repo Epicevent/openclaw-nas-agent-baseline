@@ -21,7 +21,20 @@ ghcr.io/epicevent/openclaw-nas-agent:document-heavy-20260602-r1
 
 ## Release Flow
 
-Run as the restricted operations account through `svcops-control.sh`.
+The public image is built and pushed by GitHub Actions:
+
+```text
+.github/workflows/publish-openclaw-nas-agent-image.yml
+```
+
+The `dashboard-20260602-r1` image uses the overlay in:
+
+```text
+image-overlays/dashboard-20260602-r1
+```
+
+After the image is available in GHCR, run the server-side rollout commands as
+the restricted operations account through `svcops-control.sh`.
 
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \

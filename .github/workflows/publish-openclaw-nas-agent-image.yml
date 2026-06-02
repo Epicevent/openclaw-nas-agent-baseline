@@ -1,0 +1,102 @@
+name: Publish OpenClaw NAS Agent Image
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-openclaw-nas-agent-image.yml"
+      - "container/**"
+      - "image-overlays/dashboard-20260602-r1/**"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_REF: ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1
+  OPENCLAW_REPO: https://github.com/openclaw/openclaw.git
+  OPENCLAW_COMMIT: 989e53c20d395d3c8bf47efc21fdb9d56e7227b0
+  OVERLAY_DIR: image-overlays/dashboard-20260602-r1/files
+
+jobs:
+  publish:
+    name: Build and push dashboard-20260602-r1
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout baseline repo
+        uses: actions/checkout@v4
+
+      - name: Check overlay for secret-looking literals
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -RInE 'AIza|sk-[A-Za-z0-9]|(GEMINI|OPENAI|ANTHROPIC)_API_KEY=.*[^[:space:]]|NAS_PASSWORD=|gateway[_-]?token=' "$OVERLAY_DIR"; then
+            echo "Secret-looking literal found in overlay" >&2
+            exit 1
+          fi
+
+      - name: Prepare OpenClaw source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone "$OPENCLAW_REPO" openclaw-src
+          cd openclaw-src
+          git checkout --detach "$OPENCLAW_COMMIT"
+          cd ..
+          rsync -a "$OVERLAY_DIR"/ openclaw-src/
+
+      - name: Log in to GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build customized OpenClaw runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.base.name=openclaw/openclaw" \
+            --label "org.opencontainers.image.base.digest=$OPENCLAW_COMMIT" \
+            -t openclaw-dashboard:dashboard-20260602-r1 \
+            openclaw-src
+
+      - name: Build NAS Agent image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg BASE_IMAGE=openclaw-dashboard:dashboard-20260602-r1 \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.title=OpenClaw NAS Agent dashboard-20260602-r1" \
+            -t "$IMAGE_REF" \
+            -f container/Dockerfile .
+
+      - name: Check final image for baked secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "$IMAGE_REF" --format '{{range .Config.Env}}{{println .}}{{end}}' \
+            | grep -Eiv '^(PATH|NODE_|PNPM_|NPM_|LANG|LANGUAGE|LC_ALL|HOME|YARN_|COREPACK_|OPENCLAW_PREFER_PNPM)=' \
+            | grep -Ei '(api[_-]?key|token|password|passwd|credential|secret)' && {
+              echo "Secret-looking env key found in final image" >&2
+              exit 1
+            } || true
+
+      - name: Push image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "$IMAGE_REF"
+
+      - name: Show pushed image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker image inspect "$IMAGE_REF" \
+            --format 'image_id={{.Id}} repo_digests={{json .RepoDigests}} os={{.Os}} arch={{.Architecture}}'
