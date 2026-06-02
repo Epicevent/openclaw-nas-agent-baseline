@@ -90,15 +90,15 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-rollback o
 ## Hermes Slots
 
 Hermes images use the same image release commands. Applying a `family=hermes`
-image creates two services in the target slot:
+image creates one integrated container in the target slot:
 
 ```text
 openclaw-gateway
-hermes-workspace
 ```
 
-The public subdomain points to Hermes Workspace. The raw Hermes dashboard and
-gateway API remain on host loopback ports. The Workspace login password is
+That container runs Hermes Agent and Hermes Workspace together. The public
+subdomain points to Workspace on container port `3000`. Hermes Agent API and the
+raw Hermes dashboard remain container-local. The Workspace login password is
 slot-local server secret state, not image metadata.
 
 ```text

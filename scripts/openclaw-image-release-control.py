@@ -360,6 +360,7 @@ def secret_env_findings(image: dict[str, str]) -> list[str]:
 
 def verify_container_baseline(image: dict[str, str]) -> tuple[bool, str]:
     ref = image.get("runtime_ref") or image.get("registry_ref") or image.get("name", "")
+    family = image.get("family", "")
     script = r'''
 set -eu
 failed=0
@@ -411,9 +412,17 @@ python3 - <<'PY'
 import docx, openpyxl, pandas
 PY
 echo PASS python_document_modules
+if [ "${OPENCLAW_EXPECT_HERMES_WORKSPACE:-0}" = "1" ]; then
+  if [ -f /opt/hermes-workspace/server-entry.js ]; then echo PASS hermes_workspace_app; else echo FAIL hermes_workspace_app; failed=1; fi
+  if [ -x /usr/local/bin/openclaw-hermes-entrypoint ]; then echo PASS hermes_integrated_entrypoint; else echo FAIL hermes_integrated_entrypoint; failed=1; fi
+fi
 exit "$failed"
 '''
-    rc, out = run(["docker", "run", "--rm", "--entrypoint", "sh", ref, "-lc", script], timeout=600)
+    args = ["docker", "run", "--rm", "--entrypoint", "sh"]
+    if family == "hermes":
+        args.extend(["-e", "OPENCLAW_EXPECT_HERMES_WORKSPACE=1"])
+    args.extend([ref, "-lc", script])
+    rc, out = run(args, timeout=600)
     return rc == 0, out
 
 

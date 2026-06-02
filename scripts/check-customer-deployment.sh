@@ -89,7 +89,6 @@ if [[ -z "$target_home" ]]; then
 fi
 
 container="openclaw-${target_user}-openclaw-gateway-1"
-workspace_container="openclaw-${target_user}-hermes-workspace-1"
 deploy_subdomain_config_path="$target_home/openclaw/deploy/apache-subdomain-${target_user}.conf"
 runtime_env_path="$target_home/openclaw/.env"
 runtime_family="openclaw"
@@ -175,12 +174,7 @@ expected_gateway_port() {
   local container_port="18789"
 
   if [[ "$runtime_family" == "hermes" ]]; then
-    actual_port="$(docker port "$workspace_container" "3000/tcp" 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1 || true)"
-    if [[ -n "$actual_port" ]]; then
-      printf '%s\n' "$actual_port"
-      return 0
-    fi
-
+    container_port="3000"
     if [[ -f "$runtime_env_path" ]]; then
       actual_port="$(
         awk -F= '$1 == "OPENCLAW_BRIDGE_PORT" {
@@ -208,11 +202,7 @@ expected_gateway_port() {
   if [[ "$target_user" =~ ^oc([0-9]+)$ ]]; then
     local base_port
     base_port=$((28789 + (${BASH_REMATCH[1]} - 1) * 100))
-    if [[ "$runtime_family" == "hermes" ]]; then
-      printf '%s\n' "$((base_port + 2))"
-    else
-      printf '%s\n' "$base_port"
-    fi
+    printf '%s\n' "$base_port"
     return 0
   fi
 

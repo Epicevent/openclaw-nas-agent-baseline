@@ -298,7 +298,8 @@ EOF
 
 tar -C "$script_dir" --exclude-from="$tmp_exclude" -cf - . | tar -C "$prefix" -xf -
 
-chmod +x "$prefix/install.sh" "$prefix"/container/*.sh 2>/dev/null || true
+chmod +x "$prefix/install.sh" 2>/dev/null || true
+find "$prefix/container" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/scripts" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/scripts" -type f -name '*.py' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/admin-cli/bin" -type f -exec chmod +x {} + 2>/dev/null || true

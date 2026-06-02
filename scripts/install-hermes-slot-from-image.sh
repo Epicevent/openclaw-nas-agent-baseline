@@ -6,23 +6,19 @@ usage() {
 Usage:
   install-hermes-slot-from-image.sh --user USER --image IMAGE [options]
 
-Reconfigures a prepared ocN slot to run a Hermes Agent gateway plus the
-Hermes Workspace password-protected web UI.
+Reconfigures a prepared ocN slot to run a single Hermes container image.
+The image must contain Hermes Agent, Hermes Workspace, and the OpenClaw NAS
+Agent document baseline packages.
 
 Options:
   --user USER           Target slot, for example oc15. Required.
-  --image IMAGE         Hermes NAS Agent image ref. Required.
-  --workspace-image IMAGE
-                        Hermes Workspace image. Default:
-                        ghcr.io/outsourc-e/hermes-workspace:latest.
+  --image IMAGE         Integrated Hermes image ref. Required.
   --host HOST           Public subdomain. Default: USER.BASE_DOMAIN.
   --base-domain NAME    Base domain. Default: ji-tech.co.kr.
-  --force               Replace existing gateway/workspace containers.
+  --force               Replace existing containers.
   --local-only-dashboard
                         Do not expose Hermes Workspace through Apache.
                         Operators can still use an SSH tunnel to 127.0.0.1.
-  --insecure-dashboard  Publish the raw Hermes dashboard without Workspace.
-                        Temporary lab use only. Do not use for customer slots.
 
 Run as root/admin.
 USAGE
@@ -30,12 +26,10 @@ USAGE
 
 target_user=""
 image=""
-workspace_image="${HERMES_WORKSPACE_IMAGE:-ghcr.io/outsourc-e/hermes-workspace:latest}"
 host=""
 base_domain="${OPENCLAW_BASE_DOMAIN:-ji-tech.co.kr}"
 force=0
 local_only_dashboard=0
-insecure_dashboard=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -45,10 +39,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --image)
       image="${2:?missing --image value}"
-      shift 2
-      ;;
-    --workspace-image)
-      workspace_image="${2:?missing --workspace-image value}"
       shift 2
       ;;
     --host)
@@ -65,10 +55,6 @@ while [[ $# -gt 0 ]]; do
       ;;
     --local-only-dashboard)
       local_only_dashboard=1
-      shift
-      ;;
-    --insecure-dashboard)
-      insecure_dashboard=1
       shift
       ;;
     -h|--help)
@@ -117,11 +103,9 @@ compose_dir="$target_home/openclaw"
 hermes_home="$target_home/.hermes"
 nas_mount="$target_home/nas_docs"
 slot="${target_user#oc}"
-gateway_port=$((28789 + (slot - 1) * 100))
-dashboard_port=$((gateway_port + 1))
-workspace_port=$((gateway_port + 2))
+workspace_port=$((28789 + (slot - 1) * 100))
 container="openclaw-${target_user}-openclaw-gateway-1"
-workspace_container="openclaw-${target_user}-hermes-workspace-1"
+legacy_workspace_container="openclaw-${target_user}-hermes-workspace-1"
 cli_container="openclaw-${target_user}-openclaw-cli-1"
 
 if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
@@ -131,15 +115,6 @@ fi
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "error: image not found: $image" >&2
-  exit 1
-fi
-
-if ! docker image inspect "$workspace_image" >/dev/null 2>&1; then
-  docker pull "$workspace_image"
-fi
-
-if ! docker image inspect "$workspace_image" >/dev/null 2>&1; then
-  echo "error: workspace image not found: $workspace_image" >&2
   exit 1
 fi
 
@@ -155,15 +130,14 @@ usermod -aG "$data_group" "$runtime_user"
 
 runtime_uid="$(id -u "$runtime_user")"
 runtime_gid="$(id -g "$runtime_user")"
-data_gid="$(getent group "$data_group" | cut -d: -f3)"
 
 openclaw_assert_managed_slot_prewrite "$target_user"
 
 if [[ "$force" -eq 1 ]]; then
   docker rm -f "$container" >/dev/null 2>&1 || true
-  docker rm -f "$workspace_container" >/dev/null 2>&1 || true
   docker rm -f "$cli_container" >/dev/null 2>&1 || true
 fi
+docker rm -f "$legacy_workspace_container" >/dev/null 2>&1 || true
 
 mkdir -p "$compose_dir" "$hermes_home" "$hermes_home/home" "$hermes_home/nas_docs" "$hermes_home/workspace"
 chown -R "$runtime_user:$data_group" "$hermes_home"
@@ -204,11 +178,8 @@ OPENCLAW_RUNTIME_FAMILY='hermes'
 OPENCLAW_INSTANCE='$target_user'
 COMPOSE_PROJECT_NAME='openclaw-$target_user'
 OPENCLAW_IMAGE='$image'
-OPENCLAW_HERMES_WORKSPACE_IMAGE='$workspace_image'
-OPENCLAW_GATEWAY_PORT='$gateway_port'
+OPENCLAW_GATEWAY_PORT='$workspace_port'
 OPENCLAW_BRIDGE_PORT='$workspace_port'
-HERMES_HOST_DASHBOARD_PORT='$dashboard_port'
-HERMES_WORKSPACE_PORT='$workspace_port'
 OPENCLAW_PROXY_MODE='subdomain'
 OPENCLAW_CONTROL_UI_BASEPATH='/'
 OPENCLAW_PROXY_PUBLIC_ORIGIN='$origin'
@@ -218,20 +189,27 @@ OPENCLAW_NAS_CONTAINER_PATH='/home/node/nas_docs'
 OPENCLAW_EXTRA_MOUNTS='$nas_mount:/home/node/nas_docs:ro'
 HERMES_HOME='/opt/data'
 HERMES_DATA_DIR='/opt/data'
+HERMES_WORKSPACE_DIR='/workspace'
+HERMES_API_URL='http://127.0.0.1:8642'
+HERMES_DASHBOARD_URL='http://127.0.0.1:9119'
 HERMES_DASHBOARD='1'
-HERMES_DASHBOARD_HOST='0.0.0.0'
+HERMES_DASHBOARD_HOST='127.0.0.1'
 HERMES_DASHBOARD_PORT='9119'
 HERMES_DASHBOARD_INSECURE='1'
 API_SERVER_ENABLED='true'
-API_SERVER_HOST='0.0.0.0'
+API_SERVER_HOST='127.0.0.1'
 API_SERVER_KEY='$api_key'
+HERMES_API_TOKEN='$api_key'
 HERMES_PASSWORD='$workspace_password'
 COOKIE_SECURE='1'
 TRUST_PROXY='1'
+HOST='0.0.0.0'
+PORT='3000'
 PUID='$runtime_uid'
 PGID='$runtime_gid'
 HERMES_UID='$runtime_uid'
 HERMES_GID='$runtime_gid'
+HOME='/opt/data/home'
 LANG='ko_KR.UTF-8'
 LANGUAGE='ko_KR:ko'
 LC_ALL='ko_KR.UTF-8'
@@ -244,54 +222,36 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    command: ["gateway", "run"]
     environment:
       HERMES_HOME: /opt/data
       HERMES_DATA_DIR: /opt/data
+      HERMES_WORKSPACE_DIR: /workspace
+      HERMES_API_URL: http://127.0.0.1:8642
+      HERMES_DASHBOARD_URL: http://127.0.0.1:9119
       HERMES_DASHBOARD: "1"
-      HERMES_DASHBOARD_HOST: 0.0.0.0
+      HERMES_DASHBOARD_HOST: 127.0.0.1
       HERMES_DASHBOARD_PORT: "9119"
       HERMES_DASHBOARD_INSECURE: "1"
       API_SERVER_ENABLED: "true"
-      API_SERVER_HOST: 0.0.0.0
+      API_SERVER_HOST: 127.0.0.1
+      HERMES_API_TOKEN: \${API_SERVER_KEY}
       HOME: /opt/data/home
+      HOST: 0.0.0.0
+      PORT: "3000"
+      COOKIE_SECURE: "1"
+      TRUST_PROXY: "1"
       LANG: ko_KR.UTF-8
       LANGUAGE: ko_KR:ko
       LC_ALL: ko_KR.UTF-8
     ports:
-      - "127.0.0.1:\${OPENCLAW_GATEWAY_PORT:-$gateway_port}:8642"
-      - "127.0.0.1:\${HERMES_HOST_DASHBOARD_PORT:-$dashboard_port}:9119"
+      - "127.0.0.1:\${OPENCLAW_BRIDGE_PORT:-$workspace_port}:3000"
     volumes:
       - $hermes_home:/opt/data
+      - $hermes_home/workspace:/workspace
+      - $nas_mount:/workspace/nas_docs:ro
       - $nas_mount:/opt/data/nas_docs:ro
       - $nas_mount:/home/node/nas_docs:ro
     working_dir: /opt/data/home
-
-  hermes-workspace:
-    image: \${OPENCLAW_HERMES_WORKSPACE_IMAGE:-$workspace_image}
-    restart: unless-stopped
-    depends_on:
-      - openclaw-gateway
-    env_file:
-      - .env
-    environment:
-      HOST: 0.0.0.0
-      PORT: "3000"
-      HERMES_HOME: /home/workspace/.hermes
-      HERMES_WORKSPACE_DIR: /workspace
-      HERMES_API_URL: http://openclaw-gateway:8642
-      HERMES_DASHBOARD_URL: http://openclaw-gateway:9119
-      HERMES_API_TOKEN: \${API_SERVER_KEY}
-      HERMES_PASSWORD: \${HERMES_PASSWORD}
-      COOKIE_SECURE: \${COOKIE_SECURE:-1}
-      TRUST_PROXY: \${TRUST_PROXY:-1}
-      NODE_ENV: production
-    ports:
-      - "127.0.0.1:\${OPENCLAW_BRIDGE_PORT:-$workspace_port}:3000"
-    volumes:
-      - $hermes_home:/home/workspace/.hermes
-      - $hermes_home/workspace:/workspace
-      - $nas_mount:/workspace/nas_docs:ro
 EOF
 
 rm -f "$compose_dir/docker-compose.host-user.yml"
@@ -307,15 +267,10 @@ echo "runtime_family=hermes"
 echo "target_home=$target_home"
 echo "hermes_home=$hermes_home"
 echo "image=$image"
-echo "workspace_image=$workspace_image"
 echo "host=$host"
-echo "gateway_port=$gateway_port"
-echo "dashboard_port=$dashboard_port"
 echo "workspace_port=$workspace_port"
 echo "workspace_password_file=$workspace_secret_file"
-if [[ "$insecure_dashboard" -eq 1 ]]; then
-  echo "dashboard_exposure=public_insecure"
-elif [[ "$local_only_dashboard" -eq 1 ]]; then
+if [[ "$local_only_dashboard" -eq 1 ]]; then
   echo "workspace_exposure=local_only"
 else
   echo "workspace_exposure=public_password"
@@ -323,24 +278,13 @@ fi
 
 (
   cd "$compose_dir"
-  docker compose -f docker-compose.yml up -d --force-recreate openclaw-gateway hermes-workspace
+  docker compose -f docker-compose.yml up -d --force-recreate openclaw-gateway
 )
 
 docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
-docker ps --filter "name=^/${workspace_container}$" --format 'container={{.Names}} status={{.Status}}'
 
 apache_output="/etc/apache2/openclaw/apache-subdomain-${target_user}.conf"
-if [[ "$insecure_dashboard" -eq 1 && -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
-  bash "$script_dir/write-apache-proxy-conf.sh" \
-    --user "$target_user" \
-    --mode subdomain \
-    --host "$host" \
-    --base-domain "$base_domain" \
-    --port "$dashboard_port" \
-    --output "$apache_output" \
-    --apply \
-    --reload
-elif [[ "$local_only_dashboard" -eq 1 && -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
+if [[ "$local_only_dashboard" -eq 1 && -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
   tmp_apache="$(mktemp)"
   cat > "$tmp_apache" <<EOF
 # Hermes Workspace local-only - ${target_user}

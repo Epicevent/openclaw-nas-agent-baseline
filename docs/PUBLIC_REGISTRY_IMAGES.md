@@ -17,7 +17,7 @@ Example official image tags:
 ghcr.io/epicevent/openclaw-nas-agent:baseline-20260522
 ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1
 ghcr.io/epicevent/openclaw-nas-agent:document-heavy-20260602-r1
-ghcr.io/epicevent/openclaw-nas-agent:hermes-20260602-r1
+ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260602-r1
 ```
 
 ## Release Flow
@@ -35,27 +35,34 @@ The `dashboard-20260602-r1` image uses the overlay in:
 image-overlays/dashboard-20260602-r1
 ```
 
-The `hermes-20260602-r1` image is a derived Hermes Agent image. It uses
-`nousresearch/hermes-agent:v2026.5.29.2` as its base and installs the same NAS
-Agent document baseline packages from `container/Dockerfile`.
+The `hermes-workspace-20260602-r1` image is an integrated Hermes image. It uses
+the official Hermes Agent image as its base, copies Hermes Workspace into the
+same final image, and installs the same NAS Agent document baseline packages.
 
-Hermes-derived images keep the official container supervisor startup model.
-The image starts as root so the Hermes s6 init scripts can set the runtime
-UID/GID from `PUID` and `PGID`.
+Build it with:
 
-`family=hermes` images are not a plain OpenClaw image swap. Rollout rewrites the
-target slot compose to run a Hermes gateway service and a Hermes Workspace
-service:
-
-```text
-openclaw-gateway     ghcr.io/epicevent/openclaw-nas-agent:<hermes tag>
-hermes-workspace     ghcr.io/outsourc-e/hermes-workspace:latest
+```bash
+IMAGE_TAG=ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260602-r1 \
+  bash scripts/build-hermes-integrated-image.sh
 ```
 
-The gateway keeps Hermes state under `/home/ocN/.hermes`, exposes its API and
-dashboard only on host loopback ports, and mounts the slot NAS read-only into
-the container. The public Apache subdomain points to Hermes Workspace, not to
-the raw Hermes dashboard.
+`family=hermes` images are not a plain OpenClaw image swap. Rollout rewrites the
+target slot compose to run one integrated container:
+
+```text
+openclaw-gateway     ghcr.io/epicevent/openclaw-nas-agent:<hermes-workspace tag>
+```
+
+The container runs both Hermes Agent and Hermes Workspace. The public Apache
+subdomain points to Workspace on container port `3000`. Hermes Agent API and the
+raw Hermes dashboard stay on container-local loopback ports. The slot NAS is
+mounted read-only into the same container at:
+
+```text
+/workspace/nas_docs
+/opt/data/nas_docs
+/home/node/nas_docs
+```
 
 Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
 slot-local runtime secret state and is not stored in public image metadata.
@@ -65,9 +72,6 @@ root-managed server file and prints only the file path:
 ```text
 /srv/openclaw-ops/reports/hermes-workspace-ocN.password
 ```
-
-The `--insecure-dashboard` install option exists only for isolated lab slots
-that intentionally publish the raw Hermes dashboard.
 
 After the image is available in GHCR, run the server-side rollout commands as
 the restricted operations account through `svcops-control.sh`.
