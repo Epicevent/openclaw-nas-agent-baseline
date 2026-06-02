@@ -55,8 +55,10 @@ openclaw-gateway     ghcr.io/epicevent/openclaw-nas-agent:<hermes-workspace tag>
 
 The container runs both Hermes Agent and Hermes Workspace. The public Apache
 subdomain points to Workspace on container port `3000`. Hermes Agent API and the
-raw Hermes dashboard stay on container-local loopback ports. The entrypoint
-starts both `hermes gateway run` and `hermes dashboard` so Workspace can use the
+raw Hermes dashboard stay on container-local loopback ports. The integrated
+entrypoint chains the official Hermes Docker entrypoint for `hermes gateway run`
+so the built-in dashboard side-process still follows upstream Docker behavior.
+Workspace then connects to the gateway and dashboard over loopback to use the
 extended Hermes APIs for settings, sessions, skills, config, MCP, and jobs. The
 slot NAS is mounted read-only into the same container at:
 
