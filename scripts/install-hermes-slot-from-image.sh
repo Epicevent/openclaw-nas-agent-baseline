@@ -239,11 +239,16 @@ PY
 fi
 chmod 0600 "$provider_secret_env"
 
-workspace_secret_file="/srv/openclaw-ops/reports/hermes-workspace-${target_user}.password"
+handoff_dir="${OPENCLAW_HANDOFF_DIR:-/srv/openclaw-ops/handoff}"
+workspace_secret_file="$handoff_dir/hermes-workspace-${target_user}.env"
+legacy_workspace_secret_file="/srv/openclaw-ops/reports/hermes-workspace-${target_user}.password"
 workspace_password=""
-if [[ -f "$workspace_secret_file" ]]; then
-  workspace_password="$(awk -F= '$1 == "password" { sub(/^[^=]*=/, ""); print; exit }' "$workspace_secret_file" 2>/dev/null || true)"
-fi
+for candidate_secret_file in "$workspace_secret_file" "$legacy_workspace_secret_file"; do
+  if [[ -f "$candidate_secret_file" && ! -L "$candidate_secret_file" ]]; then
+    workspace_password="$(awk -F= '$1 == "password" { sub(/^[^=]*=/, ""); print; exit }' "$candidate_secret_file" 2>/dev/null || true)"
+    [[ -n "$workspace_password" ]] && break
+  fi
+done
 if [[ -z "$workspace_password" ]]; then
   workspace_password="$(openssl rand -hex 24 2>/dev/null || python3 - <<'PY'
 import secrets
@@ -251,13 +256,18 @@ print(secrets.token_hex(24))
 PY
 )"
 fi
-mkdir -p "$(dirname "$workspace_secret_file")"
+mkdir -p "$handoff_dir"
+chown root:svcops "$handoff_dir" 2>/dev/null || chown root:root "$handoff_dir"
+chmod 0750 "$handoff_dir"
 {
   printf 'url=https://%s/\n' "$host"
   printf 'password=%s\n' "$workspace_password"
 } > "$workspace_secret_file"
 chown root:svcops "$workspace_secret_file" 2>/dev/null || chown root:root "$workspace_secret_file"
 chmod 0640 "$workspace_secret_file"
+if [[ -f "$legacy_workspace_secret_file" && "$legacy_workspace_secret_file" != "$workspace_secret_file" ]]; then
+  rm -f "$legacy_workspace_secret_file"
+fi
 
 cat > "$compose_dir/.env" <<EOF
 OPENCLAW_RUNTIME_FAMILY='hermes'
@@ -383,7 +393,7 @@ if [[ -n "$env_backup" ]]; then
   echo "env_backup=$env_backup"
 fi
 echo "provider_secret_keys_preserved=$provider_secret_count"
-echo "workspace_password_file=$workspace_secret_file"
+echo "handoff_secret_file=$workspace_secret_file"
 if [[ "$local_only_dashboard" -eq 1 ]]; then
   echo "workspace_exposure=local_only"
 else

@@ -116,10 +116,13 @@ notes:          secret이 아닌 운영 메모
 
 ```text
 SSH password
-Gateway token 원문
+고객 접속용 handoff credential 원문
 NAS password
 provider/API key
 ```
+
+고객 접속용 handoff credential은 원장에 넣지 않는다. 조회가 필요하면
+`svcops-control.sh handoff-credential ocN`을 사용한다.
 
 상태값은 현재 운영 상태를 헷갈리지 않을 만큼만 둔다.
 

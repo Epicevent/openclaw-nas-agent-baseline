@@ -22,6 +22,7 @@ Usage:
   svcops-control.sh image-status-all START END
   svcops-control.sh container-logs USER [LINES]
   svcops-control.sh runtime-secret-status USER
+  svcops-control.sh handoff-credential USER
   svcops-control.sh image-list
   svcops-control.sh image-release-add REF [NAME]
   svcops-control.sh image-release-verify IMAGE
@@ -53,7 +54,8 @@ Usage:
 
 Restricted root wrapper for the svcops operating account.
 
-This wrapper does not print NAS credentials, OpenClaw tokens, or API keys.
+This wrapper does not print NAS credentials or provider/API keys. Handoff
+credentials are printed only by the explicit handoff-credential command.
 Run through sudoers, not directly by customer accounts.
 USAGE
 }
@@ -437,6 +439,101 @@ runtime_secret_status() {
     done
     [[ "$found_any" -eq 1 ]] || echo "provider_keys=missing"
   done
+}
+
+slot_runtime_family() {
+  local target_user="$1" target_home runtime_family
+  target_home="$(customer_home "$target_user")"
+  runtime_family="openclaw"
+  if [[ -f "$target_home/openclaw/.env" ]]; then
+    runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$target_home/openclaw/.env" 2>/dev/null || true)"
+    runtime_family="${runtime_family:-openclaw}"
+  fi
+  printf '%s' "$runtime_family"
+}
+
+slot_public_url() {
+  local target_user="$1" target_home origin
+  target_home="$(customer_home "$target_user")"
+  if [[ -f "$target_home/openclaw/.env" ]]; then
+    origin="$(awk -F= '$1 == "OPENCLAW_PROXY_PUBLIC_ORIGIN" { sub(/^[^=]*=/, ""); gsub(/'\''|"/, "", $0); print $0; exit }' "$target_home/openclaw/.env" 2>/dev/null || true)"
+  fi
+  origin="${origin:-https://${target_user}.ji-tech.co.kr}"
+  printf '%s/' "${origin%/}"
+}
+
+assert_handoff_file_safe() {
+  local file="$1" owner mode
+  [[ -f "$file" ]] || { echo "handoff_secret=missing"; return 1; }
+  [[ ! -L "$file" ]] || { echo "handoff_secret=symlink_refused"; return 1; }
+  owner="$(stat -c '%U:%G' "$file" 2>/dev/null || true)"
+  mode="$(stat -c '%a' "$file" 2>/dev/null || true)"
+  if [[ "$owner" != "root:svcops" && "$owner" != "root:root" ]]; then
+    echo "handoff_secret=invalid_owner"
+    echo "handoff_secret_owner=${owner:-unknown}"
+    return 1
+  fi
+  if find "$file" -maxdepth 0 -perm /027 2>/dev/null | grep -q .; then
+    echo "handoff_secret=invalid_permissions"
+    echo "handoff_secret_mode=${mode:-unknown}"
+    return 1
+  fi
+}
+
+print_handoff_credential() {
+  local target_user="$1" target_home runtime_family url token config_path password secret_file legacy_secret_file
+  target_home="$(customer_home "$target_user")"
+  runtime_family="$(slot_runtime_family "$target_user")"
+  url="$(slot_public_url "$target_user")"
+
+  echo "target_user=$target_user"
+  echo "runtime_family=$runtime_family"
+  echo "url=$url"
+
+  if [[ "$runtime_family" == "hermes" ]]; then
+    secret_file="/srv/openclaw-ops/handoff/hermes-workspace-${target_user}.env"
+    legacy_secret_file="/srv/openclaw-ops/reports/hermes-workspace-${target_user}.password"
+    if [[ ! -f "$secret_file" && -f "$legacy_secret_file" ]]; then
+      assert_handoff_file_safe "$legacy_secret_file" || return 1
+      mkdir -p /srv/openclaw-ops/handoff
+      chown root:svcops /srv/openclaw-ops/handoff 2>/dev/null || chown root:root /srv/openclaw-ops/handoff
+      chmod 0750 /srv/openclaw-ops/handoff
+      cp "$legacy_secret_file" "$secret_file"
+      chown root:svcops "$secret_file" 2>/dev/null || chown root:root "$secret_file"
+      chmod 0640 "$secret_file"
+      rm -f "$legacy_secret_file"
+      echo "handoff_secret_migrated_from=$legacy_secret_file"
+      echo "handoff_secret_location=handoff"
+    else
+      echo "handoff_secret_location=handoff"
+    fi
+    if ! assert_handoff_file_safe "$secret_file"; then
+      return 1
+    fi
+    password="$(awk -F= '$1 == "password" { sub(/^[^=]*=/, ""); print; exit }' "$secret_file" 2>/dev/null || true)"
+    [[ -n "$password" ]] || { echo "handoff_password=missing"; return 1; }
+    echo "handoff_kind=hermes_workspace_password"
+    echo "handoff_secret_file=$secret_file"
+    echo "password=$password"
+    return 0
+  fi
+
+  config_path="$target_home/.openclaw/openclaw.json"
+  openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path" || return 1
+  token="$(OPENCLAW_CONFIG_PATH="$config_path" python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+path = Path(os.environ["OPENCLAW_CONFIG_PATH"])
+cfg = json.loads(path.read_text(encoding="utf-8"))
+print(cfg.get("gateway", {}).get("auth", {}).get("token", ""))
+PY
+)"
+  [[ -n "$token" ]] || { echo "handoff_token=missing"; return 1; }
+  echo "handoff_kind=openclaw_gateway_token"
+  echo "handoff_secret_file=$config_path"
+  echo "token=$token"
 }
 
 shared_ollama_base_url() {
@@ -886,6 +983,13 @@ container_image_id={{.Image}}'
     target_user="$1"
     validate_user "$target_user"
     runtime_secret_status "$target_user"
+    ;;
+
+  handoff-credential)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    print_handoff_credential "$target_user"
     ;;
 
   image-status-all)

@@ -230,18 +230,12 @@ curl -k -I "https://$CONTROL_UI_HOST/"
 
 실행 주체: **[root 관리자]**
 
-Gateway token을 출력한다.
+고객 접속용 handoff credential을 출력한다. OpenClaw slot이면 gateway token,
+Hermes slot이면 Workspace password가 나온다.
 
 ```bash
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-
-sudo python3 - <<PY
-import json
-from pathlib import Path
-
-cfg = json.loads(Path("$TARGET_HOME/.openclaw/openclaw.json").read_text(encoding="utf-8"))
-print(cfg["gateway"]["auth"]["token"])
-PY
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  handoff-credential "$TARGET_USER"
 ```
 
 고객에게 전달할 URL 형식:

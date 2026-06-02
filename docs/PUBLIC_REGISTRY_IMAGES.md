@@ -94,10 +94,18 @@ OpenClaw slots it writes them to the existing compose runtime env path.
 Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
 slot-local runtime secret state and is not stored in public image metadata.
 `install-hermes-slot-from-image.sh` writes the generated handoff password to a
-root-managed server file and prints only the file path:
+root-managed handoff file and prints only the file path:
 
 ```text
-/srv/openclaw-ops/reports/hermes-workspace-ocN.password
+/srv/openclaw-ops/handoff/hermes-workspace-ocN.env
+```
+
+The same explicit handoff command is used for Hermes Workspace passwords and
+OpenClaw gateway tokens:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  handoff-credential ocN
 ```
 
 After the image is available in GHCR, run the server-side rollout commands as

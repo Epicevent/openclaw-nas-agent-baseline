@@ -102,7 +102,7 @@ raw Hermes dashboard remain container-local. The Workspace login password is
 slot-local server secret state, not image metadata.
 
 ```text
-/srv/openclaw-ops/reports/hermes-workspace-ocN.password
+/srv/openclaw-ops/handoff/hermes-workspace-ocN.env
 ```
 
 For more detail, see [Public Registry Image Updates](PUBLIC_REGISTRY_IMAGES.md).

@@ -41,8 +41,9 @@ ssh -L 18088:127.0.0.1:18088 svcops@SERVER
 
 브라우저 주소는 `http://127.0.0.1:18088`이다. 콘솔에서 실행하는 조치는
 `svcops-control.sh` wrapper로만 처리되며, 결과는
-`/srv/openclaw-ops/reports/actions.log`에 JSONL로 남는다. NAS password, API key,
-gateway token은 이 화면에서 입력하거나 저장하지 않는다.
+`/srv/openclaw-ops/reports/actions.log`에 JSONL로 남는다. NAS password와 API key는
+이 화면에서 입력하거나 저장하지 않는다. 고객 접속용 handoff credential은
+`handoff-credential` 명령으로만 출력한다.
 
 ## 역할
 
@@ -168,7 +169,7 @@ root 관리자에게 요청:
   계정별 OpenClaw 설치
   runtime secret 주입 또는 교체
   Apache 운영 site 반영
-  Gateway token 출력
+  고객 접속용 handoff credential 출력
 ```
 
 ## 한계

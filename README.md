@@ -135,7 +135,7 @@ NAS 공유 그룹 ocN_data:
 6. [root 관리자] baseline 이미지와 계정별 OpenClaw 설치
 7. [root 관리자] provider/API key 주입 또는 교체
 8. [운영계정: svcops] subdomain 설정 적용 및 배포 확인
-9. [root 관리자] 필요한 경우 Apache 운영 반영과 Gateway token 전달
+9. [root 관리자] 필요한 경우 Apache 운영 반영과 handoff credential 전달
 10. [고객 계정: ocN] 접속 smoke test
 ```
 
@@ -418,7 +418,7 @@ https://ocN.ji-tech.co.kr/
 https://oc13.ji-tech.co.kr/
 ```
 
-Gateway token 출력과 device approval 예외 처리는
+handoff credential 출력과 device approval 예외 처리는
 [root 관리자 작업 - 고객 전달 정보](docs/ROOT_ADMIN_TASKS.md#고객-전달-정보)에 있다.
 
 ## 11. 고객 계정 smoke test
