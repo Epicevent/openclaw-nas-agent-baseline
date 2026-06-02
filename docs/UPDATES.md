@@ -1,146 +1,92 @@
 # Updates
 
-OpenClaw 업데이트는 고객 Web UI 버튼으로 처리하지 않는다. 운영 업데이트는
-관리자가 baseline image를 새로 빌드하고 슬롯별로 검증하면서 적용한다.
+OpenClaw 업데이트는 고객 Web UI 버튼으로 처리하지 않는다. 공식 이미지를 public
+registry에 올리고, 운영서버가 digest 기준으로 pull, 검증, rollout한다.
 
-## 원칙
+이미지에는 OpenClaw 코드, 대시보드 UI, 문서 처리 도구, locale/font 같은 실행환경만
+들어간다. API key, NAS credential, gateway token, 고객 문서, slot registry, 서버별
+`.env`는 이미지 밖에 둔다.
+
+## 기본 흐름
 
 ```text
-고객:
-  Web UI 사용
-  자기 NAS credential 관리
-  자기 NAS mount
-
-관리자:
-  OpenClaw base image 선택
-  baseline image 빌드
-  gateway 컨테이너 재생성
-  deployment check
+public image push
+-> image-release-add
+-> image-release-verify
+-> image-release-promote
+-> image-rollout
+-> check/drift
 ```
 
-Web UI에 업데이트 배너가 보여도 고객 운영 절차로 보지 않는다. 컨테이너 image
-기반 설치에서는 업데이트가 skip되거나 상태 파일/로그만 바뀔 수 있다.
+기본 repository:
 
-운영 업데이트는 고객별 설정을 새로 만들지 않는다. 기존 slot의 `openclaw.json`,
-runtime secret, NAS mount, credential은 유지하고 gateway 컨테이너 image를 새
-baseline image로 갈아끼운다. 새 OpenClaw 버전이 기존 설정을 다르게 해석할 수
-있으므로 staging slot에서 먼저 확인한다.
-
-Ollama heartbeat는 공용 Ollama 컨테이너 endpoint를 사용한다. OpenClaw 업데이트는
-gateway baseline image를 갈아끼우는 작업이고, Ollama model store와 공용 Ollama
-컨테이너는 별도 운영 상태로 유지한다.
-
-## staging slot에서 검증
-
-```bash
-TARGET_USER=oc20
-CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
-TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
+```text
+ghcr.io/epicevent/openclaw-nas-agent
 ```
 
-업데이트 전 상태를 기록한다.
+## Staging 적용
 
 ```bash
-CONTAINER="openclaw-$TARGET_USER-openclaw-gateway-1"
+IMAGE_REF="ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1"
+IMAGE_NAME="dashboard-20260602-r1"
 
-sudo docker inspect "$CONTAINER" \
-  --format 'image={{.Config.Image}} image_id={{.Image}} user={{.Config.User}} status={{.State.Status}}'
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-release-add "$IMAGE_REF" "$IMAGE_NAME"
 
-sudo docker exec "$CONTAINER" sh -lc 'openclaw --version'
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-release-verify "$IMAGE_NAME"
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-release-promote "$IMAGE_NAME" staging
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-rollout staging
 ```
 
-base image를 먼저 갱신하고 버전을 확인한다. base image가 그대로면 baseline을
-다시 빌드해도 OpenClaw 버전은 바뀌지 않는다.
+`staging`은 기본 fallback으로 `oc1`에 적용된다. 장기 운영에서는
+`/srv/openclaw-ops/slots.yaml`에 slot별 `image_channel`을 명시한다.
 
-`latest`는 빠른 검증용이다. 장기 production 업데이트에서는 digest-pinned base
-image를 사용하고, 어떤 image id를 적용했는지 기록한다.
+## 실험 slot 적용
+
+`oc15`부터 `oc20`까지 실험 slot에 같은 이미지를 적용한다.
 
 ```bash
-cd /opt/openclaw-nas-agent-baseline
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-release-promote "$IMAGE_NAME" oc15-20-test
 
-BASE_IMAGE=ghcr.io/openclaw/openclaw:latest
-
-sudo docker pull "$BASE_IMAGE"
-sudo docker run --rm "$BASE_IMAGE" sh -lc 'openclaw --version'
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-rollout oc15-20-test
 ```
 
-baseline image를 빌드한다. 운영 업데이트에서는 이전 cache를 믿지 않는다.
+## 확인
 
 ```bash
-sudo env \
-  BASE_IMAGE="$BASE_IMAGE" \
-  IMAGE_TAG=openclaw-nas-agent:baseline \
-  DOCKER_BUILD_PULL=1 \
-  DOCKER_BUILD_NO_CACHE=1 \
-  bash scripts/build-container-baseline.sh
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-status-all 1 20
 
-sudo docker run --rm openclaw-nas-agent:baseline sh -lc 'openclaw --version'
+sudo /opt/openclaw-nas-agent-baseline/scripts/openclaw-ops-drift-check.sh \
+  --registry /srv/openclaw-ops/slots.yaml \
+  --images /srv/openclaw-ops/images.yaml \
+  --report /srv/openclaw-ops/reports/drift-latest.txt
 ```
 
-staging slot gateway를 재생성한다.
+slot 하나를 직접 확인한다.
 
 ```bash
-sudo bash scripts/apply-subdomain-mode.sh \
-  --user "$TARGET_USER" \
-  --host "$CONTROL_UI_HOST"
-```
-
-검증한다.
-
-```bash
-sudo bash scripts/check-customer-deployment.sh \
-  --user "$TARGET_USER" \
-  --expected-basepath / \
-  --expected-origin "https://$CONTROL_UI_HOST"
-```
-
-## 전체 슬롯 적용
-
-staging slot이 통과한 뒤에만 순차 적용한다.
-
-```bash
-cd /opt/openclaw-nas-agent-baseline
-
-for i in $(seq 1 20); do
-  TARGET_USER="oc$i"
-  CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
-
-  echo "== update $TARGET_USER =="
-
-  sudo bash scripts/apply-subdomain-mode.sh \
-    --user "$TARGET_USER" \
-    --host "$CONTROL_UI_HOST"
-
-  sudo bash scripts/check-customer-deployment.sh \
-    --user "$TARGET_USER" \
-    --expected-basepath / \
-    --expected-origin "https://$CONTROL_UI_HOST"
-done
-```
-
-## 완료 확인
-
-모든 계정이 같은 image id와 OpenClaw 버전을 봐야 한다.
-
-```bash
-for i in $(seq 1 20); do
-  u="oc$i"
-  c="openclaw-$u-openclaw-gateway-1"
-  printf "%-5s " "$u"
-  sudo docker inspect "$c" \
-    --format 'image={{.Config.Image}} image_id={{.Image}} status={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}'
-  sudo docker exec "$c" sh -lc 'openclaw --version | head -1'
-done
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  check oc1 oc1.ji-tech.co.kr
 ```
 
 ## 롤백
 
-롤백은 이전 baseline image tag가 있을 때만 단순하다. 운영 업데이트 전에는
-이전 image id를 기록해둔다.
+slot 하나를 이전에 기록된 이미지로 되돌린다.
 
 ```bash
-sudo docker image ls openclaw-nas-agent
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-rollback oc1
 ```
 
-현재 방식에서 `openclaw-nas-agent:baseline` tag만 덮어쓴다면, 롤백은 이전
-image를 다시 tag한 뒤 같은 순차 적용 절차를 반복한다.
+여러 slot에 적용한 뒤 문제가 있으면 영향을 받은 slot만 순차적으로 rollback한다.
+
+## 세부 문서
+
+이미지 release cache, channel, drift 판정 기준은
+[Public registry 이미지 업데이트](PUBLIC_REGISTRY_IMAGES.md)를 따른다.

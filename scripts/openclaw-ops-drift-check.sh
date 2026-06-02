@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  openclaw-ops-drift-check.sh [--registry PATH] [--control PATH] [--manifest PATH] [--report PATH]
+  openclaw-ops-drift-check.sh [--registry PATH] [--images PATH] [--control PATH] [--manifest PATH] [--report PATH]
 
 Compares /srv/openclaw-ops/slots.yaml with live slot state.
 
@@ -16,6 +16,7 @@ USAGE
 }
 
 registry="/srv/openclaw-ops/slots.yaml"
+images="/srv/openclaw-ops/images.yaml"
 control="/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh"
 manifest="/opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest"
 report=""
@@ -24,6 +25,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --registry)
       registry="${2:?missing registry path}"
+      shift 2
+      ;;
+    --images)
+      images="${2:?missing images path}"
       shift 2
       ;;
     --control)
@@ -50,7 +55,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-python3 - "$registry" "$control" "$manifest" "$report" <<'PY'
+python3 - "$registry" "$images" "$control" "$manifest" "$report" <<'PY'
 from __future__ import annotations
 
 import os
@@ -62,9 +67,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 registry = Path(sys.argv[1])
-control = sys.argv[2]
-manifest = Path(sys.argv[3])
-report = sys.argv[4]
+images_path = Path(sys.argv[2])
+control = sys.argv[3]
+manifest = Path(sys.argv[4])
+report = sys.argv[5]
 
 
 def unquote(value: str) -> str:
@@ -105,6 +111,104 @@ def parse_registry(path: Path):
     if current:
         slots.append(current)
     return meta, slots
+
+
+def parse_image_catalog(path: Path):
+    state = {"channels": {}, "images": []}
+    if not path.exists():
+        return state
+    section = ""
+    current = None
+    alias_mode = False
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.rstrip().lstrip("\ufeff")
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        if stripped == "channels:":
+            section = "channels"
+            current = None
+            alias_mode = False
+            continue
+        if stripped == "images:":
+            section = "images"
+            current = None
+            alias_mode = False
+            continue
+        if section == "channels" and indent == 2 and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            state["channels"][key] = unquote(value)
+            continue
+        if section == "images" and indent == 2 and stripped.startswith("- name:"):
+            if current:
+                state["images"].append(current)
+            current = {"name": unquote(stripped.split(":", 1)[1]), "aliases": ""}
+            alias_mode = False
+            continue
+        if section == "images" and current is not None:
+            if indent == 4 and stripped == "aliases:":
+                alias_mode = True
+                continue
+            if alias_mode and indent == 6 and stripped.startswith("- "):
+                aliases = [item for item in current.get("aliases", "").split(",") if item]
+                aliases.append(unquote(stripped[2:]))
+                current["aliases"] = ",".join(aliases)
+                continue
+            alias_mode = False
+            if indent == 4 and ":" in stripped:
+                key, value = stripped.split(":", 1)
+                current[key] = unquote(value)
+                continue
+    if current:
+        state["images"].append(current)
+    return state
+
+
+def image_aliases(image):
+    aliases = {image.get("name", ""), image.get("registry_ref", ""), image.get("runtime_ref", "")}
+    aliases.update(item for item in image.get("aliases", "").split(",") if item)
+    return {item for item in aliases if item}
+
+
+def find_catalog_image(catalog, key):
+    if not key:
+        return None
+    for image in catalog.get("images", []):
+        if key in image_aliases(image):
+            return image
+    channel_target = catalog.get("channels", {}).get(key)
+    if channel_target:
+        return find_catalog_image(catalog, channel_target)
+    return None
+
+
+def resolve_expected_image(slot, meta, catalog):
+    if catalog.get("images"):
+        for key_name in ("image_name", "image_channel", "image_tag"):
+            value = slot.get(key_name, "")
+            image = find_catalog_image(catalog, value)
+            if image:
+                return {
+                    "source": key_name,
+                    "name": image.get("name", ""),
+                    "ref": image.get("runtime_ref") or image.get("registry_ref", ""),
+                    "digest": image.get("digest", ""),
+                    "image_id": image.get("image_id", ""),
+                    "status": image.get("status", ""),
+                    "unresolved": "",
+                }
+            if value and key_name in {"image_name", "image_channel"}:
+                return {"source": key_name, "name": value, "ref": "", "digest": "", "image_id": "", "status": "", "unresolved": value}
+    return {
+        "source": "meta",
+        "name": meta.get("image_tag", ""),
+        "ref": meta.get("image_tag", ""),
+        "digest": "",
+        "image_id": meta.get("image_id", ""),
+        "status": "",
+        "unresolved": "",
+    }
 
 
 def run_command(args: list[str], timeout: int = 240):
@@ -148,7 +252,7 @@ def extract_mount_sources(text: str):
 
 
 meta, slots = parse_registry(registry)
-expected_image_id = meta.get("image_id", "")
+image_catalog = parse_image_catalog(images_path)
 expected_baseline_commit = meta.get("baseline_commit", "")
 installed_manifest = parse_key_value_file(manifest)
 installed_baseline_commit = installed_manifest.get("source_commit", "")
@@ -159,6 +263,7 @@ warnings = 0
 
 lines.append(f"drift_check_started={started}")
 lines.append(f"registry={registry}")
+lines.append(f"image_registry={images_path}")
 lines.append(f"manifest={manifest}")
 lines.append(f"slot_count={len(slots)}")
 lines.append(f"registry_baseline_commit={expected_baseline_commit or 'missing'}")
@@ -181,6 +286,7 @@ for slot in slots:
     mount_name = slot.get("mount_name", meta.get("default_mount_name", ""))
     expected_host_path = f"/home/{name}/nas_docs/{mount_name}"
     expected_container_path = f"/home/node/nas_docs/{mount_name}"
+    expected_image = resolve_expected_image(slot, meta, image_catalog)
 
     slot_failed = False
     slot_warn = False
@@ -213,12 +319,23 @@ for slot in slots:
     image = parse_key_values(image_out)
     actual_image_id = image.get("container_image_id", "")
     actual_image_ref = image.get("container_image_ref", "")
+    expected_image_id = expected_image.get("image_id", "")
+    expected_digest = expected_image.get("digest", "")
     if image_rc != 0 or not actual_image_id:
         slot_failed = True
         detail.append(f"image=fail rc={image_rc}")
-    elif expected_image_id and actual_image_id != expected_image_id:
+    elif expected_image.get("unresolved"):
         slot_failed = True
-        detail.append(f"image=fail expected_id={expected_image_id} actual_id={actual_image_id} actual_ref={actual_image_ref}")
+        detail.append(f"image=fail unresolved_expected={expected_image.get('unresolved')} source={expected_image.get('source')}")
+    elif expected_image_id and actual_image_id != expected_image_id:
+        if expected_digest and expected_digest in actual_image_ref:
+            detail.append(f"image=pass expected_digest={expected_digest} actual_ref={actual_image_ref}")
+        else:
+            slot_failed = True
+            detail.append(f"image=fail expected_id={expected_image_id} actual_id={actual_image_id} actual_ref={actual_image_ref}")
+    elif expected_digest and actual_image_ref and "@" in actual_image_ref and expected_digest not in actual_image_ref:
+        slot_failed = True
+        detail.append(f"image=fail expected_digest={expected_digest} actual_ref={actual_image_ref} actual_id={actual_image_id}")
     else:
         detail.append(f"image=pass actual_ref={actual_image_ref}")
 
@@ -233,6 +350,14 @@ for slot in slots:
     lines.append(f"expected_subdomain={subdomain}")
     lines.append(f"expected_nas={expected_host_path}->{nas_share}")
     lines.append(f"expected_container_nas={expected_container_path}->{nas_share}")
+    lines.append(f"expected_image_source={expected_image.get('source', '')}")
+    lines.append(f"expected_image_name={expected_image.get('name', '') or 'missing'}")
+    lines.append(f"expected_image_ref={expected_image.get('ref', '') or 'missing'}")
+    lines.append(f"expected_image_id={expected_image.get('image_id', '') or 'missing'}")
+    if expected_image.get("digest"):
+        lines.append(f"expected_image_digest={expected_image.get('digest')}")
+    if expected_image.get("status"):
+        lines.append(f"expected_image_status={expected_image.get('status')}")
     lines.append(f"result={result}")
     for item in detail:
         lines.append(item)

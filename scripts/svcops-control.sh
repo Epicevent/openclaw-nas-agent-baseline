@@ -19,6 +19,14 @@ Usage:
   svcops-control.sh nas-unregister USER
   svcops-control.sh nas-unregister-all START END
   svcops-control.sh image-status USER
+  svcops-control.sh image-status-all START END
+  svcops-control.sh image-list
+  svcops-control.sh image-release-add REF [NAME]
+  svcops-control.sh image-release-verify IMAGE
+  svcops-control.sh image-release-promote IMAGE CHANNEL
+  svcops-control.sh image-rollout CHANNEL
+  svcops-control.sh image-rollout-slot USER IMAGE
+  svcops-control.sh image-rollback USER
   svcops-control.sh usage USER [SINCE]
   svcops-control.sh usage-all START END [SINCE]
   svcops-control.sh shared-ollama-status
@@ -757,11 +765,69 @@ case "$command_name" in
     fi
     echo "target_user=$target_user"
     echo "container=$container"
+    image_ref="$(docker inspect "$container" --format '{{.Config.Image}}')"
     docker inspect "$container" \
       --format 'container_status={{.State.Status}}
 container_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}
 container_image_ref={{.Config.Image}}
 container_image_id={{.Image}}'
+    if docker image inspect "$image_ref" >/dev/null 2>&1; then
+      docker image inspect "$image_ref" --format 'container_image_repo_digests={{join .RepoDigests ","}}' || true
+    fi
+    ;;
+
+  image-status-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    python3 "$script_dir/openclaw-image-release-control.py" status-all "$start" "$end"
+    ;;
+
+  image-list)
+    [[ $# -eq 0 ]] || { usage >&2; exit 2; }
+    python3 "$script_dir/openclaw-image-release-control.py" list
+    ;;
+
+  image-release-add)
+    [[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+    if [[ $# -eq 2 ]]; then
+      python3 "$script_dir/openclaw-image-release-control.py" add "$1" --name "$2"
+    else
+      python3 "$script_dir/openclaw-image-release-control.py" add "$1"
+    fi
+    ;;
+
+  image-release-verify)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    python3 "$script_dir/openclaw-image-release-control.py" verify "$1"
+    ;;
+
+  image-release-promote)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    python3 "$script_dir/openclaw-image-release-control.py" promote "$1" "$2"
+    ;;
+
+  image-rollout)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    python3 "$script_dir/openclaw-image-release-control.py" rollout "$1"
+    ;;
+
+  image-rollout-slot)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    python3 "$script_dir/openclaw-image-release-control.py" rollout-slot "$target_user" "$2"
+    ;;
+
+  image-rollback)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    python3 "$script_dir/openclaw-image-release-control.py" rollback "$target_user"
     ;;
 
   usage)

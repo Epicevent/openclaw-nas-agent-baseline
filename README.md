@@ -467,4 +467,5 @@ docker ps
 - [svcops 운영계정](docs/SVCOPS.md)
 - [Slot turnover](docs/SLOT_TURNOVER.md)
 - [Updates](docs/UPDATES.md)
+- [Public registry 이미지 업데이트](docs/PUBLIC_REGISTRY_IMAGES.md)
 - [Recovery](docs/OPENCLAW_RECOVERY.md)
