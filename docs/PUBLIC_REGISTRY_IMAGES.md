@@ -39,6 +39,10 @@ The `hermes-20260602-r1` image is a derived Hermes Agent image. It uses
 `nousresearch/hermes-agent:v2026.5.29.2` as its base and installs the same NAS
 Agent document baseline packages from `container/Dockerfile`.
 
+Hermes-derived images keep the official container supervisor startup model.
+The image starts as root so the Hermes s6 init scripts can set the runtime
+UID/GID from `PUID` and `PGID`.
+
 `family=hermes` images are not a plain OpenClaw image swap. Rollout rewrites the
 target slot compose to run `hermes gateway run`, keep Hermes state under
 `/home/ocN/.hermes`, and mount the slot NAS read-only into the container.

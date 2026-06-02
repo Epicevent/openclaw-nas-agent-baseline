@@ -37,7 +37,7 @@ jobs:
           set -euo pipefail
           docker build \
             --build-arg BASE_IMAGE="$HERMES_BASE_IMAGE" \
-            --build-arg RUNTIME_USER=hermes \
+            --build-arg RUNTIME_USER=root \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.base.name=$HERMES_BASE_IMAGE" \
