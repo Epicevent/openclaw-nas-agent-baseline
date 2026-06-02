@@ -372,6 +372,11 @@ gateway_container() {
   printf 'openclaw-%s-openclaw-gateway-1' "$target_user"
 }
 
+hermes_workspace_container() {
+  local target_user="$1"
+  printf 'openclaw-%s-hermes-workspace-1' "$target_user"
+}
+
 redact_sensitive_output() {
   sed -E \
     -e 's/([A-Za-z0-9_]*(API[_-]?KEY|TOKEN|PASSWORD|PASSWD|CREDENTIAL|SECRET)[A-Za-z0-9_]*[=:" ]+)[^[:space:]",}]+/\1[REDACTED]/Ig' \
@@ -401,20 +406,31 @@ compose_files() {
 }
 
 refresh_gateway() {
-  local target_user="$1" target_home compose_dir container
+  local target_user="$1" target_home compose_dir container runtime_family=""
   target_home="$(customer_home "$target_user")"
   compose_dir="$target_home/openclaw"
   container="$(gateway_container "$target_user")"
   [[ -d "$compose_dir" ]] || { echo "FAIL compose_dir_missing=$compose_dir"; return 1; }
   openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" || return 1
+  if [[ -f "$compose_dir/.env" ]]; then
+    runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$compose_dir/.env" 2>/dev/null || true)"
+  fi
 
   echo "action=gateway_refresh"
   (
     cd "$compose_dir"
     mapfile -t args < <(compose_files "$compose_dir")
-    docker compose "${args[@]}" up -d --force-recreate openclaw-gateway
+    if [[ "$runtime_family" == "hermes" && -f docker-compose.yml ]] \
+      && grep -q '^  hermes-workspace:' docker-compose.yml; then
+      docker compose "${args[@]}" up -d --force-recreate openclaw-gateway hermes-workspace
+    else
+      docker compose "${args[@]}" up -d --force-recreate openclaw-gateway
+    fi
   )
   docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
+  if [[ "$runtime_family" == "hermes" ]]; then
+    docker ps --filter "name=^/$(hermes_workspace_container "$target_user")$" --format 'container={{.Names}} status={{.Status}}'
+  fi
 }
 
 verify_nas_visibility() {
@@ -774,6 +790,12 @@ case "$command_name" in
     target_user="$1"
     validate_user "$target_user"
     container="openclaw-${target_user}-openclaw-gateway-1"
+    workspace_container="$(hermes_workspace_container "$target_user")"
+    runtime_family=""
+    target_home="$(customer_home "$target_user")"
+    if [[ -f "$target_home/openclaw/.env" ]]; then
+      runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$target_home/openclaw/.env" 2>/dev/null || true)"
+    fi
     if ! docker inspect "$container" >/dev/null 2>&1; then
       echo "target_user=$target_user"
       echo "container=$container"
@@ -781,6 +803,7 @@ case "$command_name" in
       exit 1
     fi
     echo "target_user=$target_user"
+    echo "runtime_family=${runtime_family:-openclaw}"
     echo "container=$container"
     image_ref="$(docker inspect "$container" --format '{{.Config.Image}}')"
     docker inspect "$container" \
@@ -790,6 +813,22 @@ container_image_ref={{.Config.Image}}
 container_image_id={{.Image}}'
     if docker image inspect "$image_ref" >/dev/null 2>&1; then
       docker image inspect "$image_ref" --format 'container_image_repo_digests={{join .RepoDigests ","}}' || true
+    fi
+    if [[ "$runtime_family" == "hermes" ]]; then
+      echo "workspace_container=$workspace_container"
+      if docker inspect "$workspace_container" >/dev/null 2>&1; then
+        workspace_image_ref="$(docker inspect "$workspace_container" --format '{{.Config.Image}}')"
+        docker inspect "$workspace_container" \
+          --format 'workspace_container_status={{.State.Status}}
+workspace_container_health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}
+workspace_image_ref={{.Config.Image}}
+workspace_image_id={{.Image}}'
+        if docker image inspect "$workspace_image_ref" >/dev/null 2>&1; then
+          docker image inspect "$workspace_image_ref" --format 'workspace_image_repo_digests={{join .RepoDigests ","}}' || true
+        fi
+      else
+        echo "workspace_container_status=missing"
+      fi
     fi
     ;;
 

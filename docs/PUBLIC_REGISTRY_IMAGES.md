@@ -44,14 +44,30 @@ The image starts as root so the Hermes s6 init scripts can set the runtime
 UID/GID from `PUID` and `PGID`.
 
 `family=hermes` images are not a plain OpenClaw image swap. Rollout rewrites the
-target slot compose to run `hermes gateway run`, keep Hermes state under
-`/home/ocN/.hermes`, and mount the slot NAS read-only into the container.
+target slot compose to run a Hermes gateway service and a Hermes Workspace
+service:
 
-Hermes dashboard publishing is local-only by default. The container ports are
-bound to `127.0.0.1`, and the public Apache subdomain returns `403` until an
-operator deliberately enables a public dashboard path. Use an SSH tunnel to view
-the lab dashboard. The `--insecure-dashboard` install option exists only for
-isolated lab slots.
+```text
+openclaw-gateway     ghcr.io/epicevent/openclaw-nas-agent:<hermes tag>
+hermes-workspace     ghcr.io/outsourc-e/hermes-workspace:latest
+```
+
+The gateway keeps Hermes state under `/home/ocN/.hermes`, exposes its API and
+dashboard only on host loopback ports, and mounts the slot NAS read-only into
+the container. The public Apache subdomain points to Hermes Workspace, not to
+the raw Hermes dashboard.
+
+Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
+slot-local runtime secret state and is not stored in public image metadata.
+`install-hermes-slot-from-image.sh` writes the generated handoff password to a
+root-managed server file and prints only the file path:
+
+```text
+/srv/openclaw-ops/reports/hermes-workspace-ocN.password
+```
+
+The `--insecure-dashboard` install option exists only for isolated lab slots
+that intentionally publish the raw Hermes dashboard.
 
 After the image is available in GHCR, run the server-side rollout commands as
 the restricted operations account through `svcops-control.sh`.

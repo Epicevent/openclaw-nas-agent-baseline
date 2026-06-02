@@ -89,6 +89,7 @@ if [[ -z "$target_home" ]]; then
 fi
 
 container="openclaw-${target_user}-openclaw-gateway-1"
+workspace_container="openclaw-${target_user}-hermes-workspace-1"
 deploy_subdomain_config_path="$target_home/openclaw/deploy/apache-subdomain-${target_user}.conf"
 runtime_env_path="$target_home/openclaw/.env"
 runtime_family="openclaw"
@@ -174,7 +175,28 @@ expected_gateway_port() {
   local container_port="18789"
 
   if [[ "$runtime_family" == "hermes" ]]; then
-    container_port="9119"
+    actual_port="$(docker port "$workspace_container" "3000/tcp" 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1 || true)"
+    if [[ -n "$actual_port" ]]; then
+      printf '%s\n' "$actual_port"
+      return 0
+    fi
+
+    if [[ -f "$runtime_env_path" ]]; then
+      actual_port="$(
+        awk -F= '$1 == "OPENCLAW_BRIDGE_PORT" {
+          value=$2
+          gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+          gsub(/^'\''|'\''$/, "", value)
+          gsub(/^"|"$/, "", value)
+          print value
+          exit
+        }' "$runtime_env_path" 2>/dev/null || true
+      )"
+      if [[ "$actual_port" =~ ^[0-9]+$ ]]; then
+        printf '%s\n' "$actual_port"
+        return 0
+      fi
+    fi
   fi
 
   actual_port="$(docker port "$container" "${container_port}/tcp" 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1 || true)"
@@ -187,7 +209,7 @@ expected_gateway_port() {
     local base_port
     base_port=$((28789 + (${BASH_REMATCH[1]} - 1) * 100))
     if [[ "$runtime_family" == "hermes" ]]; then
-      printf '%s\n' "$((base_port + 1))"
+      printf '%s\n' "$((base_port + 2))"
     else
       printf '%s\n' "$base_port"
     fi
@@ -392,7 +414,7 @@ else
 
   hermes_local_only_apache=0
   if [[ "$runtime_family" == "hermes" && -n "$apache_vhost_path" && -f "$apache_vhost_path" ]] \
-    && grep -Fq "Hermes local-only dashboard" "$apache_vhost_path"; then
+    && grep -Eq "Hermes (Workspace )?local-only" "$apache_vhost_path"; then
     hermes_local_only_apache=1
   fi
 
@@ -400,7 +422,7 @@ else
   if [[ -n "$expected_port" && -n "$apache_vhost_path" && -f "$apache_vhost_path" ]]; then
     if [[ "$hermes_local_only_apache" -eq 1 ]]; then
       pass "apache_backend_port_ok"
-      echo "INFO hermes_dashboard_exposure=local_only"
+      echo "INFO hermes_workspace_exposure=local_only"
     elif grep -Fq "127.0.0.1:${expected_port}" "$apache_vhost_path"; then
       pass "apache_backend_port_ok"
     else
@@ -422,7 +444,7 @@ else
       public_http_code="$(curl -k -sS --max-time 10 -o /dev/null -w '%{http_code}' "$public_url" 2>/dev/null || true)"
       if [[ "$public_http_code" == "403" ]]; then
         pass "public_url_openclaw_page_ok"
-        echo "INFO hermes_public_dashboard_disabled=403"
+        echo "INFO hermes_public_workspace_disabled=403"
       else
         fail "public_url_openclaw_page_ok"
         echo "INFO expected_public_http_code=403"
