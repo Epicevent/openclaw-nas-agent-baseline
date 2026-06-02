@@ -49,7 +49,6 @@ apt-get install -y --no-install-recommends \
   libreoffice-calc \
   libreoffice-impress \
   python3-uno \
-  unoconv \
   pandoc \
   antiword \
   catdoc \
@@ -89,6 +88,10 @@ for package_name in fonts-noto-cjk-extra fonts-nanum; do
     apt-get install -y --no-install-recommends "$package_name"
   fi
 done
+
+if apt-cache show unoconv >/dev/null 2>&1; then
+  apt-get install -y --no-install-recommends unoconv
+fi
 
 fc-cache -f
 
