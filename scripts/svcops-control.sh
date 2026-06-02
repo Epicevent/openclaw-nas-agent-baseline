@@ -20,6 +20,7 @@ Usage:
   svcops-control.sh nas-unregister-all START END
   svcops-control.sh image-status USER
   svcops-control.sh image-status-all START END
+  svcops-control.sh container-logs USER [LINES]
   svcops-control.sh image-list
   svcops-control.sh image-release-add REF [NAME]
   svcops-control.sh image-release-verify IMAGE
@@ -369,6 +370,13 @@ approve_share_request() {
 gateway_container() {
   local target_user="$1"
   printf 'openclaw-%s-openclaw-gateway-1' "$target_user"
+}
+
+redact_sensitive_output() {
+  sed -E \
+    -e 's/([A-Za-z0-9_]*(API[_-]?KEY|TOKEN|PASSWORD|PASSWD|CREDENTIAL|SECRET)[A-Za-z0-9_]*[=:" ]+)[^[:space:]",}]+/\1[REDACTED]/Ig' \
+    -e 's/(Bearer )[A-Za-z0-9._~+\/=-]+/\1[REDACTED]/Ig' \
+    -e 's/(sk-[A-Za-z0-9_-]{8})[A-Za-z0-9_-]+/\1[REDACTED]/g'
 }
 
 shared_ollama_base_url() {
@@ -783,6 +791,28 @@ container_image_id={{.Image}}'
     if docker image inspect "$image_ref" >/dev/null 2>&1; then
       docker image inspect "$image_ref" --format 'container_image_repo_digests={{join .RepoDigests ","}}' || true
     fi
+    ;;
+
+  container-logs)
+    [[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    lines="${2:-120}"
+    validate_user "$target_user"
+    if [[ ! "$lines" =~ ^[0-9]+$ || "$lines" -lt 1 || "$lines" -gt 300 ]]; then
+      echo "error: LINES must be an integer from 1 to 300" >&2
+      exit 2
+    fi
+    container="$(gateway_container "$target_user")"
+    if ! docker inspect "$container" >/dev/null 2>&1; then
+      echo "target_user=$target_user"
+      echo "container=$container"
+      echo "container_status=missing"
+      exit 1
+    fi
+    echo "target_user=$target_user"
+    echo "container=$container"
+    echo "log_tail=$lines"
+    docker logs --tail "$lines" "$container" 2>&1 | redact_sensitive_output
     ;;
 
   image-status-all)
