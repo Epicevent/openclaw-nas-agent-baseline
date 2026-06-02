@@ -384,7 +384,6 @@ compose_files() {
   fi
   printf '%s\n' -f docker-compose.yml
   if [[ "$runtime_family" == "hermes" ]]; then
-    [[ -f "$compose_dir/docker-compose.host-user.yml" ]] && printf '%s\n' -f docker-compose.host-user.yml
     return 0
   fi
   [[ -f "$compose_dir/docker-compose.extra.yml" ]] && printf '%s\n' -f docker-compose.extra.yml

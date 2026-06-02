@@ -202,17 +202,11 @@ services:
     working_dir: /opt/data/home
 EOF
 
-cat > "$compose_dir/docker-compose.host-user.yml" <<EOF
-services:
-  openclaw-gateway:
-    user: "$runtime_uid:$runtime_gid"
-    group_add:
-      - "$data_gid"
-EOF
+rm -f "$compose_dir/docker-compose.host-user.yml"
 
-chown root:root "$compose_dir/.env" "$compose_dir/docker-compose.yml" "$compose_dir/docker-compose.host-user.yml"
+chown root:root "$compose_dir/.env" "$compose_dir/docker-compose.yml"
 chmod 0600 "$compose_dir/.env"
-chmod 0644 "$compose_dir/docker-compose.yml" "$compose_dir/docker-compose.host-user.yml"
+chmod 0644 "$compose_dir/docker-compose.yml"
 
 openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 
@@ -227,7 +221,7 @@ echo "dashboard_port=$dashboard_port"
 
 (
   cd "$compose_dir"
-  docker compose -f docker-compose.yml -f docker-compose.host-user.yml up -d --force-recreate openclaw-gateway
+  docker compose -f docker-compose.yml up -d --force-recreate openclaw-gateway
 )
 
 docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
