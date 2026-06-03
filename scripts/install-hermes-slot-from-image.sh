@@ -286,9 +286,9 @@ OPENCLAW_CONTROL_UI_BASEPATH='/'
 OPENCLAW_PROXY_PUBLIC_ORIGIN='$origin'
 OPENCLAW_PROXY_ALLOWED_ORIGINS='$origin'
 OPENCLAW_NAS_HOST_PATH='$nas_mount'
-OPENCLAW_NAS_CONTAINER_PATH='/home/node/nas_docs'
+OPENCLAW_NAS_CONTAINER_PATH='/workspace/nas_docs'
 OPENCLAW_NAS_DATA_GID='$data_gid'
-OPENCLAW_EXTRA_MOUNTS='$nas_mount:/home/node/nas_docs:ro'
+OPENCLAW_EXTRA_MOUNTS='$nas_mount:/workspace/nas_docs:ro'
 HERMES_HOME='/opt/data'
 HERMES_DATA_DIR='/opt/data'
 HERMES_WORKSPACE_DIR='/workspace'
@@ -368,7 +368,7 @@ services:
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 127.0.0.1
       HERMES_API_TOKEN: \${API_SERVER_KEY}
-      OPENCLAW_NAS_CONTAINER_PATH: /home/node/nas_docs
+      OPENCLAW_NAS_CONTAINER_PATH: /workspace/nas_docs
       OPENCLAW_NAS_DATA_GID: "$data_gid"
       HOME: /opt/data/home
       HOST: 0.0.0.0
@@ -386,7 +386,6 @@ services:
       - $hermes_home:/opt/data
       - $hermes_home/workspace:/workspace
       - $nas_mount:/workspace/nas_docs:ro
-      - $nas_mount:/home/node/nas_docs:ro
     working_dir: /opt/data/home
 EOF
 

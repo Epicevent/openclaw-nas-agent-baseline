@@ -8,8 +8,8 @@ Usage:
   openclaw-nas-container-view.sh search-smoke --user USER --query QUERY [--limit N]
 
 Shows what the gateway container can see under its NAS document root.
-For Hermes slots the primary root is /workspace/nas_docs.
-For OpenClaw slots the primary root is /home/node/nas_docs.
+For Hermes slots the root is /workspace/nas_docs.
+For OpenClaw slots the root is /home/node/nas_docs.
 It never reads NAS credentials, OpenClaw tokens, or provider/API keys.
 USAGE
 }
@@ -110,22 +110,14 @@ exec_python="python3 -"
 exec_user="root"
 if [[ "$runtime_family" == "hermes" ]]; then
   root_path="/workspace/nas_docs"
-  compat_root="/home/node/nas_docs"
   exec_user="hermes"
   exec_python='if command -v s6-setuidgid >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then exec s6-setuidgid hermes python3 -; elif command -v gosu >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then exec gosu hermes python3 -; else exec python3 -; fi'
 fi
 echo "container_root=$root_path"
-if [[ -n "$compat_root" ]]; then
-  echo "compatibility_root=$compat_root"
-fi
 echo "exec_user=$exec_user"
 
 if [[ "$mode" == "tree" ]]; then
   tree_roots="$root_path"
-  if [[ "$runtime_family" == "hermes" ]]; then
-    tree_roots="$root_path|$compat_root"
-    echo "workspace_root=$root_path"
-  fi
   docker exec -i \
     -e OPENCLAW_NAS_ROOT="$root_path" \
     -e OPENCLAW_NAS_ROOTS="$tree_roots" \

@@ -18,47 +18,34 @@
 
 실행 주체: **[root 관리자]**
 
-테스트에 사용할 public repo commit과 Docker image tag를 먼저 고정한다. 서버 반영은
+테스트에 사용할 public repo commit과 공식 image release를 먼저 고정한다. 서버 반영은
 [root 관리자 작업 - 호스트 준비](ROOT_ADMIN_TASKS.md#호스트-준비)의 공식 절차만 따른다.
 여기서는 서버에 설치된 manifest 값을 테스트 기준으로 기록한다.
 
 ```bash
 source /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
 BASELINE_COMMIT="$source_commit"
-TEST_IMAGE_TAG="openclaw-nas-agent:baseline-test-$(date +%Y%m%d)"
 
 echo "baseline_commit=$BASELINE_COMMIT"
 echo "installed_source_commit=$source_commit"
-echo "test_image_tag=$TEST_IMAGE_TAG"
 ```
 
-테스트용 image는 하나만 만든다.
+테스트용 image는 public registry release 중 하나를 고른다. 서버에서 직접 rebuild하지
+않는다.
 
 ```bash
-sudo env \
-  BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
-  IMAGE_TAG="$TEST_IMAGE_TAG" \
-  bash /opt/openclaw-nas-agent-baseline/scripts/build-container-baseline.sh
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-list
 ```
 
-빌드 결과는 private 원장에 기록한다.
-
-```bash
-sudo docker image inspect "$TEST_IMAGE_TAG" \
-  --format 'image_id={{.Id}} created={{.Created}}'
-```
-
-장기 production에서는 `BASE_IMAGE=...:latest`가 아니라 digest-pinned image와 pinned
-dependency 기준이 필요하다. 테스트 freeze는 “이번 테스트에 쓸 기준을 고정한다”는
-뜻이지, 장기 supply-chain hardening이 완료됐다는 뜻이 아니다.
+테스트 freeze는 “이번 테스트에 쓸 repo commit과 image digest를 고정한다”는 뜻이다.
 
 ## 2. Image 정책
 
-다음 주 테스트는 공통 baseline image 하나로 간다.
+다음 주 테스트는 검증된 공식 image release 하나를 기준으로 간다.
 
 ```text
 하는 것:
-  openclaw-nas-agent:baseline-test-YYYYMMDD 하나를 모든 테스트 slot에 사용
+  images.yaml에 등록되고 verify를 통과한 official image를 slot에 적용
 
 하지 않는 것:
   oc13 전용 image

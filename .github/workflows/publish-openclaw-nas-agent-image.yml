@@ -11,7 +11,7 @@ on:
       - "container/install-container-baseline.sh"
       - "container/openclaw-document-tools"
       - "container/openclaw-hwp-text.py"
-      - "image-overlays/dashboard-20260602-r1/**"
+      - "container/openclaw-overlays/dashboard-20260602-r1/**"
 
 permissions:
   contents: read
@@ -21,7 +21,7 @@ env:
   IMAGE_REF: ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1
   OPENCLAW_REPO: https://github.com/openclaw/openclaw.git
   OPENCLAW_COMMIT: 989e53c20d395d3c8bf47efc21fdb9d56e7227b0
-  OVERLAY_DIR: image-overlays/dashboard-20260602-r1/files
+  OVERLAY_DIR: container/openclaw-overlays/dashboard-20260602-r1/files
 
 jobs:
   publish:

@@ -169,13 +169,22 @@ check_data_group_isolation() {
   [[ "$leaked" -eq 0 ]]
 }
 
-container_path_for_nas_mountpoint() {
-  local root="$1" mountpoint="$2" suffix
-  if [[ "$mountpoint" == "$root" ]]; then
+container_nas_root_for_runtime() {
+  local runtime_family="$1"
+  if [[ "$runtime_family" == "hermes" ]]; then
+    printf '%s' "/workspace/nas_docs"
+  else
     printf '%s' "/home/node/nas_docs"
+  fi
+}
+
+container_path_for_nas_mountpoint() {
+  local container_root="$1" root="$2" mountpoint="$3" suffix
+  if [[ "$mountpoint" == "$root" ]]; then
+    printf '%s' "$container_root"
   else
     suffix="${mountpoint#$root/}"
-    printf '/home/node/nas_docs/%s' "$suffix"
+    printf '%s/%s' "$container_root" "$suffix"
   fi
 }
 
@@ -402,8 +411,10 @@ if docker inspect "$container" >/dev/null 2>&1; then
     fi
   fi
 
+  container_nas_root="$(container_nas_root_for_runtime "$runtime_family")"
+  echo "INFO container_nas_root=$container_nas_root"
   echo "INFO container_nas_exec_user=$([[ "$runtime_family" == "hermes" ]] && printf hermes || printf root)"
-  if container_runtime_sh 'test -r /home/node/nas_docs'; then
+  if container_runtime_sh 'test -r "$1"' "$container_nas_root"; then
     pass "container_nas_read_ok"
   else
     fail "container_nas_read_ok"
@@ -415,7 +426,7 @@ if docker inspect "$container" >/dev/null 2>&1; then
   else
     container_nas_failed=0
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
-      container_mp="$(container_path_for_nas_mountpoint "$nas_mountpoint" "$nas_mp")"
+      container_mp="$(container_path_for_nas_mountpoint "$container_nas_root" "$nas_mountpoint" "$nas_mp")"
       if container_runtime_sh 'test -r "$1"' "$container_mp"; then
         :
       else
@@ -439,7 +450,7 @@ if docker inspect "$container" >/dev/null 2>&1; then
     fi
   fi
 
-  sample="$(container_runtime_sh 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' || echo 0)"
+  sample="$(container_runtime_sh 'find "$1" -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' "$container_nas_root" || echo 0)"
   echo "INFO container_nas_sample=$sample"
 else
   fail "container_exists"

@@ -60,4 +60,11 @@ else
   pass "legacy_bootstrap_reference_limited"
 fi
 
+if grep_md 'build-container-baseline\.sh|build-hermes-integrated-image\.sh|install-system-baseline\.sh' | grep -q .; then
+  grep_md 'build-container-baseline\.sh|build-hermes-integrated-image\.sh|install-system-baseline\.sh'
+  fail "removed_local_image_build_reference"
+else
+  pass "removed_local_image_build_reference_absent"
+fi
+
 exit "$failed"

@@ -1300,7 +1300,7 @@ def html_page(csrf: str) -> str:
       const metaEl = document.getElementById("nasTreeMeta");
       const treeEl = document.getElementById("nasTree");
       const status = meta.tree_status || meta.root_state || "unknown";
-      const root = meta.container_root || "/home/node/nas_docs";
+      const root = meta.container_root || "runtime NAS root";
       const reported = meta.tree_entries_reported || String(rows.length);
       const omitted = meta.tree_entries_omitted && meta.tree_entries_omitted !== "0"
         ? ` · omitted ${{escapeHtml(meta.tree_entries_omitted)}}`

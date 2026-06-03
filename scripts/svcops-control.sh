@@ -147,13 +147,41 @@ registered_nas_mountpoints() {
   ' /etc/fstab 2>/dev/null
 }
 
-container_path_for_nas_mountpoint() {
-  local root="$1" mountpoint="$2" suffix
-  if [[ "$mountpoint" == "$root" ]]; then
+container_nas_root_for_runtime() {
+  local runtime_family="$1"
+  if [[ "$runtime_family" == "hermes" ]]; then
+    printf '%s' "/workspace/nas_docs"
+  else
     printf '%s' "/home/node/nas_docs"
+  fi
+}
+
+container_path_for_nas_mountpoint() {
+  local container_root="$1" root="$2" mountpoint="$3" suffix
+  if [[ "$mountpoint" == "$root" ]]; then
+    printf '%s' "$container_root"
   else
     suffix="${mountpoint#$root/}"
-    printf '/home/node/nas_docs/%s' "$suffix"
+    printf '%s/%s' "$container_root" "$suffix"
+  fi
+}
+
+container_runtime_sh_for_family() {
+  local container="$1" runtime_family="$2" snippet="$3"
+  shift 3
+  if [[ "$runtime_family" == "hermes" ]]; then
+    docker exec "$container" sh -lc '
+      user_cmd="$1"
+      shift
+      if command -v s6-setuidgid >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then
+        exec s6-setuidgid hermes sh -c "$user_cmd" sh "$@"
+      elif command -v gosu >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then
+        exec gosu hermes sh -c "$user_cmd" sh "$@"
+      fi
+      exec sh -c "$user_cmd" sh "$@"
+    ' sh "$snippet" "$@"
+  else
+    docker exec "$container" sh -c "$snippet" sh "$@"
   fi
 }
 
@@ -582,16 +610,20 @@ verify_nas_visibility() {
   local target_user="$1" target_home mountpoint container sample_count failed=0
   local host_source host_fstype host_target container_source container_fstype container_target container_mp nas_mp share_name
   local host_failed=0 container_failed=0
+  local runtime_family container_root
   local -a visible_nas_mountpoints=()
   target_home="$(customer_home "$target_user")"
   mountpoint="$(nas_mountpoint "$target_home")"
   container="$(gateway_container "$target_user")"
+  runtime_family="$(slot_runtime_family "$target_user")"
+  container_root="$(container_nas_root_for_runtime "$runtime_family")"
 
   echo "target_user=$target_user"
+  echo "runtime_family=$runtime_family"
   echo "== NAS visibility map =="
   echo "+ account: $target_user"
   echo "+ host root:      $mountpoint"
-  echo "+ container root: /home/node/nas_docs"
+  echo "+ container root: $container_root"
   echo "+ rule:           host_root/SHARE_NAME -> container_root/SHARE_NAME"
   mapfile -t nas_mountpoints < <(registered_nas_mountpoints "$mountpoint")
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
@@ -640,11 +672,12 @@ verify_nas_visibility() {
     echo "INFO container_nas_visible_mounts=none"
   else
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
-      container_mp="$(container_path_for_nas_mountpoint "$mountpoint" "$nas_mp")"
+      container_mp="$(container_path_for_nas_mountpoint "$container_root" "$mountpoint" "$nas_mp")"
       container_source="$(docker exec "$container" findmnt -T "$container_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
       container_target="$(docker exec "$container" findmnt -T "$container_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
       container_fstype="$(docker exec "$container" findmnt -T "$container_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
-      if [[ "$container_target" == "$container_mp" && "$container_fstype" == "cifs" ]]; then
+      if [[ "$container_target" == "$container_mp" && "$container_fstype" == "cifs" ]] \
+        && container_runtime_sh_for_family "$container" "$runtime_family" 'test -r "$1"' "$container_mp"; then
         echo "INFO container_nas_mount=$container_mp source=$container_source"
         echo "| container path: $container_mp"
         echo "| container state: mounted cifs"
@@ -663,7 +696,7 @@ verify_nas_visibility() {
     failed=1
   fi
 
-  sample_count="$(docker exec "$container" sh -lc 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' 2>/dev/null || true)"
+  sample_count="$(container_runtime_sh_for_family "$container" "$runtime_family" 'find "$1" -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' "$container_root" 2>/dev/null || true)"
   echo "INFO container_nas_sample=${sample_count:-0}"
   return "$failed"
 }

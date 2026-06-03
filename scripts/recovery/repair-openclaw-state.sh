@@ -137,7 +137,7 @@ if [[ -n "$snapshot" ]]; then
   cp -a "$tmp_dir/openclaw-state/.openclaw/." "$openclaw_dir/"
   echo "restored snapshot: $snapshot"
 else
-  defaults_dir="$repo_root/openclaw/defaults/workspace"
+  defaults_dir="$repo_root/scripts/recovery/default-workspace"
   mkdir -p "$workspace_dir/skills"
 
   install_default() {

@@ -102,27 +102,29 @@ echo "control_ui_host=$CONTROL_UI_HOST"
 
 고객 계정은 Docker 그룹에 넣지 않는다.
 
-## baseline 이미지 빌드
+## 공식 이미지 준비
 
 실행 주체: **[root 관리자]**
 
-아래 `latest` 예시는 빠른 검증용이다. 장기 production에서는 `BASE_IMAGE`를 digest로
-고정하고, 빌드에 들어가는 pip/npm/apt dependency도 pinning 정책을 둔다.
+고객 slot에 적용할 Docker 이미지는 public GHCR release로 준비한다. 서버에서는
+이미지를 직접 굽지 않고, 공개 registry의 tag를 release cache에 등록한 뒤 digest를
+검증한다.
 
 ```bash
-cd /opt/openclaw-nas-agent-baseline
+IMAGE_REF="ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1"
 
-sudo env \
-  BASE_IMAGE=ghcr.io/openclaw/openclaw:latest \
-  IMAGE_TAG=openclaw-nas-agent:baseline \
-  bash scripts/build-container-baseline.sh
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-release-add "$IMAGE_REF"
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  image-release-verify dashboard-20260602-r1
 ```
 
-빌드 결과는 기록한다.
+검증이 통과하면 `/srv/openclaw-ops/images.yaml`에 public ref, immutable runtime
+ref, digest, image id가 기록된다.
 
 ```bash
-sudo docker image inspect openclaw-nas-agent:baseline \
-  --format 'image_id={{.Id}} created={{.Created}}'
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-list
 ```
 
 ## 계정별 OpenClaw 설치
@@ -301,4 +303,4 @@ sudo test ! -e "$TARGET_HOME/.config/openclaw" && echo config_deleted
 sudo test ! -e "$TARGET_HOME/.cache/openclaw" && echo cache_deleted
 ```
 
-삭제 후에는 baseline 이미지 빌드와 계정별 OpenClaw 설치를 다시 실행한다.
+삭제 후에는 공식 이미지 준비와 계정별 OpenClaw 설치를 다시 실행한다.

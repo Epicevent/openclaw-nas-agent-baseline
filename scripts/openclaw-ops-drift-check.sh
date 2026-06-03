@@ -285,7 +285,6 @@ for slot in slots:
     nas_share = slot.get("nas_share", meta.get("default_nas_share", ""))
     mount_name = slot.get("mount_name", meta.get("default_mount_name", ""))
     expected_host_path = f"/home/{name}/nas_docs/{mount_name}"
-    expected_container_path = f"/home/node/nas_docs/{mount_name}"
     expected_image = resolve_expected_image(slot, meta, image_catalog)
 
     slot_failed = False
@@ -301,6 +300,9 @@ for slot in slots:
         detail.append("release_gate=pass")
 
     customer_mounts, container_mounts = extract_mount_sources(check_out)
+    root_match = re.search(r"^INFO container_nas_root=(?P<root>\S+)", check_out, re.MULTILINE)
+    expected_container_root = root_match.group("root") if root_match else "/home/node/nas_docs"
+    expected_container_path = f"{expected_container_root}/{mount_name}"
     if (expected_host_path, nas_share) not in customer_mounts:
         slot_failed = True
         actual = ",".join(f"{p}->{s}" for p, s in customer_mounts) or "missing"

@@ -32,19 +32,15 @@ The public image is built and pushed by GitHub Actions:
 The `dashboard-20260602-r1` image uses the overlay in:
 
 ```text
-image-overlays/dashboard-20260602-r1
+container/openclaw-overlays/dashboard-20260602-r1
 ```
 
 The `hermes-workspace-20260602-r1` image is an integrated Hermes image. It uses
 the official Hermes Agent image as its base, copies Hermes Workspace into the
 same final image, and installs the same NAS Agent document baseline packages.
 
-Build it with:
-
-```bash
-IMAGE_TAG=ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260602-r1 \
-  bash scripts/build-hermes-integrated-image.sh
-```
+It is built by `.github/workflows/publish-hermes-nas-agent-image.yml`. Server
+operators do not rebuild it by hand during rollout.
 
 `family=hermes` images are not a plain OpenClaw image swap. Rollout rewrites the
 target slot compose to run one integrated container:
@@ -65,7 +61,6 @@ mounted read-only into the same container at:
 
 ```text
 /workspace/nas_docs
-/home/node/nas_docs
 ```
 
 Hermes Agent stores provider API keys in its own profile env file. In this
@@ -218,6 +213,10 @@ Python document modules exist
 ```
 
 Images that fail verification are marked `failed` and cannot be rolled out.
+
+The local scripts that used to build ad-hoc images on the server are not part
+of the official path. Official image changes go through GHCR, then the server
+pulls the immutable digest recorded in `/srv/openclaw-ops/images.yaml`.
 
 ## Drift
 

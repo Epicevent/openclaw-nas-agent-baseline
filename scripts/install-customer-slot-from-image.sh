@@ -154,7 +154,7 @@ bridge_port=$((gateway_port + 1))
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "error: image not found: $image" >&2
-  echo "hint: build it first with scripts/build-container-baseline.sh" >&2
+  echo "hint: register and pull an official public image release before installing the slot" >&2
   exit 1
 fi
 

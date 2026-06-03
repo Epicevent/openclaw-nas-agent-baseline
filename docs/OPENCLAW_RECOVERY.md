@@ -24,6 +24,9 @@ OpenClaw state is mounted outside the image, normally like this:
 /home/ocN/nas_docs         -> container /home/node/nas_docs
 ```
 
+This recovery document is for OpenClaw slots. Hermes slots use `/workspace` as
+their workspace root and `/workspace/nas_docs` as the NAS container path.
+
 That state can drift or break. The repair scripts handle the recoverable layer:
 
 - `~/.openclaw/openclaw.json`

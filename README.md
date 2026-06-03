@@ -195,7 +195,8 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TAR
 ```text
 원격 NAS source/share: //NAS_HOST/SHARE_NAME
 호스트 mountpoint:     /home/ocN/nas_docs/SHARE_NAME
-컨테이너 경로:          /home/node/nas_docs/SHARE_NAME
+OpenClaw 컨테이너:      /home/node/nas_docs/SHARE_NAME
+Hermes 컨테이너:        /workspace/nas_docs/SHARE_NAME
 ```
 
 `nas-register`와 `--request-share`에서 말하는 `share`는 첫 줄의 원격 SMB 공유
