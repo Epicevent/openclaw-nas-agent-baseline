@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r13")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r14")
 MODEL_PICKER_MARKER = "OPENCLAW_HERMES_MODEL_PICKER_PATCH"
 GEMINI_MODELS = [
     "gemini-3.1-pro",
@@ -53,12 +53,18 @@ SETTINGS_PROVIDER_OPTION_MIN_DOUBLE = SETTINGS_PROVIDER_OPTION_MIN.replace("'", 
 
 
 def gemini_model_picker_script() -> str:
-    models_json = json.dumps(GEMINI_MODELS)
     return f"""<script id="{MODEL_PICKER_MARKER}">
-(() => {{
+{gemini_model_picker_js()}
+</script>"""
+
+
+def gemini_model_picker_js() -> str:
+    models_json = json.dumps(GEMINI_MODELS)
+    return f"""(() => {{
   const MARKER = "{MODEL_PICKER_MARKER}";
   const MODELS = {models_json};
   if (window[MARKER]) return;
+  if (typeof document === "undefined") return;
   window[MARKER] = true;
 
   const inputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
@@ -174,7 +180,7 @@ def gemini_model_picker_script() -> str:
   setInterval(enhanceGeminiModelInputs, 1000);
   enhanceGeminiModelInputs();
 }})();
-</script>"""
+"""
 
 PATTERNS = [
     (
@@ -495,6 +501,14 @@ def patch_settings_provider_options(text: str) -> tuple[str, int]:
     return new_text, changed
 
 
+def patch_client_model_picker_bundle(text: str) -> tuple[str, int]:
+    if MODEL_PICKER_MARKER in text:
+        return text, 0
+    if "Model & Provider" not in text or "gemini-3.1-pro" not in text:
+        return text, 0
+    return text.rstrip() + "\n;" + gemini_model_picker_js() + "\n", 1
+
+
 def patch_file(path: Path) -> int:
     try:
         text = path.read_text(encoding="utf-8")
@@ -506,6 +520,7 @@ def patch_file(path: Path) -> int:
         patch_server_provider_catalog,
         patch_settings_dialog_cards,
         patch_settings_provider_options,
+        patch_client_model_picker_bundle,
     ):
         new_text, count = patcher(new_text)
         changed += count
