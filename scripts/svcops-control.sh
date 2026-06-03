@@ -482,6 +482,14 @@ runtime_secret_status() {
   if [[ "$runtime_family" == "hermes" ]]; then
     config_path="$target_home/.hermes/config.yaml"
     python3 "$script_dir/hermes-runtime-config.py" status --config "$config_path" || true
+  else
+    config_path="$target_home/.openclaw/openclaw.json"
+    if openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path" >/dev/null 2>&1; then
+      echo "openclaw_config_safety=pass"
+    else
+      echo "openclaw_config_safety=fail"
+    fi
+    python3 "$script_dir/openclaw-runtime-config.py" status --config "$config_path" || true
   fi
 }
 
