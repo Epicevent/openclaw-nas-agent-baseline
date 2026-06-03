@@ -16,9 +16,15 @@ ARG RUNTIME_USER=node
 USER root
 
 COPY container/install-container-baseline.sh /tmp/install-container-baseline.sh
+COPY container/openclaw-hwp-text.py /usr/local/bin/openclaw-hwp-text
+COPY container/openclaw-document-tools /usr/local/bin/openclaw-document-tools
 RUN chmod +x /tmp/install-container-baseline.sh \
   && /tmp/install-container-baseline.sh \
-  && rm -f /tmp/install-container-baseline.sh
+  && rm -f /tmp/install-container-baseline.sh \
+  && chmod 0755 /usr/local/bin/openclaw-hwp-text /usr/local/bin/openclaw-document-tools \
+  && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/read-hwp \
+  && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp-read \
+  && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp2txt
 
 ENV LANG=ko_KR.UTF-8 \
     LANGUAGE=ko_KR:ko \

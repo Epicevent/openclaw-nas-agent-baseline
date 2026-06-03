@@ -338,6 +338,8 @@ if docker inspect "$container" >/dev/null 2>&1; then
     clawhub
     hwp5txt
     hwp5proc
+    openclaw-hwp-text
+    openclaw-document-tools
   )
 
   for command_name in "${required_container_commands[@]}"; do

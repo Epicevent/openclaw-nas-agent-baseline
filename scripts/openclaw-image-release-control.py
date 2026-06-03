@@ -404,6 +404,8 @@ need antiword
 need catdoc
 need hwp5txt
 need hwp5proc
+need openclaw-hwp-text
+need openclaw-document-tools
 need clawhub
 if locale charmap 2>/dev/null | grep -qi UTF-8; then echo PASS locale_utf8; else echo FAIL locale_utf8; failed=1; fi
 if locale -a 2>/dev/null | grep -Eiq '^ko_KR(\.utf8|\.UTF-8)?$'; then echo PASS ko_locale; else echo FAIL ko_locale; failed=1; fi

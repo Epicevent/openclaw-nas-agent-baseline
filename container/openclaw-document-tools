@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+set -eu
+
+cat <<'EOF'
+OpenClaw document tools
+
+HWP/HWPX:
+  openclaw-hwp-text /workspace/nas_docs/<share>/<file>.hwp
+  openclaw-hwp-text /workspace/nas_docs/<share>/<file>.hwpx
+
+Notes:
+  - Do not use pandoc for .hwp files.
+  - Use rg/find for plain text files.
+  - Use pdftotext for PDF files.
+EOF

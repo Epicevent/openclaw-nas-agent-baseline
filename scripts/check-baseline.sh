@@ -28,6 +28,8 @@ commands=(
   catdoc
   hwp5txt
   hwp5proc
+  openclaw-hwp-text
+  openclaw-document-tools
   openclaw
   clawhub
 )
