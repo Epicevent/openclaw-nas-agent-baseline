@@ -102,6 +102,17 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
   runtime-secret-status ocN
 ```
 
+The default Gemini model for Hermes slots is `gemini-3.1-pro`. To change only
+the selected Gemini model without touching provider keys, use:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  hermes-model ocN gemini-3.1-pro
+
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  hermes-model-all 15 20 gemini-3.1-pro
+```
+
 Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
 slot-local runtime secret state and is not stored in public image metadata.
 `install-hermes-slot-from-image.sh` writes the generated handoff password to a

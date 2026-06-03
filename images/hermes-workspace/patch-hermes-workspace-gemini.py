@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import re
 import os
+import json
 from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r12")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r13")
+MODEL_PICKER_MARKER = "OPENCLAW_HERMES_MODEL_PICKER_PATCH"
 GEMINI_MODELS = [
     "gemini-3.1-pro",
     "gemini-3.1-flash",
@@ -48,6 +50,131 @@ SETTINGS_DIALOG_GEMINI_CARD_MIN_DOUBLE = SETTINGS_DIALOG_GEMINI_CARD_MIN.replace
 SETTINGS_PROVIDER_OPTION = "{ label: 'Google Gemini', value: 'gemini' },"
 SETTINGS_PROVIDER_OPTION_MIN = "{label:'Google Gemini',value:'gemini'},"
 SETTINGS_PROVIDER_OPTION_MIN_DOUBLE = SETTINGS_PROVIDER_OPTION_MIN.replace("'", '"')
+
+
+def gemini_model_picker_script() -> str:
+    models_json = json.dumps(GEMINI_MODELS)
+    return f"""<script id="{MODEL_PICKER_MARKER}">
+(() => {{
+  const MARKER = "{MODEL_PICKER_MARKER}";
+  const MODELS = {models_json};
+  if (window[MARKER]) return;
+  window[MARKER] = true;
+
+  const inputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+
+  function setInputValue(input, value) {{
+    if (!input) return;
+    if (inputSetter) inputSetter.call(input, value);
+    else input.value = value;
+    input.dispatchEvent(new Event("input", {{ bubbles: true }}));
+    input.dispatchEvent(new Event("change", {{ bubbles: true }}));
+  }}
+
+  function nearbyText(el) {{
+    let node = el;
+    let text = "";
+    for (let i = 0; i < 5 && node; i += 1) {{
+      text += " " + (node.innerText || "");
+      node = node.parentElement;
+    }}
+    return text.toLowerCase();
+  }}
+
+  function isTextInput(el) {{
+    return el && el.tagName === "INPUT" && !["hidden", "password", "checkbox", "radio"].includes((el.type || "").toLowerCase());
+  }}
+
+  function findProviderInput() {{
+    const inputs = Array.from(document.querySelectorAll("input")).filter(isTextInput);
+    return inputs.find((input) => nearbyText(input).includes("provider")) || null;
+  }}
+
+  function findModelInputs() {{
+    return Array.from(document.querySelectorAll("input"))
+      .filter(isTextInput)
+      .filter((input) => nearbyText(input).includes("model") || String(input.value || "").startsWith("gemini-"));
+  }}
+
+  function syncSelected(select, input) {{
+    const current = String(input.value || "").trim();
+    if (MODELS.includes(current)) {{
+      select.value = current;
+    }} else {{
+      select.value = "";
+    }}
+  }}
+
+  function makeModelPicker(input) {{
+    if (input.dataset.openclawGeminiModelPicker === "1") return;
+    input.dataset.openclawGeminiModelPicker = "1";
+
+    const wrap = document.createElement("div");
+    wrap.dataset.openclawGeminiModelPickerWrap = "1";
+    wrap.style.marginBottom = "8px";
+
+    const select = document.createElement("select");
+    select.setAttribute("aria-label", "Gemini model");
+    select.style.width = "100%";
+    select.style.minHeight = "32px";
+    select.style.borderRadius = "8px";
+    select.style.border = "1px solid rgba(255,255,255,.35)";
+    select.style.background = "rgba(0,0,0,.14)";
+    select.style.color = "inherit";
+    select.style.padding = "8px 12px";
+    select.style.font = "inherit";
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Select Gemini model";
+    select.appendChild(placeholder);
+    for (const model of MODELS) {{
+      const option = document.createElement("option");
+      option.value = model;
+      option.textContent = model;
+      select.appendChild(option);
+    }}
+
+    syncSelected(select, input);
+    select.addEventListener("change", () => {{
+      if (select.value) setInputValue(input, select.value);
+    }});
+
+    const note = document.createElement("div");
+    note.textContent = "Gemini models can be selected here; no manual model ID entry is required.";
+    note.style.fontSize = "12px";
+    note.style.opacity = ".72";
+    note.style.marginTop = "4px";
+
+    wrap.appendChild(select);
+    wrap.appendChild(note);
+    input.parentElement?.insertBefore(wrap, input);
+    input.style.display = "none";
+  }}
+
+  function enhanceGeminiModelInputs() {{
+    const providerInput = findProviderInput();
+    const provider = String(providerInput?.value || "").trim().toLowerCase();
+    const modelInputs = findModelInputs();
+    for (const input of modelInputs) {{
+      const current = String(input.value || "").trim();
+      if (provider === "gemini" || current.startsWith("gemini-")) {{
+        makeModelPicker(input);
+        const wrap = input.parentElement?.querySelector('[data-openclaw-gemini-model-picker-wrap="1"]');
+        const select = wrap?.querySelector("select");
+        if (select) syncSelected(select, input);
+      }}
+    }}
+  }}
+
+  const observer = new MutationObserver(enhanceGeminiModelInputs);
+  observer.observe(document.documentElement, {{ childList: true, subtree: true }});
+  window.addEventListener("focus", enhanceGeminiModelInputs);
+  window.addEventListener("hashchange", enhanceGeminiModelInputs);
+  setInterval(enhanceGeminiModelInputs, 1000);
+  enhanceGeminiModelInputs();
+}})();
+</script>"""
 
 PATTERNS = [
     (
@@ -428,13 +555,22 @@ def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        if CACHE_BUST_ID in text:
-            continue
-        new_text, count = re.subn(
-            r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
-            rf"\1?{CACHE_BUST_ID}\2",
-            text,
-        )
+        new_text = text
+        count = 0
+        if CACHE_BUST_ID not in new_text:
+            new_text, cache_count = re.subn(
+                r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
+                rf"\1?{CACHE_BUST_ID}\2",
+                new_text,
+            )
+            count += cache_count
+        if MODEL_PICKER_MARKER not in new_text:
+            script = gemini_model_picker_script()
+            if "</body>" in new_text:
+                new_text = new_text.replace("</body>", script + "\n</body>", 1)
+            else:
+                new_text += "\n" + script + "\n"
+            count += 1
         if count:
             path.write_text(new_text, encoding="utf-8")
             patched.append((path, count))
@@ -465,6 +601,7 @@ def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
 def gemini_patch_already_present(root: Path) -> bool:
     provider_present = False
     cache_bust_present = False
+    model_picker_present = False
 
     for path in candidate_files(root):
         try:
@@ -489,9 +626,10 @@ def gemini_patch_already_present(root: Path) -> bool:
             continue
         if CACHE_BUST_ID in text:
             cache_bust_present = True
-            break
+        if MODEL_PICKER_MARKER in text:
+            model_picker_present = True
 
-    return provider_present and cache_bust_present
+    return provider_present and cache_bust_present and model_picker_present
 
 
 def main() -> int:

@@ -23,6 +23,8 @@ Usage:
   svcops-control.sh container-logs USER [LINES]
   svcops-control.sh runtime-secret-status USER
   svcops-control.sh handoff-credential USER
+  svcops-control.sh hermes-model USER MODEL
+  svcops-control.sh hermes-model-all START END MODEL
   svcops-control.sh hermes-guidance USER
   svcops-control.sh hermes-guidance-all START END
   svcops-control.sh image-list
@@ -103,6 +105,14 @@ validate_mount_name() {
   local name="$1"
   if [[ "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
     echo "error: invalid mount name: $name" >&2
+    exit 2
+  fi
+}
+
+validate_gemini_model() {
+  local model="$1"
+  if [[ ! "$model" =~ ^gemini-[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$ ]]; then
+    echo "error: invalid Gemini model: $model" >&2
     exit 2
   fi
 }
@@ -473,6 +483,29 @@ runtime_secret_status() {
     config_path="$target_home/.hermes/config.yaml"
     python3 "$script_dir/hermes-runtime-config.py" status --config "$config_path" || true
   fi
+}
+
+set_hermes_model() {
+  local target_user="$1" model="$2" target_home runtime_family runtime_user data_group hermes_config_path
+  validate_user "$target_user"
+  validate_gemini_model "$model"
+  runtime_family="$(slot_runtime_family "$target_user")"
+  if [[ "$runtime_family" != "hermes" ]]; then
+    echo "target_user=$target_user"
+    echo "runtime_family=$runtime_family"
+    echo "model_update=skipped_not_hermes"
+    return 1
+  fi
+  target_home="$(customer_home "$target_user")"
+  runtime_user="${target_user}_rt"
+  data_group="${target_user}_data"
+  hermes_config_path="$target_home/.hermes/config.yaml"
+  OPENCLAW_HERMES_GEMINI_MODEL="$model" \
+    python3 "$script_dir/hermes-runtime-config.py" set-gemini --config "$hermes_config_path"
+  chown "$runtime_user:$data_group" "$hermes_config_path"
+  chmod 0600 "$hermes_config_path"
+  echo "model_update=ok"
+  refresh_gateway "$target_user"
 }
 
 slot_runtime_family() {
@@ -1029,6 +1062,37 @@ container_image_id={{.Image}}'
     target_user="$1"
     validate_user "$target_user"
     print_handoff_credential "$target_user"
+    ;;
+
+  hermes-model)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    model="$2"
+    set_hermes_model "$target_user" "$model"
+    ;;
+
+  hermes-model-all)
+    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    model="$3"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    validate_gemini_model "$model"
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        set_hermes_model "$target_user" "$model" || failed=1
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
     ;;
 
   hermes-guidance)

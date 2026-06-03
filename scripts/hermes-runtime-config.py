@@ -3,12 +3,21 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import stat
 import sys
 from pathlib import Path
 
 
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-pro"
+KNOWN_GEMINI_MODELS = {
+    "gemini-3.1-pro",
+    "gemini-3.1-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+}
 
 
 def die(message: str, code: int = 1) -> None:
@@ -38,6 +47,14 @@ def safe_write_regular(path: Path, text: str, mode: int = 0o600) -> None:
     finally:
         os.close(fd)
     os.chmod(path, mode)
+
+
+def validate_gemini_model(model: str) -> str:
+    if model in KNOWN_GEMINI_MODELS:
+        return model
+    if not re.fullmatch(r"gemini-[A-Za-z0-9][A-Za-z0-9._:-]{0,127}", model):
+        die(f"invalid Gemini model: {model}", 2)
+    return model
 
 
 def top_level_key(line: str) -> str:
@@ -81,6 +98,7 @@ def read_config_lines(path: Path) -> list[str]:
 
 
 def set_gemini_config(path: Path, model: str) -> None:
+    model = validate_gemini_model(model)
     lines = strip_model_keys(read_config_lines(path))
     while lines and not lines[-1].strip():
         lines.pop()
