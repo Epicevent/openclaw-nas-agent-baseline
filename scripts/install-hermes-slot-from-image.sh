@@ -348,6 +348,8 @@ else
   echo "hermes_config_update=skipped_no_gemini_key"
 fi
 
+bash "$script_dir/apply-hermes-workspace-guidance.sh" --user "$target_user"
+
 cat > "$compose_dir/docker-compose.yml" <<EOF
 services:
   openclaw-gateway:

@@ -355,6 +355,14 @@ if docker inspect "$container" >/dev/null 2>&1; then
 
   check "container_korean_file_smoke_ok" \
     docker exec "$container" python3 -c 'from pathlib import Path; p=Path("/tmp/openclaw-korean-smoke"); p.mkdir(exist_ok=True); f=p/"\ud55c\uae00.txt"; f.write_text("\ud55c\uae00 \ud14c\uc2a4\ud2b8\n", encoding="utf-8"); assert f.read_text(encoding="utf-8").strip() == "\ud55c\uae00 \ud14c\uc2a4\ud2b8"; f.unlink(); p.rmdir()'
+
+  if [[ "$runtime_family" == "hermes" ]]; then
+    check "hermes_workspace_guidance_ok" \
+      docker exec "$container" sh -lc 'test -f /workspace/AGENTS.md && grep -q openclaw-hwp-text /workspace/AGENTS.md && grep -q /workspace/nas_docs /workspace/AGENTS.md'
+
+    check "hermes_nas_canonical_alias_ok" \
+      docker exec "$container" sh -lc 'test -d /workspace/nas_docs && test -L /opt/data/nas_docs && test "$(readlink /opt/data/nas_docs)" = /workspace/nas_docs'
+  fi
 else
   fail "container_exists_for_document_baseline"
 fi

@@ -7,7 +7,15 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r11")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r12")
+GEMINI_MODELS = [
+    "gemini-3.1-pro",
+    "gemini-3.1-flash",
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+]
 
 PRETTY_ANCHOR = "{ id: 'anthropic', name: 'Anthropic', kind: 'api_key', envKeys: ['ANTHROPIC_API_KEY'], models: [] },"
 PRETTY_INSERT = (
@@ -27,13 +35,13 @@ SETTINGS_DIALOG_SOURCE_INSERT = SETTINGS_DIALOG_SOURCE_ANCHOR + """
     id: 'gemini',
     name: 'Google Gemini',
     logo: '',
-    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    models: ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
     authType: 'api_key',
     envKey: 'GOOGLE_API_KEY',
   },"""
 SETTINGS_DIALOG_GEMINI_CARD_MIN = (
     "{id:'gemini',name:'Google Gemini',logo:'',"
-    "models:['gemini-2.5-pro','gemini-2.5-flash','gemini-1.5-pro','gemini-1.5-flash'],"
+    "models:['gemini-3.1-pro','gemini-3.1-flash','gemini-2.5-pro','gemini-2.5-flash','gemini-1.5-pro','gemini-1.5-flash'],"
     "authType:'api_key',envKey:'GOOGLE_API_KEY'},"
 )
 SETTINGS_DIALOG_GEMINI_CARD_MIN_DOUBLE = SETTINGS_DIALOG_GEMINI_CARD_MIN.replace("'", '"')
@@ -157,6 +165,10 @@ def fallback_insert_after_anthropic(text: str) -> tuple[str, int]:
     return text, 0
 
 
+def js_array(items: list[str], quote: str) -> str:
+    return ",".join(f"{quote}{item}{quote}" for item in items)
+
+
 def insert_after_object_with_marker(
     text: str,
     marker: str,
@@ -271,21 +283,7 @@ def patch_settings_dialog_cards(text: str) -> tuple[str, int]:
                     + quote
                     + quote
                     + ",models:["
-                    + quote
-                    + "gemini-2.5-pro"
-                    + quote
-                    + ","
-                    + quote
-                    + "gemini-2.5-flash"
-                    + quote
-                    + ","
-                    + quote
-                    + "gemini-1.5-pro"
-                    + quote
-                    + ","
-                    + quote
-                    + "gemini-1.5-flash"
-                    + quote
+                    + js_array(GEMINI_MODELS, quote)
                     + "],authType:"
                     + quote
                     + "api_key"
@@ -317,21 +315,7 @@ def patch_settings_dialog_cards(text: str) -> tuple[str, int]:
                 + quote
                 + quote
                 + ",models:["
-                + quote
-                + "gemini-2.5-pro"
-                + quote
-                + ","
-                + quote
-                + "gemini-2.5-flash"
-                + quote
-                + ","
-                + quote
-                + "gemini-1.5-pro"
-                + quote
-                + ","
-                + quote
-                + "gemini-1.5-flash"
-                + quote
+                + js_array(GEMINI_MODELS, quote)
                 + "],authType:"
                 + quote
                 + "api_key"

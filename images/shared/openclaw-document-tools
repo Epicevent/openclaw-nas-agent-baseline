@@ -7,8 +7,10 @@ OpenClaw document tools
 HWP/HWPX:
   openclaw-hwp-text /workspace/nas_docs/<share>/<file>.hwp
   openclaw-hwp-text /workspace/nas_docs/<share>/<file>.hwpx
+  read-hwp /workspace/nas_docs/<share>/<file>.hwp
 
 Notes:
+  - read_file cannot read .hwp directly; use openclaw-hwp-text from terminal.
   - Do not use pandoc for .hwp files.
   - Use rg/find for plain text files.
   - Use pdftotext for PDF files.

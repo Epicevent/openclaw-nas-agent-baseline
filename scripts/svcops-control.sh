@@ -23,6 +23,8 @@ Usage:
   svcops-control.sh container-logs USER [LINES]
   svcops-control.sh runtime-secret-status USER
   svcops-control.sh handoff-credential USER
+  svcops-control.sh hermes-guidance USER
+  svcops-control.sh hermes-guidance-all START END
   svcops-control.sh image-list
   svcops-control.sh image-release-add REF [NAME]
   svcops-control.sh image-release-verify IMAGE
@@ -1027,6 +1029,35 @@ container_image_id={{.Image}}'
     target_user="$1"
     validate_user "$target_user"
     print_handoff_credential "$target_user"
+    ;;
+
+  hermes-guidance)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    bash "$script_dir/apply-hermes-workspace-guidance.sh" --user "$target_user"
+    ;;
+
+  hermes-guidance-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        bash "$script_dir/apply-hermes-workspace-guidance.sh" --user "$target_user" || failed=1
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
     ;;
 
   image-status-all)

@@ -32,20 +32,31 @@ fi
 
 mkdir -p "$HERMES_HOME" "$HOME" "$HERMES_WORKSPACE_DIR"
 
-OPENCLAW_NAS_CONTAINER_PATH="${OPENCLAW_NAS_CONTAINER_PATH:-/workspace/nas_docs}"
-HERMES_WORKSPACE_NAS_PATH="$HERMES_WORKSPACE_DIR/nas_docs"
-if [ "$OPENCLAW_NAS_CONTAINER_PATH" != "$HERMES_WORKSPACE_NAS_PATH" ] && [ -d "$OPENCLAW_NAS_CONTAINER_PATH" ]; then
-  if [ -L "$HERMES_WORKSPACE_NAS_PATH" ]; then
-    ln -sfn "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
-  elif [ -e "$HERMES_WORKSPACE_NAS_PATH" ]; then
-    if [ -d "$HERMES_WORKSPACE_NAS_PATH" ] && rmdir "$HERMES_WORKSPACE_NAS_PATH" 2>/dev/null; then
-      ln -s "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
+ensure_symlink_to_nas() {
+  target="$1"
+  link="$2"
+  if [ "$target" = "$link" ]; then
+    return 0
+  fi
+  if [ -L "$link" ]; then
+    ln -sfn "$target" "$link"
+  elif [ -e "$link" ]; then
+    if [ -d "$link" ] && rmdir "$link" 2>/dev/null; then
+      ln -s "$target" "$link"
     else
-      echo "WARN hermes_workspace_nas_path_exists=$HERMES_WORKSPACE_NAS_PATH"
+      echo "WARN hermes_nas_alias_path_exists=$link"
     fi
   else
-    ln -s "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
+    ln -s "$target" "$link"
   fi
+}
+
+OPENCLAW_NAS_CONTAINER_PATH="${OPENCLAW_NAS_CONTAINER_PATH:-/workspace/nas_docs}"
+HERMES_WORKSPACE_NAS_PATH="$HERMES_WORKSPACE_DIR/nas_docs"
+if [ -d "$OPENCLAW_NAS_CONTAINER_PATH" ]; then
+  ensure_symlink_to_nas "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
+  ensure_symlink_to_nas "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_HOME/nas_docs"
+  ensure_symlink_to_nas "$OPENCLAW_NAS_CONTAINER_PATH" "$HOME/nas_docs"
 fi
 
 for _ in $(seq 1 90); do
