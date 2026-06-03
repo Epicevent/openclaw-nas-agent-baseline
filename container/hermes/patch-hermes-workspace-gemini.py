@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r9")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r11")
 
 PRETTY_ANCHOR = "{ id: 'anthropic', name: 'Anthropic', kind: 'api_key', envKeys: ['ANTHROPIC_API_KEY'], models: [] },"
 PRETTY_INSERT = (
@@ -422,6 +422,17 @@ def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
         for path in html_root.rglob("index.html"):
             html_files.append(path)
 
+    server_files = []
+    server_entry = root / "server-entry.js"
+    if server_entry.exists():
+        server_files.append(server_entry)
+    for scan_root in (root / ".output", root / "build", root / "dist"):
+        if not scan_root.exists():
+            continue
+        for path in scan_root.rglob("*.js"):
+            if "server" in path.name.lower() or "entry" in path.name.lower():
+                server_files.append(path)
+
     seen: set[Path] = set()
     for path in html_files:
         if path in seen:
@@ -438,6 +449,27 @@ def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
         new_text, count = re.subn(
             r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
             rf"\1?{CACHE_BUST_ID}\2",
+            text,
+        )
+        if count:
+            path.write_text(new_text, encoding="utf-8")
+            patched.append((path, count))
+
+    for path in server_files:
+        if path in seen:
+            continue
+        seen.add(path)
+        if "node_modules" in path.parts or ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if CACHE_BUST_ID in text:
+            continue
+        new_text, count = re.subn(
+            r"(/assets/[^'\"\\<>\s]+?\.(?:js|css))(?![A-Za-z0-9_.-]|\?)",
+            rf"\1?{CACHE_BUST_ID}",
             text,
         )
         if count:
