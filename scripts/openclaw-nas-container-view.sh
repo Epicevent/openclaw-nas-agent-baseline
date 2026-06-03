@@ -104,6 +104,13 @@ fi
 runtime_family="$(docker exec "$container" sh -lc 'printf "%s" "${OPENCLAW_RUNTIME_FAMILY:-openclaw}"' 2>/dev/null || true)"
 runtime_family="${runtime_family:-openclaw}"
 echo "runtime_family=$runtime_family"
+exec_python="python3 -"
+exec_user="root"
+if [[ "$runtime_family" == "hermes" ]]; then
+  exec_user="hermes"
+  exec_python='if command -v s6-setuidgid >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then exec s6-setuidgid hermes python3 -; elif command -v gosu >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then exec gosu hermes python3 -; else exec python3 -; fi'
+fi
+echo "exec_user=$exec_user"
 
 if [[ "$mode" == "tree" ]]; then
   tree_roots="$root_path"
@@ -116,7 +123,7 @@ if [[ "$mode" == "tree" ]]; then
     -e OPENCLAW_NAS_ROOTS="$tree_roots" \
     -e OPENCLAW_NAS_DEPTH="$max_depth" \
     -e OPENCLAW_NAS_LIMIT="$entry_limit" \
-    "$container" python3 - <<'PY'
+    "$container" sh -lc "$exec_python" <<'PY'
 from __future__ import annotations
 
 import json
@@ -298,7 +305,7 @@ docker exec -i \
   -e OPENCLAW_NAS_ROOT="$root_path" \
   -e OPENCLAW_NAS_QUERY="$query" \
   -e OPENCLAW_NAS_LIMIT="$entry_limit" \
-  "$container" python3 - <<'PY'
+  "$container" sh -lc "$exec_python" <<'PY'
 from __future__ import annotations
 
 import json

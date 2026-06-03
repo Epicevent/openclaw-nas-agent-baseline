@@ -83,6 +83,11 @@ config_path="$target_home/.openclaw/openclaw.json"
 nas_mountpoint="$target_home/nas_docs"
 compose_dir="$target_home/openclaw"
 failed=0
+runtime_family="openclaw"
+if [[ -f "$runtime_env_path" ]]; then
+  runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$runtime_env_path" 2>/dev/null || true)"
+  runtime_family="${runtime_family:-openclaw}"
+fi
 
 pass() {
   printf 'PASS %s\n' "$1"
@@ -100,6 +105,25 @@ check() {
     pass "$name"
   else
     fail "$name"
+  fi
+}
+
+container_runtime_sh() {
+  local snippet="$1"
+  shift
+  if [[ "$runtime_family" == "hermes" ]]; then
+    docker exec "$container" sh -lc '
+      user_cmd="$1"
+      shift
+      if command -v s6-setuidgid >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then
+        exec s6-setuidgid hermes sh -c "$user_cmd" sh "$@"
+      elif command -v gosu >/dev/null 2>&1 && id hermes >/dev/null 2>&1; then
+        exec gosu hermes sh -c "$user_cmd" sh "$@"
+      fi
+      exec sh -c "$user_cmd" sh "$@"
+    ' sh "$snippet" "$@"
+  else
+    docker exec "$container" sh -c "$snippet" sh "$@"
   fi
 }
 
@@ -378,7 +402,8 @@ if docker inspect "$container" >/dev/null 2>&1; then
     fi
   fi
 
-  if docker exec "$container" sh -lc 'test -r /home/node/nas_docs'; then
+  echo "INFO container_nas_exec_user=$([[ "$runtime_family" == "hermes" ]] && printf hermes || printf root)"
+  if container_runtime_sh 'test -r /home/node/nas_docs'; then
     pass "container_nas_read_ok"
   else
     fail "container_nas_read_ok"
@@ -391,7 +416,7 @@ if docker inspect "$container" >/dev/null 2>&1; then
     container_nas_failed=0
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$nas_mountpoint" "$nas_mp")"
-      if docker exec "$container" sh -lc 'test -r "$1"' sh "$container_mp"; then
+      if container_runtime_sh 'test -r "$1"' "$container_mp"; then
         :
       else
         container_nas_failed=1
@@ -414,7 +439,7 @@ if docker inspect "$container" >/dev/null 2>&1; then
     fi
   fi
 
-  sample="$(docker exec "$container" sh -lc 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' || echo 0)"
+  sample="$(container_runtime_sh 'find /home/node/nas_docs -maxdepth 1 -mindepth 1 2>/dev/null | head -3 | wc -l' || echo 0)"
   echo "INFO container_nas_sample=$sample"
 else
   fail "container_exists"

@@ -130,6 +130,11 @@ usermod -aG "$data_group" "$runtime_user"
 
 runtime_uid="$(id -u "$runtime_user")"
 runtime_gid="$(id -g "$runtime_user")"
+data_gid="$(getent group "$data_group" | cut -d: -f3)"
+if [[ -z "$data_gid" ]]; then
+  echo "error: could not resolve gid for $data_group" >&2
+  exit 1
+fi
 
 openclaw_assert_managed_slot_prewrite "$target_user"
 
@@ -282,6 +287,7 @@ OPENCLAW_PROXY_PUBLIC_ORIGIN='$origin'
 OPENCLAW_PROXY_ALLOWED_ORIGINS='$origin'
 OPENCLAW_NAS_HOST_PATH='$nas_mount'
 OPENCLAW_NAS_CONTAINER_PATH='/home/node/nas_docs'
+OPENCLAW_NAS_DATA_GID='$data_gid'
 OPENCLAW_EXTRA_MOUNTS='$nas_mount:/home/node/nas_docs:ro'
 HERMES_HOME='/opt/data'
 HERMES_DATA_DIR='/opt/data'
@@ -362,6 +368,8 @@ services:
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 127.0.0.1
       HERMES_API_TOKEN: \${API_SERVER_KEY}
+      OPENCLAW_NAS_CONTAINER_PATH: /home/node/nas_docs
+      OPENCLAW_NAS_DATA_GID: "$data_gid"
       HOME: /opt/data/home
       HOST: 0.0.0.0
       PORT: "3000"
@@ -372,6 +380,8 @@ services:
       LC_ALL: ko_KR.UTF-8
     ports:
       - "127.0.0.1:\${OPENCLAW_BRIDGE_PORT:-$workspace_port}:3000"
+    group_add:
+      - "$data_gid"
     volumes:
       - $hermes_home:/opt/data
       - $hermes_home/workspace:/workspace

@@ -32,6 +32,22 @@ fi
 
 mkdir -p "$HERMES_HOME" "$HOME" "$HERMES_WORKSPACE_DIR"
 
+OPENCLAW_NAS_CONTAINER_PATH="${OPENCLAW_NAS_CONTAINER_PATH:-/home/node/nas_docs}"
+HERMES_WORKSPACE_NAS_PATH="$HERMES_WORKSPACE_DIR/nas_docs"
+if [ -d "$OPENCLAW_NAS_CONTAINER_PATH" ]; then
+  if [ -L "$HERMES_WORKSPACE_NAS_PATH" ]; then
+    ln -sfn "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
+  elif [ -e "$HERMES_WORKSPACE_NAS_PATH" ]; then
+    if [ -d "$HERMES_WORKSPACE_NAS_PATH" ] && rmdir "$HERMES_WORKSPACE_NAS_PATH" 2>/dev/null; then
+      ln -s "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
+    else
+      echo "WARN hermes_workspace_nas_path_exists=$HERMES_WORKSPACE_NAS_PATH"
+    fi
+  else
+    ln -s "$OPENCLAW_NAS_CONTAINER_PATH" "$HERMES_WORKSPACE_NAS_PATH"
+  fi
+fi
+
 for _ in $(seq 1 90); do
   if curl -fsS http://127.0.0.1:8642/health >/dev/null 2>&1; then
     break

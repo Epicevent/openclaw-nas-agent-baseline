@@ -32,13 +32,15 @@ RUN chmod +x /tmp/install-container-baseline.sh \
   && /tmp/install-container-baseline.sh \
   && rm -f /tmp/install-container-baseline.sh \
   && apt-get update \
-  && apt-get install -y --no-install-recommends tini procps gosu python3 \
+  && apt-get install -y --no-install-recommends tini procps gosu passwd python3 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
   && chmod 0755 /usr/local/bin/patch-hermes-workspace-gemini
 
 COPY container/hermes/openclaw-hermes-entrypoint.sh /usr/local/bin/openclaw-hermes-entrypoint
+COPY container/hermes/openclaw-nas-group-init.sh /etc/cont-init.d/10-openclaw-nas-group
 RUN chmod 0755 /usr/local/bin/openclaw-hermes-entrypoint \
+  && chmod 0755 /etc/cont-init.d/10-openclaw-nas-group \
   && mkdir -p /etc/services.d/hermes-workspace \
   && cp /usr/local/bin/openclaw-hermes-entrypoint /etc/services.d/hermes-workspace/run \
   && chmod -R a+rX /opt/hermes-workspace
