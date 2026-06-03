@@ -7,12 +7,39 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r6")
 
 PRETTY_ANCHOR = "{ id: 'anthropic', name: 'Anthropic', kind: 'api_key', envKeys: ['ANTHROPIC_API_KEY'], models: [] },"
 PRETTY_INSERT = (
     PRETTY_ANCHOR
     + "\n  { id: 'gemini', name: 'Google Gemini', kind: 'api_key', envKeys: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'], models: [] },"
 )
+SETTINGS_DIALOG_SOURCE_ANCHOR = """  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    logo: '/providers/anthropic.png',
+    models: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-3-5'],
+    authType: 'api_key',
+    envKey: 'ANTHROPIC_API_KEY',
+  },"""
+SETTINGS_DIALOG_SOURCE_INSERT = SETTINGS_DIALOG_SOURCE_ANCHOR + """
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    logo: '',
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    authType: 'api_key',
+    envKey: 'GOOGLE_API_KEY',
+  },"""
+SETTINGS_DIALOG_GEMINI_CARD_MIN = (
+    "{id:'gemini',name:'Google Gemini',logo:'',"
+    "models:['gemini-2.5-pro','gemini-2.5-flash','gemini-1.5-pro','gemini-1.5-flash'],"
+    "authType:'api_key',envKey:'GOOGLE_API_KEY'},"
+)
+SETTINGS_DIALOG_GEMINI_CARD_MIN_DOUBLE = SETTINGS_DIALOG_GEMINI_CARD_MIN.replace("'", '"')
+SETTINGS_PROVIDER_OPTION = "{ label: 'Google Gemini', value: 'gemini' },"
+SETTINGS_PROVIDER_OPTION_MIN = "{label:'Google Gemini',value:'gemini'},"
+SETTINGS_PROVIDER_OPTION_MIN_DOUBLE = SETTINGS_PROVIDER_OPTION_MIN.replace("'", '"')
 
 PATTERNS = [
     (
@@ -34,6 +61,40 @@ PATTERNS = [
         ),
         "double",
     ),
+]
+
+SETTINGS_DIALOG_CARD_PATTERNS = [
+    (
+        re.compile(
+            r"(\{\s*id\s*:\s*(['\"])anthropic\2\s*,\s*name\s*:\s*(['\"])Anthropic\3\s*,\s*logo\s*:\s*(['\"])/providers/anthropic\.png\4\s*,\s*models\s*:\s*\[[^\]]+\]\s*,\s*authType\s*:\s*(['\"])api_key\5\s*,\s*envKey\s*:\s*(['\"])ANTHROPIC_API_KEY\6\s*\}\s*,)",
+            re.MULTILINE,
+        ),
+        "flexible",
+    ),
+    (
+        re.compile(
+            r"(\{id:'anthropic',name:'Anthropic',logo:'/providers/anthropic\.png',models:\[[^\]]+\],authType:'api_key',envKey:'ANTHROPIC_API_KEY'\},)"
+        ),
+        "single",
+    ),
+    (
+        re.compile(
+            r'(\{id:"anthropic",name:"Anthropic",logo:"/providers/anthropic\.png",models:\[[^\]]+\],authType:"api_key",envKey:"ANTHROPIC_API_KEY"\},)'
+        ),
+        "double",
+    ),
+]
+
+SETTINGS_PROVIDER_OPTION_PATTERNS = [
+    (
+        re.compile(
+            r"(\{\s*label\s*:\s*(['\"])Anthropic\2\s*,\s*value\s*:\s*(['\"])anthropic\3\s*\}\s*,)",
+            re.MULTILINE,
+        ),
+        "flexible",
+    ),
+    (re.compile(r"(\{label:'Anthropic',value:'anthropic'\},)"), "single"),
+    (re.compile(r'(\{label:"Anthropic",value:"anthropic"\},)'), "double"),
 ]
 
 
@@ -91,15 +152,39 @@ def fallback_insert_after_anthropic(text: str) -> tuple[str, int]:
     return text, 0
 
 
-def patch_file(path: Path) -> int:
-    try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return 0
+def insert_after_object_with_marker(
+    text: str,
+    marker: str,
+    required_fragments: tuple[str, ...],
+    insert_builder,
+) -> tuple[str, int]:
+    marker_index = text.find(marker)
+    while marker_index >= 0:
+        start = text.rfind("{", 0, marker_index)
+        end = text.find("}", marker_index)
+        if start >= 0 and end >= 0:
+            window = text[start : end + 1]
+            if all(fragment in window for fragment in required_fragments):
+                quote = '"' if f'"{marker}"' in window else "'"
+                insert_at = end + 1
+                suffix = ""
+                if insert_at < len(text) and text[insert_at] == ",":
+                    insert_at += 1
+                else:
+                    suffix = ","
+                return (
+                    text[:insert_at] + insert_builder(quote) + suffix + text[insert_at:],
+                    1,
+                )
+        marker_index = text.find(marker, marker_index + 1)
+    return text, 0
+
+
+def patch_server_provider_catalog(text: str) -> tuple[str, int]:
     if "Google Gemini" in text and ("GEMINI_API_KEY" in text or "GOOGLE_API_KEY" in text):
-        return 0
+        return text, 0
     if "ANTHROPIC_API_KEY" not in text or "OPENROUTER_API_KEY" not in text:
-        return 0
+        return text, 0
 
     changed = 0
     new_text = text
@@ -144,9 +229,196 @@ def patch_file(path: Path) -> int:
         new_text, count = fallback_insert_after_anthropic(new_text)
         changed += count
 
+    return new_text, changed
+
+
+def patch_settings_dialog_cards(text: str) -> tuple[str, int]:
+    if "Google Gemini" in text and "GOOGLE_API_KEY" in text and "PROVIDER_CARDS" in text:
+        return text, 0
+    if "PROVIDER_CARDS" not in text:
+        return text, 0
+    if "ANTHROPIC_API_KEY" not in text or "XIAOMI_API_KEY" not in text:
+        return text, 0
+
+    changed = 0
+    new_text = text
+    if SETTINGS_DIALOG_SOURCE_ANCHOR in new_text:
+        new_text = new_text.replace(SETTINGS_DIALOG_SOURCE_ANCHOR, SETTINGS_DIALOG_SOURCE_INSERT, 1)
+        changed += 1
+
+    if not changed:
+        for pattern, style in SETTINGS_DIALOG_CARD_PATTERNS:
+            def replace(match: re.Match[str]) -> str:
+                if style == "double":
+                    return match.group(1) + SETTINGS_DIALOG_GEMINI_CARD_MIN_DOUBLE
+                if style == "single":
+                    return match.group(1) + SETTINGS_DIALOG_GEMINI_CARD_MIN
+                quote = match.group(2)
+                return (
+                    match.group(1)
+                    + "{id:"
+                    + quote
+                    + "gemini"
+                    + quote
+                    + ",name:"
+                    + quote
+                    + "Google Gemini"
+                    + quote
+                    + ",logo:"
+                    + quote
+                    + quote
+                    + ",models:["
+                    + quote
+                    + "gemini-2.5-pro"
+                    + quote
+                    + ","
+                    + quote
+                    + "gemini-2.5-flash"
+                    + quote
+                    + ","
+                    + quote
+                    + "gemini-1.5-pro"
+                    + quote
+                    + ","
+                    + quote
+                    + "gemini-1.5-flash"
+                    + quote
+                    + "],authType:"
+                    + quote
+                    + "api_key"
+                    + quote
+                    + ",envKey:"
+                    + quote
+                    + "GOOGLE_API_KEY"
+                    + quote
+                    + "},"
+                )
+
+            new_text, count = pattern.subn(replace, new_text, count=1)
+            changed += count
+            if count:
+                break
+
+    if not changed:
+        def build_gemini_card(quote: str) -> str:
+            return (
+                "{id:"
+                + quote
+                + "gemini"
+                + quote
+                + ",name:"
+                + quote
+                + "Google Gemini"
+                + quote
+                + ",logo:"
+                + quote
+                + quote
+                + ",models:["
+                + quote
+                + "gemini-2.5-pro"
+                + quote
+                + ","
+                + quote
+                + "gemini-2.5-flash"
+                + quote
+                + ","
+                + quote
+                + "gemini-1.5-pro"
+                + quote
+                + ","
+                + quote
+                + "gemini-1.5-flash"
+                + quote
+                + "],authType:"
+                + quote
+                + "api_key"
+                + quote
+                + ",envKey:"
+                + quote
+                + "GOOGLE_API_KEY"
+                + quote
+                + "},"
+            )
+
+        new_text, count = insert_after_object_with_marker(
+            new_text,
+            "ANTHROPIC_API_KEY",
+            ("anthropic", "Anthropic", "api_key", "envKey"),
+            build_gemini_card,
+        )
+        changed += count
+
+    return new_text, changed
+
+
+def patch_settings_provider_options(text: str) -> tuple[str, int]:
+    if "Google Gemini" in text and "MODEL_PROVIDER_OPTIONS" in text:
+        return text, 0
+    if "MODEL_PROVIDER_OPTIONS" not in text or "ModelProviderOption" not in text:
+        return text, 0
+
+    changed = 0
+    new_text = text
+    new_text, count = re.subn(
+        r"(type\s+ModelProviderOption\s*=\s*[^;\n]*'anthropic')",
+        r"\1 | 'gemini'",
+        new_text,
+        count=1,
+    )
+    changed += count
+    for pattern, style in SETTINGS_PROVIDER_OPTION_PATTERNS:
+        def replace(match: re.Match[str]) -> str:
+            if style == "double":
+                return match.group(1) + SETTINGS_PROVIDER_OPTION_MIN_DOUBLE
+            if style == "single":
+                return match.group(1) + SETTINGS_PROVIDER_OPTION_MIN
+            return match.group(1) + "\n  " + SETTINGS_PROVIDER_OPTION
+
+        new_text, count = pattern.subn(replace, new_text, count=1)
+        changed += count
+        if count:
+            break
+    return new_text, changed
+
+
+def patch_file(path: Path) -> int:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return 0
+    new_text = text
+    changed = 0
+    for patcher in (
+        patch_server_provider_catalog,
+        patch_settings_dialog_cards,
+        patch_settings_provider_options,
+    ):
+        new_text, count = patcher(new_text)
+        changed += count
+
     if changed:
         path.write_text(new_text, encoding="utf-8")
     return changed
+
+
+def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
+    patched: list[tuple[Path, int]] = []
+    for path in root.rglob("index.html"):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if CACHE_BUST_ID in text:
+            continue
+        new_text, count = re.subn(
+            r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
+            rf"\1?{CACHE_BUST_ID}\2",
+            text,
+        )
+        if count:
+            path.write_text(new_text, encoding="utf-8")
+            patched.append((path, count))
+    return patched
 
 
 def main() -> int:
@@ -158,6 +430,7 @@ def main() -> int:
         count = patch_file(path)
         if count:
             patched.append((path, count))
+    patched.extend(patch_client_cache_bust(ROOT))
 
     for path, count in patched:
         print(f"patched={path} replacements={count}")
