@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r8")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r9")
 
 PRETTY_ANCHOR = "{ id: 'anthropic', name: 'Anthropic', kind: 'api_key', envKeys: ['ANTHROPIC_API_KEY'], models: [] },"
 PRETTY_INSERT = (
@@ -406,6 +406,10 @@ def patch_file(path: Path) -> int:
 
 def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
     patched: list[tuple[Path, int]] = []
+    html_files = []
+    root_index = root / "index.html"
+    if root_index.exists():
+        html_files.append(root_index)
     html_roots = [
         root / "dist",
         root / "build",
@@ -416,23 +420,62 @@ def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
         if not html_root.exists():
             continue
         for path in html_root.rglob("index.html"):
-            if "node_modules" in path.parts or ".git" in path.parts:
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            if CACHE_BUST_ID in text:
-                continue
-            new_text, count = re.subn(
-                r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
-                rf"\1?{CACHE_BUST_ID}\2",
-                text,
-            )
-            if count:
-                path.write_text(new_text, encoding="utf-8")
-                patched.append((path, count))
+            html_files.append(path)
+
+    seen: set[Path] = set()
+    for path in html_files:
+        if path in seen:
+            continue
+        seen.add(path)
+        if "node_modules" in path.parts or ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if CACHE_BUST_ID in text:
+            continue
+        new_text, count = re.subn(
+            r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
+            rf"\1?{CACHE_BUST_ID}\2",
+            text,
+        )
+        if count:
+            path.write_text(new_text, encoding="utf-8")
+            patched.append((path, count))
     return patched
+
+
+def gemini_patch_already_present(root: Path) -> bool:
+    provider_present = False
+    cache_bust_present = False
+
+    for path in candidate_files(root):
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if "Google Gemini" in text and "GOOGLE_API_KEY" in text:
+            provider_present = True
+            break
+
+    html_files = [root / "index.html"]
+    for html_root in (root / "dist", root / "build", root / ".output", root / "public"):
+        if html_root.exists():
+            html_files.extend(html_root.rglob("index.html"))
+
+    for path in html_files:
+        if "node_modules" in path.parts or ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if CACHE_BUST_ID in text:
+            cache_bust_present = True
+            break
+
+    return provider_present and cache_bust_present
 
 
 def main() -> int:
@@ -448,6 +491,10 @@ def main() -> int:
 
     for path, count in patched:
         print(f"patched={path} replacements={count}")
+
+    if not patched and gemini_patch_already_present(ROOT):
+        print("hermes_workspace_gemini_provider_patch=already_present")
+        return 0
 
     if not patched:
         print("error: no Hermes Workspace provider catalog patched")
