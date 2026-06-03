@@ -101,9 +101,19 @@ if [[ "$container_status" != "running" ]]; then
   exit 1
 fi
 
+runtime_family="$(docker exec "$container" sh -lc 'printf "%s" "${OPENCLAW_RUNTIME_FAMILY:-openclaw}"' 2>/dev/null || true)"
+runtime_family="${runtime_family:-openclaw}"
+echo "runtime_family=$runtime_family"
+
 if [[ "$mode" == "tree" ]]; then
+  tree_roots="$root_path"
+  if [[ "$runtime_family" == "hermes" ]]; then
+    tree_roots="/workspace/nas_docs|$root_path"
+    echo "workspace_root=/workspace/nas_docs"
+  fi
   docker exec -i \
     -e OPENCLAW_NAS_ROOT="$root_path" \
+    -e OPENCLAW_NAS_ROOTS="$tree_roots" \
     -e OPENCLAW_NAS_DEPTH="$max_depth" \
     -e OPENCLAW_NAS_LIMIT="$entry_limit" \
     "$container" python3 - <<'PY'
@@ -115,7 +125,8 @@ import re
 import stat
 from pathlib import Path, PurePosixPath
 
-root = Path(os.environ["OPENCLAW_NAS_ROOT"])
+root_paths = [Path(item) for item in os.environ.get("OPENCLAW_NAS_ROOTS", os.environ["OPENCLAW_NAS_ROOT"]).split("|") if item]
+root = root_paths[0]
 max_depth = int(os.environ["OPENCLAW_NAS_DEPTH"])
 limit = int(os.environ["OPENCLAW_NAS_LIMIT"])
 
@@ -175,12 +186,18 @@ def clean_path(path: Path) -> str:
     return str(PurePosixPath(str(root), *parts))
 
 
+def view_name(path: Path) -> str:
+    if str(path).startswith("/workspace/"):
+        return "workspace"
+    return "container"
+
+
 def emit(kind: str, depth: int, path: Path, **extra: object) -> None:
     global reported, omitted
     if reported >= limit:
         omitted += 1
         return
-    row = {"kind": kind, "depth": depth, "path": clean_path(path)}
+    row = {"kind": kind, "depth": depth, "path": clean_path(path), "view": view_name(root)}
     row.update(extra)
     print("TREE " + json.dumps(row, ensure_ascii=False, sort_keys=True))
     reported += 1
@@ -249,19 +266,29 @@ def walk(path: Path, depth: int) -> None:
             emit(kind, depth + 1, entry, state=kind)
 
 
-if not root.exists():
-    print("root_state=missing")
-    print("tree_status=missing")
-    raise SystemExit(1)
-if not root.is_dir():
-    print("root_state=not_directory")
-    print("tree_status=not_directory")
-    raise SystemExit(1)
+primary_failed = False
+for index, next_root in enumerate(root_paths):
+    root = next_root
+    label = view_name(root)
+    print(f"{label}_root={root}")
+    if not root.exists():
+        print(f"{label}_root_state=missing")
+        if index == 0:
+            primary_failed = True
+        continue
+    if not root.is_dir():
+        print(f"{label}_root_state=not_directory")
+        if index == 0:
+            primary_failed = True
+        continue
 
-print("root_state=visible")
-walk(root, 0)
+    print(f"{label}_root_state=visible")
+    walk(root, 0)
 print(f"tree_entries_reported={reported}")
 print(f"tree_entries_omitted={omitted}")
+if primary_failed:
+    print("tree_status=missing")
+    raise SystemExit(1)
 print("tree_status=ok" if omitted == 0 else "tree_status=truncated")
 PY
   exit $?

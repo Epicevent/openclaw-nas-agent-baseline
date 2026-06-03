@@ -1322,6 +1322,7 @@ def html_page(csrf: str) -> str:
         const kind = row.kind || "unknown";
         const isDir = kind === "dir" || kind === "root";
         const parts = [];
+        if (row.view) parts.push(row.view);
         if (row.state) parts.push(row.state);
         if (row.mount_state) parts.push(row.mount_state);
         if (row.fstype) parts.push(row.fstype);

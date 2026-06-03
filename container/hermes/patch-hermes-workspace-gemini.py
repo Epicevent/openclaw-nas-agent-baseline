@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r6")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r7")
 
 PRETTY_ANCHOR = "{ id: 'anthropic', name: 'Anthropic', kind: 'api_key', envKeys: ['ANTHROPIC_API_KEY'], models: [] },"
 PRETTY_INSERT = (
@@ -103,6 +103,9 @@ def candidate_files(root: Path):
     roots = [
         root / "server-entry.js",
         root / "dist",
+        root / "build",
+        root / ".output",
+        root / "public",
         root / "src",
         root / "electron",
     ]
@@ -115,6 +118,8 @@ def candidate_files(root: Path):
             if path in seen:
                 continue
             seen.add(path)
+            if "node_modules" in path.parts or ".git" in path.parts:
+                continue
             if not path.is_file() or path.suffix not in suffixes:
                 continue
             try:
@@ -233,9 +238,7 @@ def patch_server_provider_catalog(text: str) -> tuple[str, int]:
 
 
 def patch_settings_dialog_cards(text: str) -> tuple[str, int]:
-    if "Google Gemini" in text and "GOOGLE_API_KEY" in text and "PROVIDER_CARDS" in text:
-        return text, 0
-    if "PROVIDER_CARDS" not in text:
+    if "Google Gemini" in text and "GOOGLE_API_KEY" in text:
         return text, 0
     if "ANTHROPIC_API_KEY" not in text or "XIAOMI_API_KEY" not in text:
         return text, 0
@@ -403,21 +406,32 @@ def patch_file(path: Path) -> int:
 
 def patch_client_cache_bust(root: Path) -> list[tuple[Path, int]]:
     patched: list[tuple[Path, int]] = []
-    for path in root.rglob("index.html"):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+    html_roots = [
+        root / "dist",
+        root / "build",
+        root / ".output",
+        root / "public",
+    ]
+    for html_root in html_roots:
+        if not html_root.exists():
             continue
-        if CACHE_BUST_ID in text:
-            continue
-        new_text, count = re.subn(
-            r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
-            rf"\1?{CACHE_BUST_ID}\2",
-            text,
-        )
-        if count:
-            path.write_text(new_text, encoding="utf-8")
-            patched.append((path, count))
+        for path in html_root.rglob("index.html"):
+            if "node_modules" in path.parts or ".git" in path.parts:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+            if CACHE_BUST_ID in text:
+                continue
+            new_text, count = re.subn(
+                r"((?:src|href)=['\"]/assets/[^'\"\?]+?\.(?:js|css))(['\"])",
+                rf"\1?{CACHE_BUST_ID}\2",
+                text,
+            )
+            if count:
+                path.write_text(new_text, encoding="utf-8")
+                patched.append((path, count))
     return patched
 
 
