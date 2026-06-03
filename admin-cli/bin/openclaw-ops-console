@@ -1033,7 +1033,7 @@ def html_page(csrf: str) -> str:
             <button onclick="runSlotAction('nas-search-smoke')">검색 확인</button>
           </div>
         </div>
-        <div id="nasTreeMeta" class="muted">OpenClaw 컨테이너가 실제로 보는 /home/node/nas_docs 기준입니다.</div>
+        <div id="nasTreeMeta" class="muted">선택한 슬롯의 컨테이너 NAS 기준 경로를 불러옵니다.</div>
         <div id="nasTree" class="nas-tree"></div>
       </div>
       <div class="detail-grid">
@@ -1272,7 +1272,7 @@ def html_page(csrf: str) -> str:
         <div class="slot-card"><div class="label">Expected image</div><div class="value">${{escapeHtml(item.expected_image_name || item.image_name || "-")}}</div><div class="subline">${{escapeHtml(item.expected_image_status || item.image_channel || "")}}</div></div>
         <div class="slot-card"><div class="label">Image check</div><div class="value">${{escapeHtml(item.actual_image_line || "-")}}</div><div class="subline">${{escapeHtml(item.expected_image_ref || item.image_tag || "")}}</div></div>
       `;
-      document.getElementById("nasTreeMeta").textContent = "OpenClaw 컨테이너가 실제로 보는 /home/node/nas_docs 기준입니다.";
+      document.getElementById("nasTreeMeta").textContent = "선택한 슬롯의 컨테이너 NAS 기준 경로를 불러옵니다.";
       document.getElementById("nasTree").innerHTML = "";
     }}
 

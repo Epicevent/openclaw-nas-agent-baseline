@@ -386,7 +386,6 @@ services:
       - $hermes_home:/opt/data
       - $hermes_home/workspace:/workspace
       - $nas_mount:/workspace/nas_docs:ro
-      - $nas_mount:/opt/data/nas_docs:ro
       - $nas_mount:/home/node/nas_docs:ro
     working_dir: /opt/data/home
 EOF

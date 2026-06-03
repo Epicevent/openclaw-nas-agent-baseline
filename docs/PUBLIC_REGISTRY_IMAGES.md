@@ -65,7 +65,6 @@ mounted read-only into the same container at:
 
 ```text
 /workspace/nas_docs
-/opt/data/nas_docs
 /home/node/nas_docs
 ```
 
