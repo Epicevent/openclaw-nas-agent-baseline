@@ -24,6 +24,7 @@ env:
 jobs:
   publish:
     name: Build and push hermes-workspace-20260602-r11
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish-hermes]') }}
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout baseline repo

@@ -26,6 +26,7 @@ env:
 jobs:
   publish:
     name: Build and push dashboard-20260602-r1
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish-openclaw]') }}
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout baseline repo

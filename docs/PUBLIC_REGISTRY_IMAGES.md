@@ -29,6 +29,17 @@ The public image is built and pushed by GitHub Actions:
 .github/workflows/publish-hermes-nas-agent-image.yml
 ```
 
+Image builds are explicit release actions. A push may touch image source files,
+but the build job runs only when the last commit message asks for that image, or
+when the workflow is run manually.
+
+```text
+[publish-openclaw] build and push the OpenClaw dashboard image
+[publish-hermes]   build and push the Hermes workspace image
+```
+
+Do not put both markers in one commit.
+
 The `dashboard-20260602-r1` image uses the overlay in:
 
 ```text
