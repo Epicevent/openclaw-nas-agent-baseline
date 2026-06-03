@@ -5,7 +5,7 @@
 #     --build-arg BASE_IMAGE=nousresearch/hermes-agent:latest \
 #     --build-arg HERMES_WORKSPACE_IMAGE=ghcr.io/outsourc-e/hermes-workspace:latest \
 #     -t ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-YYYYMMDD-rN \
-#     -f container/hermes/Dockerfile .
+#     -f images/hermes-workspace/Dockerfile .
 #
 # The final image contains:
 #   - Hermes Agent gateway/runtime from BASE_IMAGE
@@ -25,14 +25,14 @@ COPY --from=hermes_workspace /usr/local/bin/npm /usr/local/bin/npm
 COPY --from=hermes_workspace /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=hermes_workspace /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=hermes_workspace /app /opt/hermes-workspace
-COPY container/hermes/patch-hermes-workspace-gemini.py /usr/local/bin/patch-hermes-workspace-gemini
-COPY container/openclaw-hwp-text.py /usr/local/bin/openclaw-hwp-text
-COPY container/openclaw-document-tools /usr/local/bin/openclaw-document-tools
+COPY images/hermes-workspace/patch-hermes-workspace-gemini.py /usr/local/bin/patch-hermes-workspace-gemini
+COPY images/shared/openclaw-hwp-text.py /usr/local/bin/openclaw-hwp-text
+COPY images/shared/openclaw-document-tools /usr/local/bin/openclaw-document-tools
 
-COPY container/install-container-baseline.sh /tmp/install-container-baseline.sh
-RUN chmod +x /tmp/install-container-baseline.sh \
-  && /tmp/install-container-baseline.sh \
-  && rm -f /tmp/install-container-baseline.sh \
+COPY images/shared/install-document-baseline.sh /tmp/install-document-baseline.sh
+RUN chmod +x /tmp/install-document-baseline.sh \
+  && /tmp/install-document-baseline.sh \
+  && rm -f /tmp/install-document-baseline.sh \
   && apt-get update \
   && apt-get install -y --no-install-recommends tini procps gosu passwd python3 \
   && apt-get clean \
@@ -42,8 +42,8 @@ RUN chmod +x /tmp/install-container-baseline.sh \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp-read \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp2txt
 
-COPY container/hermes/openclaw-hermes-entrypoint.sh /usr/local/bin/openclaw-hermes-entrypoint
-COPY container/hermes/openclaw-nas-group-init.sh /etc/cont-init.d/10-openclaw-nas-group
+COPY images/hermes-workspace/openclaw-hermes-entrypoint.sh /usr/local/bin/openclaw-hermes-entrypoint
+COPY images/hermes-workspace/openclaw-nas-group-init.sh /etc/cont-init.d/10-openclaw-nas-group
 RUN chmod 0755 /usr/local/bin/openclaw-hermes-entrypoint \
   && chmod 0755 /etc/cont-init.d/10-openclaw-nas-group \
   && mkdir -p /etc/services.d/hermes-workspace \

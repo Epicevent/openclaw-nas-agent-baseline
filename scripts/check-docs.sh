@@ -67,4 +67,18 @@ else
   pass "removed_local_image_build_reference_absent"
 fi
 
+if [[ -d "$repo_root/container" ]]; then
+  fail "legacy_container_directory_present"
+else
+  pass "legacy_container_directory_absent"
+fi
+
+container_refs="$(grep -RIn 'container/' "$repo_root/README.md" "$repo_root/docs" "$repo_root/.github" --include='*.md' --include='*.yml' --include='*.yaml' 2>/dev/null || true)"
+if printf '%s\n' "$container_refs" | grep -q .; then
+  printf '%s\n' "$container_refs"
+  fail "legacy_container_reference_present"
+else
+  pass "legacy_container_reference_absent"
+fi
+
 exit "$failed"

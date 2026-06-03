@@ -2,16 +2,6 @@ name: Publish OpenClaw NAS Agent Image
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/publish-openclaw-nas-agent-image.yml"
-      - "container/Dockerfile"
-      - "container/install-container-baseline.sh"
-      - "container/openclaw-document-tools"
-      - "container/openclaw-hwp-text.py"
-      - "container/openclaw-overlays/dashboard-20260602-r1/**"
 
 permissions:
   contents: read
@@ -21,12 +11,11 @@ env:
   IMAGE_REF: ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1
   OPENCLAW_REPO: https://github.com/openclaw/openclaw.git
   OPENCLAW_COMMIT: 989e53c20d395d3c8bf47efc21fdb9d56e7227b0
-  OVERLAY_DIR: container/openclaw-overlays/dashboard-20260602-r1/files
+  OVERLAY_DIR: images/openclaw-overlays/dashboard-20260602-r1/files
 
 jobs:
   publish:
     name: Build and push dashboard-20260602-r1
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish-openclaw]') }}
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout baseline repo
@@ -79,7 +68,7 @@ jobs:
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.title=OpenClaw NAS Agent dashboard-20260602-r1" \
             -t "$IMAGE_REF" \
-            -f container/Dockerfile .
+            -f images/openclaw-nas-agent/Dockerfile .
 
       - name: Check final image for baked secrets
         shell: bash

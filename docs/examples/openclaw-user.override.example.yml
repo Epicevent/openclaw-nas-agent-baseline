@@ -2,7 +2,7 @@
 # each OpenClaw account container.
 #
 # Required pieces for a containerized OpenClaw account:
-#   1. image built from container/Dockerfile
+#   1. image built from images/openclaw-nas-agent/Dockerfile
 #   2. user-specific NAS bind mount
 #   3. user-specific OpenClaw home/workspace bind mount
 #

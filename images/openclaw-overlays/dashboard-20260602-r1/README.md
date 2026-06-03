@@ -15,7 +15,7 @@ commit=989e53c20d395d3c8bf47efc21fdb9d56e7227b0
 
 The overlay is copied onto the OpenClaw source tree before building the
 OpenClaw runtime image. The NAS Agent document baseline is then applied as a
-second image layer with `container/Dockerfile`.
+second image layer with `images/openclaw-nas-agent/Dockerfile`.
 
 Do not store runtime secrets, NAS credentials, gateway tokens, customer
 documents, slot registries, or server `.env` files in this directory.

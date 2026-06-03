@@ -22,28 +22,21 @@ ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260602-r1
 
 ## Release Flow
 
-The public image is built and pushed by GitHub Actions:
+The public image is built and pushed by manually run GitHub Actions:
 
 ```text
 .github/workflows/publish-openclaw-nas-agent-image.yml
 .github/workflows/publish-hermes-nas-agent-image.yml
 ```
 
-Image builds are explicit release actions. A push may touch image source files,
-but the build job runs only when the last commit message asks for that image, or
-when the workflow is run manually.
-
-```text
-[publish-openclaw] build and push the OpenClaw dashboard image
-[publish-hermes]   build and push the Hermes workspace image
-```
-
-Do not put both markers in one commit.
+Normal pushes do not build or push images from this repository. Push-based image
+CI belongs in a future image-release repository, not in the host operations
+package.
 
 The `dashboard-20260602-r1` image uses the overlay in:
 
 ```text
-container/openclaw-overlays/dashboard-20260602-r1
+images/openclaw-overlays/dashboard-20260602-r1
 ```
 
 The `hermes-workspace-20260602-r1` image is an integrated Hermes image. It uses

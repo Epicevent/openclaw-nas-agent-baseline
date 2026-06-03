@@ -117,6 +117,7 @@ prune_installed_package() {
     container \
     docs \
     examples \
+    images \
     openclaw \
     scripts; do
     rm -rf -- "$prefix/$path"
@@ -299,7 +300,8 @@ EOF
 tar -C "$script_dir" --exclude-from="$tmp_exclude" -cf - . | tar -C "$prefix" -xf -
 
 chmod +x "$prefix/install.sh" 2>/dev/null || true
-find "$prefix/container" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+find "$prefix/images" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+find "$prefix/images" -type f -name '*.py' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/scripts" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/scripts" -type f -name '*.py' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/admin-cli/bin" -type f -exec chmod +x {} + 2>/dev/null || true

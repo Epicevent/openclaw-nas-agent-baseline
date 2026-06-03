@@ -2,15 +2,6 @@ name: Publish Hermes NAS Agent Image
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/publish-hermes-nas-agent-image.yml"
-      - "container/hermes/**"
-      - "container/install-container-baseline.sh"
-      - "container/openclaw-document-tools"
-      - "container/openclaw-hwp-text.py"
 
 permissions:
   contents: read
@@ -24,7 +15,6 @@ env:
 jobs:
   publish:
     name: Build and push hermes-workspace-20260602-r11
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish-hermes]') }}
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout baseline repo
@@ -49,7 +39,7 @@ jobs:
             --label "org.opencontainers.image.workspace.name=$HERMES_WORKSPACE_IMAGE" \
             --label "org.opencontainers.image.title=OpenClaw NAS Agent Hermes hermes-workspace-20260602-r11" \
             -t "$IMAGE_REF" \
-            -f container/hermes/Dockerfile .
+            -f images/hermes-workspace/Dockerfile .
 
       - name: Check final image for baked secrets
         shell: bash
