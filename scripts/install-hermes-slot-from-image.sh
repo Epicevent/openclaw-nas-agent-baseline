@@ -144,9 +144,36 @@ if [[ "$force" -eq 1 ]]; then
 fi
 docker rm -f "$legacy_workspace_container" >/dev/null 2>&1 || true
 
-mkdir -p "$compose_dir" "$hermes_home" "$hermes_home/home" "$hermes_home/nas_docs" "$hermes_home/workspace"
+ensure_hermes_nas_alias() {
+  local alias_path="$hermes_home/nas_docs" target="/workspace/nas_docs" existing_target
+  if [[ -L "$alias_path" ]]; then
+    existing_target="$(readlink "$alias_path")"
+    if [[ "$existing_target" != "$target" ]]; then
+      echo "error: unexpected Hermes NAS alias target: $alias_path -> $existing_target" >&2
+      exit 1
+    fi
+  elif [[ -e "$alias_path" ]]; then
+    if [[ -d "$alias_path" ]]; then
+      if find "$alias_path" -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+        echo "error: Hermes NAS alias directory is not empty: $alias_path" >&2
+        exit 1
+      fi
+      rmdir "$alias_path"
+      ln -s "$target" "$alias_path"
+    else
+      echo "error: Hermes NAS alias path is not a directory or symlink: $alias_path" >&2
+      exit 1
+    fi
+  else
+    ln -s "$target" "$alias_path"
+  fi
+  chown -h "$runtime_user:$data_group" "$alias_path" 2>/dev/null || true
+}
+
+mkdir -p "$compose_dir" "$hermes_home" "$hermes_home/home" "$hermes_home/workspace"
+ensure_hermes_nas_alias
 chown -R "$runtime_user:$data_group" "$hermes_home"
-chmod 0750 "$hermes_home" "$hermes_home/home" "$hermes_home/nas_docs" "$hermes_home/workspace"
+chmod 0750 "$hermes_home" "$hermes_home/home" "$hermes_home/workspace"
 chown root:root "$compose_dir"
 chmod 0755 "$compose_dir"
 
