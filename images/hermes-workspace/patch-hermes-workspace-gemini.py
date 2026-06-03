@@ -8,11 +8,9 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r15")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r16")
 MODEL_PICKER_MARKER = "OPENCLAW_HERMES_MODEL_PICKER_PATCH"
 GEMINI_MODELS = [
-    "gemini-3.1-pro",
-    "gemini-3.1-flash",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-1.5-pro",
@@ -37,13 +35,13 @@ SETTINGS_DIALOG_SOURCE_INSERT = SETTINGS_DIALOG_SOURCE_ANCHOR + """
     id: 'gemini',
     name: 'Google Gemini',
     logo: '',
-    models: ['gemini-3.1-pro', 'gemini-3.1-flash', 'gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    models: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
     authType: 'api_key',
     envKey: 'GOOGLE_API_KEY',
   },"""
 SETTINGS_DIALOG_GEMINI_CARD_MIN = (
     "{id:'gemini',name:'Google Gemini',logo:'',"
-    "models:['gemini-3.1-pro','gemini-3.1-flash','gemini-2.5-pro','gemini-2.5-flash','gemini-1.5-pro','gemini-1.5-flash'],"
+    "models:['gemini-2.5-pro','gemini-2.5-flash','gemini-1.5-pro','gemini-1.5-flash'],"
     "authType:'api_key',envKey:'GOOGLE_API_KEY'},"
 )
 SETTINGS_DIALOG_GEMINI_CARD_MIN_DOUBLE = SETTINGS_DIALOG_GEMINI_CARD_MIN.replace("'", '"')
@@ -504,7 +502,7 @@ def patch_settings_provider_options(text: str) -> tuple[str, int]:
 def patch_client_model_picker_bundle(text: str) -> tuple[str, int]:
     if MODEL_PICKER_MARKER in text:
         return text, 0
-    if "Model & Provider" not in text or "gemini-3.1-pro" not in text:
+    if "Model & Provider" not in text or "gemini-2.5-pro" not in text:
         return text, 0
     if not any(
         browser_marker in text

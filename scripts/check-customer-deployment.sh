@@ -358,7 +358,7 @@ if docker inspect "$container" >/dev/null 2>&1; then
 
   if [[ "$runtime_family" == "hermes" ]]; then
     check "hermes_workspace_guidance_ok" \
-      docker exec "$container" sh -lc 'test -f /workspace/AGENTS.md && grep -q openclaw-hwp-text /workspace/AGENTS.md && grep -q /workspace/nas_docs /workspace/AGENTS.md'
+      docker exec "$container" sh -lc 'for f in /workspace/AGENTS.md /workspace/CLAUDE.md; do test -f "$f" && grep -q openclaw-hwp-text "$f" && grep -q /workspace/nas_docs "$f"; done'
 
     check "hermes_nas_canonical_alias_ok" \
       docker exec "$container" sh -lc 'test -d /workspace/nas_docs && test -L /opt/data/nas_docs && test "$(readlink /opt/data/nas_docs)" = /workspace/nas_docs'

@@ -8,13 +8,13 @@ permissions:
   packages: write
 
 env:
-  IMAGE_REF: ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260603-r15
+  IMAGE_REF: ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260603-r16
   HERMES_BASE_IMAGE: nousresearch/hermes-agent:v2026.5.29.2
   HERMES_WORKSPACE_IMAGE: ghcr.io/outsourc-e/hermes-workspace:latest
 
 jobs:
   publish:
-    name: Build and push hermes-workspace-20260603-r15
+    name: Build and push hermes-workspace-20260603-r16
     runs-on: ubuntu-24.04-arm
     steps:
       - name: Checkout baseline repo
@@ -37,7 +37,7 @@ jobs:
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.base.name=$HERMES_BASE_IMAGE" \
             --label "org.opencontainers.image.workspace.name=$HERMES_WORKSPACE_IMAGE" \
-            --label "org.opencontainers.image.title=OpenClaw NAS Agent Hermes hermes-workspace-20260603-r15" \
+            --label "org.opencontainers.image.title=OpenClaw NAS Agent Hermes hermes-workspace-20260603-r16" \
             -t "$IMAGE_REF" \
             -f images/hermes-workspace/Dockerfile .
 

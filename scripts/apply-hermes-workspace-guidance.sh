@@ -75,6 +75,7 @@ data_group="${target_user}_data"
 hermes_home="$target_home/.hermes"
 workspace="$hermes_home/workspace"
 agents_file="$workspace/AGENTS.md"
+claude_file="$workspace/CLAUDE.md"
 source_file="$script_dir/hermes-workspace-defaults/AGENTS.md"
 
 if [[ ! -f "$source_file" ]]; then
@@ -92,13 +93,16 @@ if [[ -e "$workspace" && -L "$workspace" ]]; then
   echo "error: symlink refused: $workspace" >&2
   exit 1
 fi
-if [[ -e "$agents_file" && -L "$agents_file" ]]; then
-  echo "error: symlink refused: $agents_file" >&2
-  exit 1
-fi
+for guidance_file in "$agents_file" "$claude_file"; do
+  if [[ -e "$guidance_file" && -L "$guidance_file" ]]; then
+    echo "error: symlink refused: $guidance_file" >&2
+    exit 1
+  fi
+done
 
 resolved_workspace="$(realpath -m "$workspace")"
 resolved_agents="$(realpath -m "$agents_file")"
+resolved_claude="$(realpath -m "$claude_file")"
 case "$resolved_workspace" in
   "$target_home/.hermes/workspace") ;;
   *)
@@ -113,16 +117,27 @@ case "$resolved_agents" in
     exit 1
     ;;
 esac
+case "$resolved_claude" in
+  "$target_home/.hermes/workspace/CLAUDE.md") ;;
+  *)
+    echo "error: CLAUDE.md escaped managed path: $resolved_claude" >&2
+    exit 1
+    ;;
+esac
 
 echo "target_user=$target_user"
 echo "runtime_family=$runtime_family"
 echo "workspace=$workspace"
 echo "agents_file=$agents_file"
+echo "claude_file=$claude_file"
 
 if [[ "$check_only" -eq 1 ]]; then
   if [[ -f "$agents_file" ]] && grep -q 'BEGIN OPENCLAW HERMES GUIDANCE' "$agents_file" \
     && grep -q 'openclaw-hwp-text' "$agents_file" \
-    && grep -q '/workspace/nas_docs' "$agents_file"; then
+    && grep -q '/workspace/nas_docs' "$agents_file" \
+    && [[ -f "$claude_file" ]] && grep -q 'BEGIN OPENCLAW HERMES GUIDANCE' "$claude_file" \
+    && grep -q 'openclaw-hwp-text' "$claude_file" \
+    && grep -q '/workspace/nas_docs' "$claude_file"; then
     echo "guidance=present"
     exit 0
   fi
@@ -132,39 +147,40 @@ fi
 
 mkdir -p "$workspace"
 
-python3 - "$agents_file" "$source_file" <<'PY'
+python3 - "$source_file" "$agents_file" "$claude_file" <<'PY'
 from __future__ import annotations
 
 import sys
 from pathlib import Path
 
-target = Path(sys.argv[1])
-source = Path(sys.argv[2])
+source = Path(sys.argv[1])
+targets = [Path(arg) for arg in sys.argv[2:]]
 begin = "<!-- BEGIN OPENCLAW HERMES GUIDANCE -->"
 end = "<!-- END OPENCLAW HERMES GUIDANCE -->"
 block = f"{begin}\n{source.read_text(encoding='utf-8').rstrip()}\n{end}\n"
 
-if target.exists():
-    text = target.read_text(encoding="utf-8", errors="replace")
-else:
-    text = ""
+for target in targets:
+    if target.exists():
+        text = target.read_text(encoding="utf-8", errors="replace")
+    else:
+        text = ""
 
-if begin in text and end in text:
-    before, rest = text.split(begin, 1)
-    _old, after = rest.split(end, 1)
-    text = before.rstrip() + "\n\n" + block + after.lstrip()
-else:
-    text = text.rstrip() + ("\n\n" if text.strip() else "") + block
+    if begin in text and end in text:
+        before, rest = text.split(begin, 1)
+        _old, after = rest.split(end, 1)
+        text = before.rstrip() + "\n\n" + block + after.lstrip()
+    else:
+        text = text.rstrip() + ("\n\n" if text.strip() else "") + block
 
-target.write_text(text, encoding="utf-8")
+    target.write_text(text, encoding="utf-8")
 PY
 
 if id "$runtime_user" >/dev/null 2>&1 && getent group "$data_group" >/dev/null; then
-  chown "$runtime_user:$data_group" "$workspace" "$agents_file"
+  chown "$runtime_user:$data_group" "$workspace" "$agents_file" "$claude_file"
 else
-  chown root:root "$workspace" "$agents_file"
+  chown root:root "$workspace" "$agents_file" "$claude_file"
 fi
 chmod 0750 "$workspace"
-chmod 0644 "$agents_file"
+chmod 0644 "$agents_file" "$claude_file"
 
 echo "guidance=updated"
