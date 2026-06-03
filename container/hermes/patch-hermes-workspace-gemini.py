@@ -39,15 +39,56 @@ PATTERNS = [
 
 def candidate_files(root: Path):
     suffixes = {".js", ".cjs", ".mjs", ".ts", ".tsx"}
-    for path in root.rglob("*"):
-        if not path.is_file() or path.suffix not in suffixes:
+    roots = [
+        root / "server-entry.js",
+        root / "dist",
+        root / "src",
+        root / "electron",
+    ]
+    seen: set[Path] = set()
+    for scan_root in roots:
+        if not scan_root.exists():
             continue
-        try:
-            if path.stat().st_size > 80 * 1024 * 1024:
+        iterator = [scan_root] if scan_root.is_file() else scan_root.rglob("*")
+        for path in iterator:
+            if path in seen:
                 continue
-        except OSError:
-            continue
-        yield path
+            seen.add(path)
+            if not path.is_file() or path.suffix not in suffixes:
+                continue
+            try:
+                if path.stat().st_size > 80 * 1024 * 1024:
+                    continue
+            except OSError:
+                continue
+            yield path
+
+
+def fallback_insert_after_anthropic(text: str) -> tuple[str, int]:
+    marker_index = text.find("ANTHROPIC_API_KEY")
+    while marker_index >= 0:
+        start = text.rfind("{", 0, marker_index)
+        end = text.find("}", marker_index)
+        if start >= 0 and end >= 0:
+            window = text[start : end + 1]
+            if "anthropic" in window and "Anthropic" in window and "api_key" in window and "envKeys" in window:
+                quote = '"' if '"ANTHROPIC_API_KEY"' in window else "'"
+                gemini = (
+                    "{"
+                    + f"id:{quote}gemini{quote},"
+                    + f"name:{quote}Google Gemini{quote},"
+                    + f"kind:{quote}api_key{quote},"
+                    + f"envKeys:[{quote}GOOGLE_API_KEY{quote},{quote}GEMINI_API_KEY{quote}],"
+                    + "models:[]"
+                    + "}"
+                )
+                insert_at = end + 1
+                if insert_at < len(text) and text[insert_at] == ",":
+                    insert_at += 1
+                    return text[:insert_at] + gemini + "," + text[insert_at:], 1
+                return text[:insert_at] + "," + gemini + text[insert_at:], 1
+        marker_index = text.find("ANTHROPIC_API_KEY", marker_index + 1)
+    return text, 0
 
 
 def patch_file(path: Path) -> int:
@@ -97,6 +138,10 @@ def patch_file(path: Path) -> int:
             return match.group(1) + gemini
 
         new_text, count = pattern.subn(replace, new_text, count=1)
+        changed += count
+
+    if not changed:
+        new_text, count = fallback_insert_after_anthropic(new_text)
         changed += count
 
     if changed:
