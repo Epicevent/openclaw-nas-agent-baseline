@@ -25,7 +25,7 @@ COPY --from=hermes_workspace /usr/local/bin/npm /usr/local/bin/npm
 COPY --from=hermes_workspace /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=hermes_workspace /usr/local/lib/node_modules /usr/local/lib/node_modules
 COPY --from=hermes_workspace /app /opt/hermes-workspace
-COPY container/hermes/patch-hermes-workspace-gemini.py /tmp/patch-hermes-workspace-gemini.py
+COPY container/hermes/patch-hermes-workspace-gemini.py /usr/local/bin/patch-hermes-workspace-gemini
 
 COPY container/install-container-baseline.sh /tmp/install-container-baseline.sh
 RUN chmod +x /tmp/install-container-baseline.sh \
@@ -35,8 +35,7 @@ RUN chmod +x /tmp/install-container-baseline.sh \
   && apt-get install -y --no-install-recommends tini procps gosu python3 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
-  && python3 /tmp/patch-hermes-workspace-gemini.py \
-  && rm -f /tmp/patch-hermes-workspace-gemini.py
+  && chmod 0755 /usr/local/bin/patch-hermes-workspace-gemini
 
 COPY container/hermes/openclaw-hermes-entrypoint.sh /usr/local/bin/openclaw-hermes-entrypoint
 RUN chmod 0755 /usr/local/bin/openclaw-hermes-entrypoint \

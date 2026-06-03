@@ -22,6 +22,14 @@ export COOKIE_SECURE="${COOKIE_SECURE:-1}"
 export TRUST_PROXY="${TRUST_PROXY:-1}"
 export NODE_ENV="${NODE_ENV:-production}"
 
+if [ "${OPENCLAW_PATCH_HERMES_GEMINI_PROVIDER:-1}" != "0" ]; then
+  if command -v python3 >/dev/null 2>&1 && [ -x /usr/local/bin/patch-hermes-workspace-gemini ]; then
+    python3 /usr/local/bin/patch-hermes-workspace-gemini || echo "WARN hermes_workspace_gemini_provider_patch=failed"
+  else
+    echo "WARN hermes_workspace_gemini_provider_patch=unavailable"
+  fi
+fi
+
 mkdir -p "$HERMES_HOME" "$HOME" "$HERMES_WORKSPACE_DIR"
 
 for _ in $(seq 1 90); do
