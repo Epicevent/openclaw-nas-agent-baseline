@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(os.environ.get("HERMES_WORKSPACE_ROOT", "/opt/hermes-workspace"))
-CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r14")
+CACHE_BUST_ID = os.environ.get("OPENCLAW_HERMES_CLIENT_PATCH_ID", "gemini-ui-r15")
 MODEL_PICKER_MARKER = "OPENCLAW_HERMES_MODEL_PICKER_PATCH"
 GEMINI_MODELS = [
     "gemini-3.1-pro",
@@ -63,8 +63,8 @@ def gemini_model_picker_js() -> str:
     return f"""(() => {{
   const MARKER = "{MODEL_PICKER_MARKER}";
   const MODELS = {models_json};
+  if (typeof window === "undefined" || typeof document === "undefined") return;
   if (window[MARKER]) return;
-  if (typeof document === "undefined") return;
   window[MARKER] = true;
 
   const inputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
@@ -505,6 +505,16 @@ def patch_client_model_picker_bundle(text: str) -> tuple[str, int]:
     if MODEL_PICKER_MARKER in text:
         return text, 0
     if "Model & Provider" not in text or "gemini-3.1-pro" not in text:
+        return text, 0
+    if not any(
+        browser_marker in text
+        for browser_marker in (
+            "document.querySelectorAll",
+            "window.addEventListener",
+            "MutationObserver",
+            "localStorage",
+        )
+    ):
         return text, 0
     return text.rstrip() + "\n;" + gemini_model_picker_js() + "\n", 1
 
