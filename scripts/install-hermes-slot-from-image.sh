@@ -171,6 +171,8 @@ ensure_hermes_nas_alias() {
 }
 
 mkdir -p "$compose_dir" "$hermes_home" "$hermes_home/home" "$hermes_home/workspace"
+chown "$target_user:$data_group" "$nas_mount"
+chmod 0550 "$nas_mount"
 ensure_hermes_nas_alias
 chown -R "$runtime_user:$data_group" "$hermes_home"
 chmod 0750 "$hermes_home" "$hermes_home/home" "$hermes_home/workspace"

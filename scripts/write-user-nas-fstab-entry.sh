@@ -184,12 +184,13 @@ for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" 
     exit 1
   fi
 done
+chown "$target_user:$data_group" "$target_home/nas_docs" 2>/dev/null || true
+chmod 0550 "$target_home/nas_docs" 2>/dev/null || true
 current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
 if [[ "$current_mount_target" == "$mountpoint" ]]; then
   echo "warn: mountpoint is already mounted; skipping ownership fix: $mountpoint" >&2
   echo "warn: unmount it before changing mountpoint ownership" >&2
 else
-  chown "$target_user:$data_group" "$(dirname "$mountpoint")" 2>/dev/null || true
   chown "$target_user:$data_group" "$mountpoint" 2>/dev/null || chown "$target_user:$target_user" "$mountpoint"
   if [[ "$credentials_path" == "$target_home/.openclaw-nas/credentials/"* ]]; then
     chown "$target_user:$target_user" "$credentials_root" "$credentials_dir" 2>/dev/null || true

@@ -14,6 +14,8 @@ Usage:
   svcops-control.sh nas-verify-all START END
   svcops-control.sh nas-tree USER
   svcops-control.sh nas-search-smoke USER QUERY
+  svcops-control.sh nas-runtime-root-fix USER
+  svcops-control.sh nas-runtime-root-fix-all START END
   svcops-control.sh nas-register USER SHARE
   svcops-control.sh nas-register-all START END SHARE
   svcops-control.sh nas-unregister USER
@@ -408,6 +410,26 @@ approve_share_request() {
   print_nas_status "$target_user" "$target_home" "$requested_mountpoint" "$requested_credentials" "${mount_name:-primary}"
   echo
   print_customer_nas_next_steps "$target_user" "$mount_name"
+}
+
+fix_nas_runtime_root() {
+  local target_user="$1" target_home data_group nas_root
+  validate_user "$target_user"
+  target_home="$(customer_home "$target_user")"
+  data_group="${target_user}_data"
+  nas_root="$target_home/nas_docs"
+
+  openclaw_assert_managed_slot_prewrite "$target_user" || return 1
+  [[ -d "$nas_root" ]] || { echo "FAIL nas_root_missing=$nas_root"; return 1; }
+  [[ ! -L "$nas_root" ]] || { echo "FAIL nas_root_symlink=$nas_root"; return 1; }
+  getent group "$data_group" >/dev/null || { echo "FAIL data_group_missing=$data_group"; return 1; }
+
+  chown "$target_user:$data_group" "$nas_root"
+  chmod 0550 "$nas_root"
+  echo "target_user=$target_user"
+  echo "nas_root=$nas_root"
+  echo "nas_root_owner=$target_user:$data_group"
+  echo "nas_root_mode=0550"
 }
 
 gateway_container() {
@@ -916,6 +938,34 @@ case "$command_name" in
     query="$2"
     validate_user "$target_user"
     bash "$script_dir/openclaw-nas-container-view.sh" search-smoke --user "$target_user" --query "$query"
+    ;;
+
+  nas-runtime-root-fix)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    fix_nas_runtime_root "$target_user"
+    ;;
+
+  nas-runtime-root-fix-all)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    start="$1"
+    end="$2"
+    [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
+      echo "error: invalid START/END" >&2
+      exit 2
+    }
+    failed=0
+    for i in $(seq "$start" "$end"); do
+      target_user="oc$i"
+      echo "== $target_user =="
+      if id "$target_user" >/dev/null 2>&1; then
+        fix_nas_runtime_root "$target_user" || failed=1
+      else
+        echo "FAIL user_missing"
+        failed=1
+      fi
+    done
+    exit "$failed"
     ;;
 
   nas-register|nas-prepare)
