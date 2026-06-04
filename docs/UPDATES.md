@@ -98,6 +98,13 @@ images/shared/               document tooling shared by official images
 images/openclaw-nas-agent/   base wrapper for OpenClaw-compatible images
 ```
 
+Publishing workflows are separated by runtime family:
+
+```text
+publish-openclaw-nas-agent-image.yml
+publish-hermes-nas-agent-image.yml
+```
+
 One-off overlay directories and per-customer image artifacts do not stay in
 this repository. A published image becomes usable only after it is added,
 verified, promoted, and rolled out by the commands above.

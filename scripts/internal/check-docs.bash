@@ -68,10 +68,10 @@ else
   pass "removed_local_image_build_reference_absent"
 fi
 
-if grep -RInE 'dashboard-20260602-r1|openclaw-overlays|publish-openclaw-nas-agent-image' \
+if grep -RInE 'dashboard-20260602-r1|openclaw-overlays' \
   "$repo_root/README.md" "$repo_root/docs" "$repo_root/images" "$repo_root/.github" "$repo_root/admin-cli" \
   --include='*.md' --include='*.yml' --include='*.yaml' --include='openclaw-ops-console' 2>/dev/null | grep -q .; then
-  grep -RInE 'dashboard-20260602-r1|openclaw-overlays|publish-openclaw-nas-agent-image' \
+  grep -RInE 'dashboard-20260602-r1|openclaw-overlays' \
     "$repo_root/README.md" "$repo_root/docs" "$repo_root/images" "$repo_root/.github" "$repo_root/admin-cli" \
     --include='*.md' --include='*.yml' --include='*.yaml' --include='openclaw-ops-console' 2>/dev/null || true
   fail "stale_dashboard_image_reference_absent"

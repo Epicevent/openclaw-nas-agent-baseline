@@ -24,6 +24,13 @@ images/hermes-workspace/     Hermes Agent + Workspace image recipe
 images/shared/               document tooling shared by official images
 ```
 
+Image publishing is split by runtime family:
+
+```text
+.github/workflows/publish-openclaw-nas-agent-image.yml
+.github/workflows/publish-hermes-nas-agent-image.yml
+```
+
 If image publishing grows beyond a small number of official releases, this
 directory can move to a dedicated image-release repository without changing the
 server-side rollout model.

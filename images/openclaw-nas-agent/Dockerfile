@@ -12,19 +12,32 @@
 ARG BASE_IMAGE=ubuntu:24.04
 FROM ${BASE_IMAGE}
 ARG RUNTIME_USER=node
+ARG OPENCLAW_DASHBOARD_TITLE=""
+ARG OPENCLAW_DASHBOARD_SOURCE_TEXT=OpenClaw
 
 USER root
 
 COPY images/shared/install-document-baseline.sh /tmp/install-document-baseline.sh
 COPY images/shared/openclaw-hwp-text.py /usr/local/bin/openclaw-hwp-text
 COPY images/shared/openclaw-document-tools /usr/local/bin/openclaw-document-tools
+COPY images/openclaw-nas-agent/patch-openclaw-dashboard-title.py /usr/local/bin/patch-openclaw-dashboard-title
 RUN chmod +x /tmp/install-document-baseline.sh \
   && /tmp/install-document-baseline.sh \
   && rm -f /tmp/install-document-baseline.sh \
-  && chmod 0755 /usr/local/bin/openclaw-hwp-text /usr/local/bin/openclaw-document-tools \
+  && chmod 0755 /usr/local/bin/openclaw-hwp-text /usr/local/bin/openclaw-document-tools /usr/local/bin/patch-openclaw-dashboard-title \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/read-hwp \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp-read \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp2txt
+
+RUN if [ -n "$OPENCLAW_DASHBOARD_TITLE" ]; then \
+      patch-openclaw-dashboard-title \
+        --source "$OPENCLAW_DASHBOARD_SOURCE_TEXT" \
+        --extra-source Openclaw \
+        --target "$OPENCLAW_DASHBOARD_TITLE" \
+        /app /workspace /home/node /usr/local/share /opt; \
+    else \
+      echo "openclaw_dashboard_title_patch=skipped"; \
+    fi
 
 ENV LANG=ko_KR.UTF-8 \
     LANGUAGE=ko_KR:ko \
