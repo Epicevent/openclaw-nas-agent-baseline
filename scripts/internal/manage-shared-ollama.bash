@@ -24,8 +24,8 @@ USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-ollama.sh
-source "$script_dir/lib-ollama.sh"
+# shellcheck source=scripts/internal/lib-ollama.bash
+source "$script_dir/lib-ollama.bash"
 
 container_name="$(openclaw_ollama_container_name)"
 network_name="$(openclaw_ollama_network_default)"

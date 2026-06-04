@@ -10,13 +10,13 @@ Useful commands:
 ```bash
 # host side, as an operator with sudo
 cd /opt/openclaw-nas-agent-baseline
-sudo bash scripts/recovery/backup-openclaw-state.sh --user oc1
-sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1
+sudo scripts/recovery-control.sh backup --user oc1
+sudo scripts/recovery-control.sh repair --user oc1
 ```
 
 Restore from a known snapshot:
 
 ```bash
-sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 \
+sudo scripts/recovery-control.sh repair --user oc1 \
   --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-YYYYMMDDHHMMSS.tar.gz
 ```

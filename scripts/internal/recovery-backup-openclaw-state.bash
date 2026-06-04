@@ -4,14 +4,14 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  backup-openclaw-state.sh [--user USER] [--home HOME] [--out-dir DIR]
+  recovery-control.sh backup [--user USER] [--home HOME] [--out-dir DIR]
 
 Creates a local recovery snapshot for the repairable parts of ~/.openclaw.
 It intentionally skips volatile databases, logs, device identity, and NAS data.
 
 Examples:
-  bash scripts/recovery/backup-openclaw-state.sh
-  sudo bash scripts/recovery/backup-openclaw-state.sh --user oc1
+  scripts/recovery-control.sh backup
+  sudo scripts/recovery-control.sh backup --user oc1
 USAGE
 }
 

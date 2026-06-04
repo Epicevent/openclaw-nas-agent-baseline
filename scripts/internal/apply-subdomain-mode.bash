@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  apply-subdomain-mode.sh --user USER [options]
+  slot-control.sh subdomain --user USER [options]
 
 Converts an existing OpenClaw customer account to subdomain mode:
 
@@ -92,8 +92,8 @@ runtime_env_path="$target_home/openclaw/.env"
 compose_dir="$target_home/openclaw"
 container="openclaw-${target_user}-openclaw-gateway-1"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 
 if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
   echo "error: invalid user name: $target_user" >&2
@@ -222,7 +222,7 @@ if [[ "$write_apache" -eq 1 ]]; then
       --reload
     )
   fi
-  bash "$script_dir/write-apache-proxy-conf.sh" "${apache_args[@]}"
+  bash "$script_dir/write-apache-proxy-conf.bash" "${apache_args[@]}"
 fi
 
 if [[ "$recreate" -eq 1 ]]; then

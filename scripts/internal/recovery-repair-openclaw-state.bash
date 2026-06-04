@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  repair-openclaw-state.sh [--user USER] [--home HOME] [--runtime-user USER] [--snapshot FILE] [--force-defaults] [--no-backup]
+  recovery-control.sh repair [--user USER] [--home HOME] [--runtime-user USER] [--snapshot FILE] [--force-defaults] [--no-backup]
 
 Repairs a user's OpenClaw state enough to get the agent usable again.
 
@@ -16,16 +16,16 @@ Default behavior:
   - fixes ownership for the target user
 
 Examples:
-  sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1
-  sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-20260519120000.tar.gz
+  sudo scripts/recovery-control.sh repair --user oc1
+  sudo scripts/recovery-control.sh repair --user oc1 --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-20260519120000.tar.gz
 USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scripts_root="$(cd "$script_dir/.." && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$scripts_root/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$scripts_root/internal/lib-safe-compose.bash"
 
 target_user=""
 target_home=""
@@ -116,7 +116,7 @@ if [[ "$(id -u)" -eq 0 && "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
 fi
 
 if [[ "$make_backup" -eq 1 && -d "$openclaw_dir" ]]; then
-  echo "backup: $("$script_dir/backup-openclaw-state.sh" --user "$target_user" --home "$target_home")"
+  echo "backup: $("$script_dir/recovery-backup-openclaw-state.bash" --user "$target_user" --home "$target_home")"
 fi
 
 if [[ -n "$snapshot" ]]; then

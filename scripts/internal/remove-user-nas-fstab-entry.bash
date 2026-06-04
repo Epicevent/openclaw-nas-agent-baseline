@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  remove-user-nas-fstab-entry.sh --user USER [options]
+  svcops-control.sh nas-unregister USER [MOUNT_NAME]
 
 Removes managed /etc/fstab CIFS user-mount rules for USER. It does not
 unmount an existing mount and does not delete the user's NAS credential file.

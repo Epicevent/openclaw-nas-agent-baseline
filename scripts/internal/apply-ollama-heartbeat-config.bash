@@ -4,28 +4,31 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  apply-ollama-provider-config.sh --user USER --model MODEL [options]
+  apply-ollama-heartbeat-config.sh --user USER [options]
 
-Registers the shared Ollama OpenAI-compatible provider in a customer slot.
-This makes the local model available to OpenClaw without changing heartbeat.
+Configures OpenClaw heartbeat runs to use a local Ollama OpenAI-compatible
+provider served by the shared OpenClaw Ollama container. Provider/API keys are
+not written to openclaw.json.
 
 Options:
-  --user USER          Target customer slot, for example oc1. Required.
-  --model MODEL        Ollama model, for example qwen2.5-coder:7b. Required.
-  --provider-id ID     OpenClaw provider id. Default: local-ollama.
-  --base-url URL       OpenAI-compatible base URL. Default: shared Ollama container URL.
-  --set-default        Make this local model the default primary model.
-  --no-restart         Update files only; do not recreate gateway.
+  --user USER             Target customer slot, for example oc20. Required.
+  --model MODEL           Ollama model. Default: gemma2:2b.
+  --provider-id ID        OpenClaw provider id. Default: local-ollama.
+  --base-url URL          OpenAI-compatible base URL. Default: shared Ollama container URL.
+  --every DURATION        Heartbeat interval. Default: 30m.
+  --main-model MODEL      Optional primary model, for example google/gemini-1.5-pro.
+  --no-restart            Update files only; do not recreate gateway.
 
 Run as root/admin.
 USAGE
 }
 
 target_user=""
-ollama_model=""
+ollama_model="gemma2:2b"
 provider_id="local-ollama"
 base_url=""
-set_default=0
+heartbeat_every="30m"
+main_model=""
 restart_gateway=1
 
 while [[ $# -gt 0 ]]; do
@@ -46,9 +49,13 @@ while [[ $# -gt 0 ]]; do
       base_url="${2:?missing --base-url value}"
       shift 2
       ;;
-    --set-default)
-      set_default=1
-      shift
+    --every)
+      heartbeat_every="${2:?missing --every value}"
+      shift 2
+      ;;
+    --main-model)
+      main_model="${2:?missing --main-model value}"
+      shift 2
       ;;
     --no-restart)
       restart_gateway=0
@@ -66,7 +73,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ -z "$target_user" || -z "$ollama_model" ]]; then
+if [[ -z "$target_user" ]]; then
+  echo "error: --user is required" >&2
   usage >&2
   exit 2
 fi
@@ -91,6 +99,16 @@ if [[ ! "$ollama_model" =~ ^[A-Za-z0-9][A-Za-z0-9._:+/-]{0,127}$ ]]; then
   exit 2
 fi
 
+if [[ ! "$heartbeat_every" =~ ^([0-9]+)(ms|s|m|h)$ ]]; then
+  echo "error: invalid heartbeat interval: $heartbeat_every" >&2
+  exit 2
+fi
+
+if [[ -n "$main_model" && ! "$main_model" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._:+/-]{0,127}$ ]]; then
+  echo "error: invalid main model ref: $main_model" >&2
+  exit 2
+fi
+
 case "$base_url" in
   "")
     ;;
@@ -102,10 +120,10 @@ case "$base_url" in
 esac
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
-# shellcheck source=scripts/lib-ollama.sh
-source "$script_dir/lib-ollama.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
+# shellcheck source=scripts/internal/lib-ollama.bash
+source "$script_dir/lib-ollama.bash"
 
 base_url="${base_url:-$(openclaw_ollama_container_base_url)}"
 host_probe_base_url="$(openclaw_ollama_host_probe_base_url "$base_url")"
@@ -139,16 +157,15 @@ fi
 compose_dir="$target_home/openclaw"
 config_path="$target_home/.openclaw/openclaw.json"
 container="openclaw-${target_user}-openclaw-gateway-1"
-model_ref="$provider_id/$ollama_model"
 
 echo "target_user=$target_user"
 echo "target_home=$target_home"
 echo "provider_id=$provider_id"
 echo "ollama_model=$ollama_model"
-echo "model_ref=$model_ref"
 echo "base_url=$base_url"
 echo "host_probe_base_url=$host_probe_base_url"
-echo "set_default=$([[ "$set_default" -eq 1 ]] && echo yes || echo no)"
+echo "heartbeat_every=$heartbeat_every"
+[[ -n "$main_model" ]] && echo "main_model=$main_model" || echo "main_model=preserve"
 echo "config_api_key=not_written"
 
 openclaw_assert_managed_slot_prewrite "$target_user"
@@ -162,6 +179,7 @@ case "$base_url" in
 esac
 openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
 
+shared_ollama_ok=unknown
 if command -v python3 >/dev/null 2>&1; then
   if OPENCLAW_OLLAMA_MODEL="$ollama_model" \
     OPENCLAW_OLLAMA_BASE_URL="$host_probe_base_url" \
@@ -187,7 +205,7 @@ names = {item.get("name") or item.get("model") for item in data.get("models", []
 raise SystemExit(0 if model in names else 2)
 PY
   then
-    echo "shared_ollama_model_present=yes"
+    shared_ollama_ok=yes
   else
     rc=$?
     if [[ "$rc" -eq 2 ]]; then
@@ -198,12 +216,14 @@ PY
     exit 1
   fi
 fi
+echo "shared_ollama_model_present=$shared_ollama_ok"
 
 OPENCLAW_CONFIG_PATH="$config_path" \
 OPENCLAW_OLLAMA_PROVIDER_ID="$provider_id" \
 OPENCLAW_OLLAMA_BASE_URL="$base_url" \
 OPENCLAW_OLLAMA_MODEL="$ollama_model" \
-OPENCLAW_SET_DEFAULT="$set_default" \
+OPENCLAW_HEARTBEAT_EVERY="$heartbeat_every" \
+OPENCLAW_MAIN_MODEL="$main_model" \
 python3 - <<'PY'
 import json
 import os
@@ -214,7 +234,8 @@ path = Path(os.environ["OPENCLAW_CONFIG_PATH"])
 provider_id = os.environ["OPENCLAW_OLLAMA_PROVIDER_ID"]
 base_url = os.environ["OPENCLAW_OLLAMA_BASE_URL"].rstrip("/")
 model = os.environ["OPENCLAW_OLLAMA_MODEL"]
-set_default = os.environ["OPENCLAW_SET_DEFAULT"] == "1"
+heartbeat_every = os.environ["OPENCLAW_HEARTBEAT_EVERY"]
+main_model = os.environ.get("OPENCLAW_MAIN_MODEL", "").strip()
 model_ref = f"{provider_id}/{model}"
 
 
@@ -282,21 +303,47 @@ providers[provider_id] = {
 
 agents = data.setdefault("agents", {})
 defaults = agents.setdefault("defaults", {})
-catalog = defaults.setdefault("models", {})
-catalog.setdefault(model_ref, {"alias": f"Ollama {model}"})
-
-if set_default:
+if main_model:
     current = defaults.get("model")
     if isinstance(current, dict):
-        current["primary"] = model_ref
+        current["primary"] = main_model
         defaults["model"] = current
     else:
-        defaults["model"] = {"primary": model_ref}
+        defaults["model"] = {"primary": main_model}
+catalog = defaults.setdefault("models", {})
+catalog.setdefault(model_ref, {"alias": f"Ollama {model}"})
+if main_model:
+    catalog.setdefault(main_model, {})
+defaults["heartbeat"] = {
+    "every": heartbeat_every,
+    "model": model_ref,
+    "includeReasoning": False,
+    "includeSystemPromptSection": True,
+    "lightContext": True,
+    "isolatedSession": True,
+    "skipWhenBusy": True,
+}
+agent_entries = agents.get("list")
+agent_overrides_updated = 0
+if isinstance(agent_entries, list):
+    for entry in agent_entries:
+        if not isinstance(entry, dict):
+            continue
+        heartbeat = entry.get("heartbeat")
+        if isinstance(heartbeat, dict):
+            heartbeat["every"] = heartbeat_every
+            heartbeat["model"] = model_ref
+            heartbeat.setdefault("includeReasoning", False)
+            heartbeat.setdefault("includeSystemPromptSection", True)
+            heartbeat.setdefault("lightContext", True)
+            heartbeat.setdefault("isolatedSession", True)
+            heartbeat.setdefault("skipWhenBusy", True)
+            agent_overrides_updated += 1
 
 safe_write_regular(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
 print(f"updated_config={path}")
-print(f"registered_model={model_ref}")
-print(f"default_model={'set' if set_default else 'preserved'}")
+print(f"heartbeat_model={model_ref}")
+print(f"heartbeat_agent_overrides_updated={agent_overrides_updated}")
 print(f"literal_api_keys_removed={removed}")
 PY
 
@@ -329,7 +376,8 @@ if [[ "$restart_gateway" -eq 1 ]]; then
     sleep 2
   done
 
-  docker exec -i -e OPENCLAW_OLLAMA_BASE_URL="$base_url" -e OPENCLAW_OLLAMA_MODEL="$ollama_model" "$container" python3 - <<'PY'
+  if command -v python3 >/dev/null 2>&1; then
+    if docker exec -i -e OPENCLAW_OLLAMA_BASE_URL="$base_url" -e OPENCLAW_OLLAMA_MODEL="$ollama_model" "$container" python3 - <<'PY'
 import json
 import os
 import urllib.request
@@ -349,6 +397,13 @@ print("container_ollama_reachable=yes")
 print("container_ollama_model_present=" + ("yes" if model in ids else "no"))
 raise SystemExit(0 if model in ids else 1)
 PY
+    then
+      :
+    else
+      echo "error: container Ollama check failed for $base_url model=$ollama_model" >&2
+      exit 1
+    fi
+  fi
 else
   echo "restart=skipped"
 fi

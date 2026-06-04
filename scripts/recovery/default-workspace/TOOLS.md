@@ -13,5 +13,5 @@ Check with:
 
 ```bash
 cd ~/openclaw-nas-agent-baseline 2>/dev/null || cd ~/.openclaw/workspace/openclaw-nas-agent-baseline
-bash scripts/check-baseline.sh
+bash scripts/internal/check-baseline.bash
 ```

@@ -90,9 +90,10 @@ previous compose `.env` is also saved as:
 
 If a slot was converted before this preservation behavior existed, re-inject the
 provider key through the normal runtime secret path. For Hermes slots,
-`apply-runtime-secrets.sh` writes provider keys to `/home/ocN/.hermes/.env` and
-updates `/home/ocN/.hermes/config.yaml` when a Gemini/Google key is present; for
-OpenClaw slots it writes them to the existing compose runtime env path.
+`slot-control.sh runtime-secrets` writes provider keys to
+`/home/ocN/.hermes/.env` and updates `/home/ocN/.hermes/config.yaml` when a
+Gemini/Google key is present; for OpenClaw slots it writes them to the existing
+compose runtime env path.
 
 Check both the key state and the selected Hermes provider without printing
 secret values:
@@ -115,7 +116,7 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
 
 Hermes Workspace is password-protected with `HERMES_PASSWORD`. The password is
 slot-local runtime secret state and is not stored in public image metadata.
-`install-hermes-slot-from-image.sh` writes the generated handoff password to a
+`slot-control.sh install-hermes` writes the generated handoff password to a
 root-managed handoff file and prints only the file path:
 
 ```text

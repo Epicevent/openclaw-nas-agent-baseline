@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  check-customer-deployment.sh --user USER --expected-origin ORIGIN [--expected-basepath PATH] [--skip-provider-key-check] [--skip-public-url-check] [--expect-unknown-origin-rejected ORIGIN]
+  svcops-control.sh check USER HOST
 
 Checks the full hosted customer deployment without printing secret values.
 
@@ -82,6 +82,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+scripts_root="$(cd "$script_dir/.." && pwd)"
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
   echo "error: user not found: $target_user" >&2
@@ -255,8 +256,8 @@ echo "== production legacy boundary =="
 legacy_import_pattern='apply-openclaw-install-env[.]sh'
 legacy_env_pattern='[.]openclaw-install[.]'"env"
 legacy_refs="$(
-  grep -R -n --include='*.sh' -E "${legacy_import_pattern}|${legacy_env_pattern}" "$script_dir" 2>/dev/null \
-    | grep -v '/legacy/' \
+  grep -R -n --include='*.sh' --include='*.bash' -E "${legacy_import_pattern}|${legacy_env_pattern}" "$scripts_root" 2>/dev/null \
+    | grep -v '/internal/legacy-' \
     || true
 )"
 if [[ -n "$legacy_refs" ]]; then
@@ -270,8 +271,8 @@ echo "== production recovery boundary =="
 recovery_repair_pattern='repair-openclaw-state[.]'"sh"
 recovery_backup_pattern='backup-openclaw-state[.]'"sh"
 recovery_refs="$(
-  grep -R -n --include='*.sh' -E "${recovery_repair_pattern}|${recovery_backup_pattern}" "$script_dir" 2>/dev/null \
-    | grep -v '/recovery/' \
+  grep -R -n --include='*.sh' --include='*.bash' -E "${recovery_repair_pattern}|${recovery_backup_pattern}" "$scripts_root" 2>/dev/null \
+    | grep -v '/internal/recovery-' \
     || true
 )"
 if [[ -n "$recovery_refs" ]]; then
@@ -293,7 +294,7 @@ fi
 if [[ "$runtime_family" == "hermes" ]]; then
   isolation_args+=(--skip-provider-key-check)
 fi
-if bash "$script_dir/check-customer-mode-isolation.sh" \
+if bash "$script_dir/check-customer-mode-isolation.bash" \
   "${isolation_args[@]}"; then
   pass "customer_isolation_ok"
 else

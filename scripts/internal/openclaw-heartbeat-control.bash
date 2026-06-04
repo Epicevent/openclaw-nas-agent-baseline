@@ -18,7 +18,7 @@ USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$script_dir/lib-safe-compose.sh"
+source "$script_dir/lib-safe-compose.bash"
 
 command_name="${1:-}"
 shift || true

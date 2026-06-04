@@ -107,8 +107,8 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 
 if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
   echo "error: invalid user name: $target_user" >&2
@@ -203,7 +203,7 @@ docker rm -f "$cli_container" >/dev/null 2>&1 || true
 
 if [[ "$remount" -eq 1 ]]; then
   echo "== remount NAS for owner $target_user + group $data_group =="
-  current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+  current_mount_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
   if [[ "$current_mount_target" == "$mountpoint" ]]; then
     umount "$mountpoint"
   fi
@@ -279,7 +279,7 @@ else
 fi
 
 if [[ "$run_check" -eq 1 ]]; then
-  bash "$script_dir/check-customer-mode-isolation.sh" --user "$target_user"
+  bash "$script_dir/check-customer-mode-isolation.bash" --user "$target_user"
 fi
 
 echo "done"

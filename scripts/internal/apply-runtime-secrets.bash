@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  apply-runtime-secrets.sh --user USER --env-file FILE [options]
+  slot-control.sh runtime-secrets --user USER --env-file FILE [options]
 
 Applies provider/API secrets after a customer slot already exists. This is the
 production secret injection and rotation path. Fresh install does not depend on
@@ -92,8 +92,8 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
@@ -386,7 +386,7 @@ else
 fi
 
 if [[ "$run_check" -eq 1 ]]; then
-  bash "$script_dir/check-customer-deployment.sh" \
+  bash "$script_dir/check-customer-deployment.bash" \
     --user "$target_user" \
     --expected-basepath / \
     --expected-origin "$origin"

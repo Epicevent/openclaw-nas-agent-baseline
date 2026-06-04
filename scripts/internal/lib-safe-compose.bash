@@ -118,6 +118,39 @@ openclaw_assert_root_owned_file() {
   fi
 }
 
+openclaw_findmnt_exact_field() {
+  local path="$1" field="$2"
+  findmnt -n -M "$path" -o "$field" 2>/dev/null | head -1 || true
+}
+
+openclaw_findmnt_exact_line() {
+  local path="$1"
+  findmnt -n -M "$path" -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null | head -1 || true
+}
+
+openclaw_findmnt_parent_field() {
+  local path="$1" field="$2"
+  findmnt -n -T "$path" -o "$field" 2>/dev/null | head -1 || true
+}
+
+openclaw_mountpoint_is_cifs() {
+  local path="$1" target fstype
+  target="$(openclaw_findmnt_exact_field "$path" TARGET)"
+  fstype="$(openclaw_findmnt_exact_field "$path" FSTYPE)"
+  [[ "$target" == "$path" && "$fstype" == "cifs" ]]
+}
+
+openclaw_print_parent_mount_hint() {
+  local path="$1" parent_target parent_source parent_fstype
+  parent_target="$(openclaw_findmnt_parent_field "$path" TARGET)"
+  [[ -n "$parent_target" && "$parent_target" != "$path" ]] || return 0
+  parent_source="$(openclaw_findmnt_parent_field "$path" SOURCE)"
+  parent_fstype="$(openclaw_findmnt_parent_field "$path" FSTYPE)"
+  echo "parent_mount_target=$parent_target"
+  echo "parent_mount_source=${parent_source:-unknown}"
+  echo "parent_mount_fstype=${parent_fstype:-unknown}"
+}
+
 openclaw_assert_safe_openclaw_config_file() {
   local target_user="$1" config_path="${2:-}" label="${3:-openclaw_config}"
   local target_home runtime_user expected config_dir resolved owner group nlink

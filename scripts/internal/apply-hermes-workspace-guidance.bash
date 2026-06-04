@@ -49,6 +49,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+scripts_root="$(cd "$script_dir/.." && pwd)"
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" || "$target_home" != "/home/$target_user" ]]; then
   echo "error: unexpected home for $target_user: ${target_home:-missing}" >&2
@@ -76,7 +77,7 @@ hermes_home="$target_home/.hermes"
 workspace="$hermes_home/workspace"
 agents_file="$workspace/AGENTS.md"
 claude_file="$workspace/CLAUDE.md"
-source_file="$script_dir/hermes-workspace-defaults/AGENTS.md"
+source_file="$scripts_root/hermes-workspace-defaults/AGENTS.md"
 
 if [[ ! -f "$source_file" ]]; then
   echo "error: missing source guidance: $source_file" >&2

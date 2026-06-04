@@ -72,7 +72,7 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-status-all 1 20
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/openclaw-ops-drift-check.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh drift-check \
   --registry /srv/openclaw-ops/slots.yaml \
   --images /srv/openclaw-ops/images.yaml \
   --report /srv/openclaw-ops/reports/drift-latest.txt

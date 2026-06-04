@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
+
 usage() {
   cat <<'USAGE'
 Usage:
-  write-user-nas-fstab-entry.sh --user USER [options]
+  svcops-control.sh nas-register USER //NAS_HOST/SHARE [MOUNT_NAME]
 
 Writes an /etc/fstab entry that lets USER mount only their own NAS mountpoint
 without sudo. The NAS credential file remains owned by USER and is not created
@@ -186,7 +190,7 @@ for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" 
 done
 chown "$target_user:$data_group" "$target_home/nas_docs" 2>/dev/null || true
 chmod 0550 "$target_home/nas_docs" 2>/dev/null || true
-current_mount_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+current_mount_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
 if [[ "$current_mount_target" == "$mountpoint" ]]; then
   echo "warn: mountpoint is already mounted; skipping ownership fix: $mountpoint" >&2
   echo "warn: unmount it before changing mountpoint ownership" >&2

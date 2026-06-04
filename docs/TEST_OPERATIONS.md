@@ -193,13 +193,12 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TAR
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-verify "$TARGET_USER"
 ```
 
-실행 주체: **[root 관리자]**
+실행 주체: **[운영계정: svcops] 또는 [root 관리자]**
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/check-customer-deployment.sh \
-  --user "$TARGET_USER" \
-  --expected-basepath / \
-  --expected-origin "https://$CONTROL_UI_HOST"
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
+  "$TARGET_USER" \
+  "$CONTROL_UI_HOST"
 ```
 
 통과 기준:
@@ -283,7 +282,7 @@ UI 문구 이상함
 read-only drift checker:
 
 ```bash
-/opt/openclaw-nas-agent-baseline/scripts/openclaw-ops-drift-check.sh \
+/opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh drift-check \
   --registry /srv/openclaw-ops/slots.yaml \
   --report /srv/openclaw-ops/reports/drift-latest.txt
 ```

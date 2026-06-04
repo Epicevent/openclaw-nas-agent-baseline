@@ -302,7 +302,15 @@ tar -C "$script_dir" --exclude-from="$tmp_exclude" -cf - . | tar -C "$prefix" -x
 chmod +x "$prefix/install.sh" 2>/dev/null || true
 find "$prefix/images" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/images" -type f -name '*.py' -exec chmod +x {} + 2>/dev/null || true
-find "$prefix/scripts" -type f -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+for wrapper in \
+  customer-nas-mount.sh \
+  install-svcops-account.sh \
+  ops-monitor.sh \
+  recovery-control.sh \
+  slot-control.sh \
+  svcops-control.sh; do
+  chmod +x "$prefix/scripts/$wrapper" 2>/dev/null || true
+done
 find "$prefix/scripts" -type f -name '*.py' -exec chmod +x {} + 2>/dev/null || true
 find "$prefix/admin-cli/bin" -type f -exec chmod +x {} + 2>/dev/null || true
 
@@ -328,13 +336,13 @@ for user in "${repair_users[@]}"; do
     args+=(--force-defaults)
   fi
   echo "repairing OpenClaw state for: $user"
-  bash "$prefix/scripts/recovery/repair-openclaw-state.sh" "${args[@]}"
+  bash "$prefix/scripts/internal/recovery-repair-openclaw-state.bash" "${args[@]}"
 done
 
 if [[ "$run_check" -eq 1 ]]; then
   echo "running baseline check:"
-  bash "$prefix/scripts/check-docs.sh"
-  bash "$prefix/scripts/check-baseline.sh" || true
+  bash "$prefix/scripts/internal/check-docs.bash"
+  bash "$prefix/scripts/internal/check-baseline.bash" || true
 fi
 
 cat <<EOF
@@ -343,8 +351,6 @@ Next useful commands:
   cd $prefix
   sudo bash scripts/install-svcops-account.sh --set-password --nopasswd-sudo
   openclaw-nas-mount --help
-  sudo bash scripts/install-customer-slot-from-image.sh --user oc1 --host oc1.ji-tech.co.kr --image openclaw-nas-agent:baseline
-  sudo bash scripts/check-customer-mode-isolation.sh --user oc1
-  sudo bash scripts/check-customer-deployment.sh --user oc1 --expected-basepath / --expected-origin https://oc1.ji-tech.co.kr
+  sudo scripts/svcops-control.sh check oc1 oc1.ji-tech.co.kr
   less README.md
 EOF

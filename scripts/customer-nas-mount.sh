@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/internal/lib-safe-compose.bash"
+
 usage() {
   cat <<'USAGE'
 Usage:
@@ -140,42 +144,92 @@ if [[ -z "$credentials" ]]; then
   fi
 fi
 
+configured_fstab_entry() {
+  awk -v mp="$mountpoint" '
+    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print; exit }
+  ' /etc/fstab 2>/dev/null || true
+}
+
+configured_share() {
+  local entry
+  entry="$(configured_fstab_entry)"
+  [[ -n "$entry" ]] || return 0
+  awk '{ print $1; exit }' <<<"$entry"
+}
+
+credential_nas_username() {
+  awk -F= '$1 == "username" { print $2; exit }' "$credentials" 2>/dev/null || true
+}
+
+print_registered_child_mounts() {
+  local root="$1" lines n mp share name state source
+  lines="$(awk -v root="$root/" '
+    $0 !~ /^[[:space:]]*#/ && $2 ~ "^" root && $3 == "cifs" {
+      count += 1
+      name = $2
+      sub("^" root, "", name)
+      sub("/.*$", "", name)
+      printf "%d\t%s\t%s\t%s\n", count, $2, $1, name
+    }
+  ' /etc/fstab 2>/dev/null || true)"
+  if [[ -z "$lines" ]]; then
+    echo "registered_child_mounts=none"
+    return 0
+  fi
+  while IFS=$'\t' read -r n mp share name; do
+    [[ -n "$n" ]] || continue
+    echo "registered_child_mount_$n=$mp"
+    echo "registered_child_share_$n=$share"
+    state="not_mounted"
+    source=""
+    if [[ "$(openclaw_findmnt_exact_field "$mp" TARGET)" == "$mp" ]]; then
+      if [[ "$(openclaw_findmnt_exact_field "$mp" FSTYPE)" == "cifs" ]]; then
+        state="mounted_cifs"
+        source="$(openclaw_findmnt_exact_field "$mp" SOURCE)"
+      else
+        state="mounted_non_cifs"
+        source="$(openclaw_findmnt_exact_field "$mp" SOURCE)"
+      fi
+    fi
+    echo "registered_child_state_$n=$state"
+    [[ -n "$source" ]] && echo "registered_child_mounted_source_$n=$source"
+    echo "child_mount_command_$n=openclaw-nas-mount --mount-name $name --status"
+  done <<<"$lines"
+}
+
 status() {
   local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
-  echo "== NAS 연결 상태 =="
+  echo "== NAS status =="
   echo "scope=customer_account_only"
   echo "note=OpenClaw container visibility requires operator nas-verify"
   echo "linux_user=$(whoami)"
   echo "home=$HOME"
   echo "mount_name=${mount_name:-primary}"
   echo "mountpoint=$mountpoint"
-  fstab_entry="$(awk -v mp="$mountpoint" '
-    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print; exit }
-  ' /etc/fstab 2>/dev/null || true)"
+
+  fstab_entry="$(configured_fstab_entry)"
   if [[ -n "$fstab_entry" ]]; then
     read -r fstab_source fstab_target fstab_type fstab_options _ <<<"$fstab_entry"
     echo "fstab_rule=present"
     echo "registered_share=$fstab_source"
     fstab_credentials="$(printf '%s' "$fstab_options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
-    if [[ -n "$fstab_credentials" ]]; then
-      echo "registered_credentials_file=$fstab_credentials"
-    fi
+    [[ -n "$fstab_credentials" ]] && echo "registered_credentials_file=$fstab_credentials"
   else
     echo "fstab_rule=missing"
     echo "registered_share=missing"
   fi
+
   if [[ -s "$credentials" ]]; then
     echo "credential_file=present"
-    nas_user="$(awk -F= '$1 == "username" { print $2; exit }' "$credentials" 2>/dev/null || true)"
-    if [[ -n "$nas_user" ]]; then
-      echo "credential_username=$nas_user"
-    fi
+    nas_user="$(credential_nas_username)"
+    [[ -n "$nas_user" ]] && echo "credential_nas_username=$nas_user"
   else
     echo "credential_file=missing"
   fi
-  current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
-  current_source="$(findmnt -T "$mountpoint" -n -o SOURCE 2>/dev/null | head -1 || true)"
-  current_fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+
+  current_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
+  current_source="$(openclaw_findmnt_exact_field "$mountpoint" SOURCE)"
+  current_fstype="$(openclaw_findmnt_exact_field "$mountpoint" FSTYPE)"
   if [[ "$current_target" == "$mountpoint" ]]; then
     echo "mount_state=mounted"
     echo "mounted_source=$current_source"
@@ -190,6 +244,7 @@ status() {
     fi
   else
     echo "mount_state=not_mounted"
+    openclaw_print_parent_mount_hint "$mountpoint"
     if [[ -z "$fstab_entry" ]]; then
       next_action="ask operator to register the NAS share"
     elif [[ ! -s "$credentials" ]]; then
@@ -201,29 +256,8 @@ status() {
   fi
 
   if [[ "$mountpoint" == "$HOME/nas_docs" ]]; then
-    awk -v root="$mountpoint/" '
-      $0 !~ /^[[:space:]]*#/ && $2 ~ "^" root && $3 == "cifs" {
-        count += 1
-        name = $2
-        sub("^" root, "", name)
-        sub("/.*$", "", name)
-        printf "registered_child_mount_%d=%s\n", count, $2
-        printf "registered_child_share_%d=%s\n", count, $1
-        printf "child_mount_command_%d=openclaw-nas-mount --mount-name %s --status\n", count, name
-      }
-      END {
-        if (!count) {
-          print "registered_child_mounts=none"
-        }
-      }
-    ' /etc/fstab 2>/dev/null || true
+    print_registered_child_mounts "$mountpoint"
   fi
-}
-
-configured_share() {
-  awk -v mp="$mountpoint" '
-    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print $1; exit }
-  ' /etc/fstab 2>/dev/null || true
 }
 
 write_share_request() {
@@ -253,7 +287,7 @@ write_share_request() {
   } > "$request_file"
   chmod 600 "$request_file"
 
-  echo "== NAS share 변경 요청 =="
+  echo "== NAS share request =="
   echo "request_file=$request_file"
   echo "mount_name=${mount_name:-primary}"
   echo "mountpoint=$mountpoint"
@@ -263,7 +297,7 @@ write_share_request() {
 }
 
 require_registered_share() {
-  local share
+  local share nas_user
   share="$(configured_share)"
   if [[ -z "$share" ]]; then
     echo "error: no registered NAS share for $mountpoint" >&2
@@ -271,13 +305,13 @@ require_registered_share() {
     status >&2
     exit 1
   fi
-  echo "== NAS 연결 대상 =="
+  echo "== NAS target =="
+  echo "linux_user=$(whoami)"
   echo "registered_share=$share"
   echo "mountpoint=$mountpoint"
   if [[ -s "$credentials" ]]; then
-    local nas_user
-    nas_user="$(awk -F= '$1 == "username" { print $2; exit }' "$credentials" 2>/dev/null || true)"
-    [[ -n "$nas_user" ]] && echo "credential_username=$nas_user"
+    nas_user="$(credential_nas_username)"
+    [[ -n "$nas_user" ]] && echo "credential_nas_username=$nas_user"
   else
     echo "credential_file=missing"
   fi
@@ -288,7 +322,7 @@ write_credentials() {
   umask 077
   mkdir -p "$(dirname "$credentials")"
 
-  printf "NAS username: "
+  printf "NAS username (not Linux username): "
   read -r nas_user
 
   printf "NAS password: "
@@ -324,7 +358,7 @@ mkdir -p "$mountpoint" 2>/dev/null || true
 require_registered_share
 
 if [[ "$mode" == "remount" ]]; then
-  current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+  current_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
   if [[ "$current_target" == "$mountpoint" ]]; then
     echo "action=unmount_existing"
     umount "$mountpoint"
@@ -335,9 +369,9 @@ if [[ "$reset_credential" -eq 1 || ! -s "$credentials" ]]; then
   write_credentials
 fi
 
-current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
+current_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
 if [[ "$current_target" == "$mountpoint" ]]; then
-  fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE | head -1)"
+  fstype="$(openclaw_findmnt_exact_field "$mountpoint" FSTYPE)"
   if [[ "$fstype" == "cifs" ]]; then
     echo "mount=already_cifs"
     status
@@ -356,8 +390,8 @@ else
   exit "$rc"
 fi
 
-current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
-fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+current_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
+fstype="$(openclaw_findmnt_exact_field "$mountpoint" FSTYPE)"
 if [[ "$current_target" != "$mountpoint" || "$fstype" != "cifs" ]]; then
   echo "error: mount finished but $mountpoint is not CIFS" >&2
   status >&2

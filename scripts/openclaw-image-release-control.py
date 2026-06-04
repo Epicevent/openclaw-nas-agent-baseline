@@ -619,7 +619,7 @@ def install_openclaw_slot(control: Path, slots_path: Path, target_user: str, ima
     script_dir = control.parent
     return run(
         [
-            str(script_dir / "install-customer-slot-from-image.sh"),
+            str(script_dir / "internal" / "install-customer-slot-from-image.bash"),
             "--user",
             target_user,
             "--host",
@@ -637,7 +637,7 @@ def install_hermes_slot(control: Path, slots_path: Path, target_user: str, image
     script_dir = control.parent
     return run(
         [
-            str(script_dir / "install-hermes-slot-from-image.sh"),
+            str(script_dir / "internal" / "install-hermes-slot-from-image.bash"),
             "--user",
             target_user,
             "--host",

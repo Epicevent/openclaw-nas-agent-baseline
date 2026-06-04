@@ -27,8 +27,13 @@ expected_basepath=""
 expected_origin=""
 skip_provider_key_check=0
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
+
+container_findmnt_exact_field() {
+  local container="$1" path="$2" field="$3"
+  docker exec "$container" findmnt -n -M "$path" -o "$field" 2>/dev/null | head -1 || true
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -208,9 +213,9 @@ else
   visible_nas_mountpoints=()
   echo "INFO customer_nas_registered_mount_count=${#nas_mountpoints[@]}"
   for nas_mp in "${nas_mountpoints[@]}"; do
-    nas_target="$(findmnt -T "$nas_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
-    nas_source="$(findmnt -T "$nas_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
-    nas_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+    nas_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
+    nas_source="$(openclaw_findmnt_exact_field "$nas_mp" SOURCE)"
+    nas_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
     if [[ "$nas_target" == "$nas_mp" && "$nas_fstype" == "cifs" ]]; then
       echo "INFO customer_nas_mount=$nas_mp source=$nas_source"
       visible_nas_mountpoints+=("$nas_mp")
@@ -433,9 +438,9 @@ if docker inspect "$container" >/dev/null 2>&1; then
         container_nas_failed=1
         echo "INFO container_nas_mount_unreadable=$container_mp"
       fi
-      container_nas_source="$(docker exec "$container" findmnt -T "$container_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
-      container_nas_target="$(docker exec "$container" findmnt -T "$container_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
-      container_nas_fstype="$(docker exec "$container" findmnt -T "$container_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+      container_nas_source="$(container_findmnt_exact_field "$container" "$container_mp" SOURCE)"
+      container_nas_target="$(container_findmnt_exact_field "$container" "$container_mp" TARGET)"
+      container_nas_fstype="$(container_findmnt_exact_field "$container" "$container_mp" FSTYPE)"
       if [[ "$container_nas_target" == "$container_mp" && "$container_nas_fstype" == "cifs" ]]; then
         echo "INFO container_nas_mount=$container_mp source=$container_nas_source"
       else

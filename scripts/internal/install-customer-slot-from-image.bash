@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  install-customer-slot-from-image.sh --user USER [options]
+  slot-control.sh install-openclaw --user USER [options]
 
 Creates a customer-mode OpenClaw slot directly from an already-built Docker
 image. This is the fast fresh-install path for a prepared ocN slot.
@@ -14,7 +14,7 @@ Prerequisites:
   - at least one registered /home/USER/nas_docs/SHARE_NAME CIFS mount exists.
   - OPENCLAW_IMAGE, or --image, points at a ready OpenClaw baseline image.
   - Provider/API keys are optional at install time and can be applied later with
-    apply-runtime-secrets.sh.
+    slot-control.sh runtime-secrets.
 
 Options:
   --user USER           Target customer slot, for example oc20. Required.
@@ -120,8 +120,8 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
   echo "error: user not found: $target_user" >&2
@@ -171,8 +171,8 @@ if [[ "$skip_nas_check" -eq 0 ]]; then
   fi
   nas_check_failed=0
   for nas_mp in "${nas_mountpoints[@]}"; do
-    nas_target="$(findmnt -T "$nas_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
-    nas_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+    nas_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
+    nas_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
     if [[ "$nas_target" != "$nas_mp" || "$nas_fstype" != "cifs" ]]; then
       echo "error: NAS is not mounted as CIFS at $nas_mp" >&2
       echo "hint: customer should run openclaw-nas-mount --mount-name \"${nas_mp##*/}\" --reset-credential" >&2
@@ -413,7 +413,7 @@ subdomain_args=(--user "$target_user" --host "$host" --no-recreate)
 if [[ "$write_apache" -eq 0 ]]; then
   subdomain_args+=(--no-apache-conf)
 fi
-bash "$script_dir/apply-subdomain-mode.sh" "${subdomain_args[@]}"
+bash "$script_dir/apply-subdomain-mode.bash" "${subdomain_args[@]}"
 
 if [[ -d "$target_home/.openclaw" ]]; then
   chown -R "$runtime_user:$runtime_user" "$target_home/.openclaw"
@@ -470,7 +470,7 @@ if [[ "$run_check" -eq 1 ]]; then
     --expected-origin "$origin"
   )
   check_args+=(--skip-provider-key-check)
-  bash "$script_dir/check-customer-deployment.sh" \
+  bash "$script_dir/check-customer-deployment.bash" \
     "${check_args[@]}"
 fi
 

@@ -67,8 +67,18 @@ USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/internal/lib-safe-compose.bash"
+
+container_findmnt_exact_field() {
+  local container="$1" path="$2" field="$3"
+  docker exec "$container" findmnt -n -M "$path" -o "$field" 2>/dev/null | head -1 || true
+}
+
+container_findmnt_exact_line() {
+  local container="$1" path="$2"
+  docker exec "$container" findmnt -n -M "$path" -o TARGET,SOURCE,FSTYPE,OPTIONS 2>/dev/null | head -1 || true
+}
 
 validate_user() {
   local user="$1"
@@ -228,9 +238,9 @@ print_nas_status() {
     echo "credential_file=missing"
   fi
 
-  current_target="$(findmnt -T "$mountpoint" -n -o TARGET 2>/dev/null | head -1 || true)"
-  current_source="$(findmnt -T "$mountpoint" -n -o SOURCE 2>/dev/null | head -1 || true)"
-  current_fstype="$(findmnt -T "$mountpoint" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+  current_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
+  current_source="$(openclaw_findmnt_exact_field "$mountpoint" SOURCE)"
+  current_fstype="$(openclaw_findmnt_exact_field "$mountpoint" FSTYPE)"
   if [[ "$current_target" == "$mountpoint" ]]; then
     echo "mount=present"
     echo "mount_source=$current_source"
@@ -241,24 +251,44 @@ print_nas_status() {
       echo "mount_matches_fstab=no"
       echo "remount_required=yes"
     fi
-    findmnt -T "$mountpoint" -o TARGET,SOURCE,FSTYPE,OPTIONS || true
+    openclaw_findmnt_exact_line "$mountpoint" | sed 's/^/mount_exact=/'
   else
     echo "mount=missing"
+    openclaw_print_parent_mount_hint "$mountpoint"
   fi
 
   if [[ "$mountpoint" == "$(nas_mountpoint "$target_home")" ]]; then
-    awk -v root="$mountpoint/" '
+    while IFS=$'\t' read -r idx child_mount child_share; do
+      [[ -n "$idx" ]] || continue
+      echo "registered_child_mount_$idx=$child_mount"
+      echo "registered_child_share_$idx=$child_share"
+      child_target="$(openclaw_findmnt_exact_field "$child_mount" TARGET)"
+      child_source="$(openclaw_findmnt_exact_field "$child_mount" SOURCE)"
+      child_fstype="$(openclaw_findmnt_exact_field "$child_mount" FSTYPE)"
+      if [[ "$child_target" == "$child_mount" && "$child_fstype" == "cifs" ]]; then
+        echo "registered_child_state_$idx=mounted_cifs"
+        echo "registered_child_mounted_source_$idx=$child_source"
+      elif [[ "$child_target" == "$child_mount" ]]; then
+        echo "registered_child_state_$idx=mounted_non_cifs"
+        echo "registered_child_mounted_source_$idx=$child_source"
+        echo "registered_child_mounted_fstype_$idx=$child_fstype"
+      else
+        echo "registered_child_state_$idx=not_mounted"
+      fi
+    done < <(awk -v root="$mountpoint/" '
       $0 !~ /^[[:space:]]*#/ && $2 ~ "^" root && $3 == "cifs" {
         count += 1
-        printf "registered_child_mount_%d=%s\n", count, $2
-        printf "registered_child_share_%d=%s\n", count, $1
+        printf "%d\t%s\t%s\n", count, $2, $1
       }
       END {
         if (!count) {
-          print "registered_child_mounts=none"
+          print "\t\t"
         }
       }
-    ' /etc/fstab 2>/dev/null || true
+    ' /etc/fstab 2>/dev/null || true)
+    if ! awk -v root="$mountpoint/" '$0 !~ /^[[:space:]]*#/ && $2 ~ "^" root && $3 == "cifs" { found=1 } END { exit found ? 0 : 1 }' /etc/fstab 2>/dev/null; then
+      echo "registered_child_mounts=none"
+    fi
   fi
 }
 
@@ -383,7 +413,7 @@ approve_share_request() {
   echo "credentials_path=$requested_credentials"
   echo "requested_share=$requested_share"
   helper_args=(--user "$target_user" --share "$requested_share" --mount-name "$mount_name")
-  bash "$script_dir/write-user-nas-fstab-entry.sh" \
+  bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
     "${helper_args[@]}"
 
   stamp="$(date +%Y%m%d%H%M%S)"
@@ -699,9 +729,9 @@ verify_nas_visibility() {
   else
     echo "INFO host_nas_registered_mount_count=${#nas_mountpoints[@]}"
     for nas_mp in "${nas_mountpoints[@]}"; do
-      host_source="$(findmnt -T "$nas_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
-      host_target="$(findmnt -T "$nas_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
-      host_fstype="$(findmnt -T "$nas_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+      host_source="$(openclaw_findmnt_exact_field "$nas_mp" SOURCE)"
+      host_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
+      host_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
       if [[ "$host_target" == "$nas_mp" && "$host_fstype" == "cifs" ]]; then
         echo "INFO host_nas_mount=$nas_mp source=$host_source"
         share_name="${nas_mp#$mountpoint/}"
@@ -738,9 +768,9 @@ verify_nas_visibility() {
   else
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$container_root" "$mountpoint" "$nas_mp")"
-      container_source="$(docker exec "$container" findmnt -T "$container_mp" -n -o SOURCE 2>/dev/null | head -1 || true)"
-      container_target="$(docker exec "$container" findmnt -T "$container_mp" -n -o TARGET 2>/dev/null | head -1 || true)"
-      container_fstype="$(docker exec "$container" findmnt -T "$container_mp" -n -o FSTYPE 2>/dev/null | head -1 || true)"
+      container_source="$(container_findmnt_exact_field "$container" "$container_mp" SOURCE)"
+      container_target="$(container_findmnt_exact_field "$container" "$container_mp" TARGET)"
+      container_fstype="$(container_findmnt_exact_field "$container" "$container_mp" FSTYPE)"
       if [[ "$container_target" == "$container_mp" && "$container_fstype" == "cifs" ]] \
         && container_runtime_sh_for_family "$container" "$runtime_family" 'test -r "$1"' "$container_mp"; then
         echo "INFO container_nas_mount=$container_mp source=$container_source"
@@ -803,7 +833,7 @@ case "$command_name" in
     host="$2"
     validate_user "$target_user"
     validate_host "$host"
-    bash "$script_dir/check-customer-deployment.sh" \
+    bash "$script_dir/internal/check-customer-deployment.bash" \
       --user "$target_user" \
       --expected-basepath / \
       --expected-origin "https://$host"
@@ -825,7 +855,7 @@ case "$command_name" in
       host="$target_user.$base_domain"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
-        if ! bash "$script_dir/check-customer-deployment.sh" \
+        if ! bash "$script_dir/internal/check-customer-deployment.bash" \
           --user "$target_user" \
           --expected-basepath / \
           --expected-origin "https://$host"; then
@@ -929,7 +959,7 @@ case "$command_name" in
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/openclaw-nas-container-view.sh" tree --user "$target_user"
+    bash "$script_dir/internal/openclaw-nas-container-view.bash" tree --user "$target_user"
     ;;
 
   nas-search-smoke)
@@ -937,7 +967,7 @@ case "$command_name" in
     target_user="$1"
     query="$2"
     validate_user "$target_user"
-    bash "$script_dir/openclaw-nas-container-view.sh" search-smoke --user "$target_user" --query "$query"
+    bash "$script_dir/internal/openclaw-nas-container-view.bash" search-smoke --user "$target_user" --query "$query"
     ;;
 
   nas-runtime-root-fix)
@@ -975,7 +1005,7 @@ case "$command_name" in
     validate_user "$target_user"
     validate_share "$share"
     mount_name="$(mount_name_from_share "$share")"
-    bash "$script_dir/write-user-nas-fstab-entry.sh" \
+    bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
       --user "$target_user" \
       --share "$share"
     target_home="$(customer_home "$target_user")"
@@ -1003,7 +1033,7 @@ case "$command_name" in
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
-        if ! bash "$script_dir/write-user-nas-fstab-entry.sh" \
+        if ! bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
           --user "$target_user" \
           --share "$share" | sed -n '/^target_user=/p;/^mount_name=/p;/^mountpoint=/p;/^share=/p;/^fstab_user_mount=/p'; then
           failed=1
@@ -1020,7 +1050,7 @@ case "$command_name" in
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/remove-user-nas-fstab-entry.sh" \
+    bash "$script_dir/internal/remove-user-nas-fstab-entry.bash" \
       --user "$target_user"
     ;;
 
@@ -1037,7 +1067,7 @@ case "$command_name" in
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
-        if ! bash "$script_dir/remove-user-nas-fstab-entry.sh" \
+        if ! bash "$script_dir/internal/remove-user-nas-fstab-entry.bash" \
           --user "$target_user" | sed -n '/^target_user=/p;/^mountpoint=/p;/^fstab_user_mount=/p;/^note=/p'; then
           failed=1
         fi
@@ -1157,7 +1187,7 @@ container_image_id={{.Image}}'
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/apply-hermes-workspace-guidance.sh" --user "$target_user"
+    bash "$script_dir/internal/apply-hermes-workspace-guidance.bash" --user "$target_user"
     ;;
 
   hermes-guidance-all)
@@ -1173,7 +1203,7 @@ container_image_id={{.Image}}'
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
-        bash "$script_dir/apply-hermes-workspace-guidance.sh" --user "$target_user" || failed=1
+        bash "$script_dir/internal/apply-hermes-workspace-guidance.bash" --user "$target_user" || failed=1
       else
         echo "FAIL user_missing"
         failed=1
@@ -1251,7 +1281,7 @@ container_image_id={{.Image}}'
     [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/install-hermes-slot-from-image.sh" \
+    bash "$script_dir/internal/install-hermes-slot-from-image.bash" \
       --user "$target_user" \
       --image "$2" \
       --force
@@ -1262,7 +1292,7 @@ container_image_id={{.Image}}'
     target_user="$1"
     since_window="${2:-24h}"
     validate_user "$target_user"
-    bash "$script_dir/openclaw-usage-report.sh" \
+    bash "$script_dir/internal/openclaw-usage-report.bash" \
       --user "$target_user" \
       --since "$since_window"
     ;;
@@ -1276,21 +1306,21 @@ container_image_id={{.Image}}'
       echo "error: invalid START/END" >&2
       exit 2
     }
-    bash "$script_dir/openclaw-usage-report.sh" \
+    bash "$script_dir/internal/openclaw-usage-report.bash" \
       --range "$start" "$end" \
       --since "$since_window"
     ;;
 
   shared-ollama-status)
     [[ $# -eq 0 ]] || { usage >&2; exit 2; }
-    bash "$script_dir/manage-shared-ollama.sh" status
+    bash "$script_dir/internal/manage-shared-ollama.bash" status
     ;;
 
   shared-ollama-up)
     [[ $# -ge 1 && $# -le 2 ]] || { usage >&2; exit 2; }
     model="$1"
     image="${2:-ollama/ollama:0.17.7}"
-    bash "$script_dir/manage-shared-ollama.sh" up \
+    bash "$script_dir/internal/manage-shared-ollama.bash" up \
       --model "$model" \
       --image "$image"
     ;;
@@ -1301,9 +1331,9 @@ container_image_id={{.Image}}'
     target_user="${2:-}"
     if [[ -n "$target_user" ]]; then
       validate_user "$target_user"
-      bash "$script_dir/manage-shared-ollama.sh" usage --since "$since_window" --user "$target_user"
+      bash "$script_dir/internal/manage-shared-ollama.bash" usage --since "$since_window" --user "$target_user"
     else
-      bash "$script_dir/manage-shared-ollama.sh" usage --since "$since_window"
+      bash "$script_dir/internal/manage-shared-ollama.bash" usage --since "$since_window"
     fi
     ;;
 
@@ -1313,9 +1343,9 @@ container_image_id={{.Image}}'
     model="${2:-}"
     validate_user "$target_user"
     if [[ -n "$model" ]]; then
-      bash "$script_dir/manage-shared-ollama.sh" smoke --user "$target_user" --model "$model"
+      bash "$script_dir/internal/manage-shared-ollama.bash" smoke --user "$target_user" --model "$model"
     else
-      bash "$script_dir/manage-shared-ollama.sh" smoke --user "$target_user"
+      bash "$script_dir/internal/manage-shared-ollama.bash" smoke --user "$target_user"
     fi
     ;;
 
@@ -1326,7 +1356,7 @@ container_image_id={{.Image}}'
     base_url="${3:-$(shared_ollama_base_url)}"
     base_url="${base_url:-http://172.17.0.1:11434/v1}"
     validate_user "$target_user"
-    bash "$script_dir/apply-ollama-provider-config.sh" \
+    bash "$script_dir/internal/apply-ollama-provider-config.bash" \
       --user "$target_user" \
       --model "$model" \
       --base-url "$base_url"
@@ -1339,7 +1369,7 @@ container_image_id={{.Image}}'
     base_url="${3:-$(shared_ollama_base_url)}"
     base_url="${base_url:-http://172.17.0.1:11434/v1}"
     validate_user "$target_user"
-    bash "$script_dir/apply-ollama-provider-config.sh" \
+    bash "$script_dir/internal/apply-ollama-provider-config.bash" \
       --user "$target_user" \
       --model "$model" \
       --base-url "$base_url" \
@@ -1350,7 +1380,7 @@ container_image_id={{.Image}}'
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/openclaw-heartbeat-control.sh" status --user "$target_user"
+    bash "$script_dir/internal/openclaw-heartbeat-control.bash" status --user "$target_user"
     ;;
 
   heartbeat-status-all)
@@ -1361,14 +1391,14 @@ container_image_id={{.Image}}'
       echo "error: invalid START/END" >&2
       exit 2
     }
-    bash "$script_dir/openclaw-heartbeat-control.sh" status --range "$start" "$end"
+    bash "$script_dir/internal/openclaw-heartbeat-control.bash" status --range "$start" "$end"
     ;;
 
   heartbeat-disable)
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/openclaw-heartbeat-control.sh" disable --user "$target_user"
+    bash "$script_dir/internal/openclaw-heartbeat-control.bash" disable --user "$target_user"
     refresh_gateway "$target_user"
     ;;
 
@@ -1385,7 +1415,7 @@ container_image_id={{.Image}}'
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
-        bash "$script_dir/openclaw-heartbeat-control.sh" disable --user "$target_user" || failed=1
+        bash "$script_dir/internal/openclaw-heartbeat-control.bash" disable --user "$target_user" || failed=1
         refresh_gateway "$target_user" || failed=1
       else
         echo "FAIL user_missing"
@@ -1402,7 +1432,7 @@ container_image_id={{.Image}}'
     base_url="${3:-$(shared_ollama_base_url)}"
     base_url="${base_url:-http://172.17.0.1:11434/v1}"
     validate_user "$target_user"
-    bash "$script_dir/apply-ollama-heartbeat-config.sh" \
+    bash "$script_dir/internal/apply-ollama-heartbeat-config.bash" \
       --user "$target_user" \
       --model "$model" \
       --base-url "$base_url" \
@@ -1425,7 +1455,7 @@ container_image_id={{.Image}}'
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
-        bash "$script_dir/apply-ollama-heartbeat-config.sh" \
+        bash "$script_dir/internal/apply-ollama-heartbeat-config.bash" \
           --user "$target_user" \
           --model "$model" \
           --base-url "$base_url" \
@@ -1444,7 +1474,7 @@ container_image_id={{.Image}}'
     share="$2"
     validate_user "$target_user"
     validate_share "$share"
-    bash "$script_dir/write-user-nas-fstab-entry.sh" \
+    bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
       --user "$target_user" \
       --share "$share"
     ;;
@@ -1455,7 +1485,7 @@ container_image_id={{.Image}}'
     host="$2"
     validate_user "$target_user"
     validate_host "$host"
-    bash "$script_dir/apply-subdomain-mode.sh" \
+    bash "$script_dir/internal/apply-subdomain-mode.bash" \
       --user "$target_user" \
       --host "$host"
     ;;
@@ -1464,7 +1494,7 @@ container_image_id={{.Image}}'
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
-    bash "$script_dir/apply-customer-mode-isolation.sh" \
+    bash "$script_dir/internal/apply-customer-mode-isolation.bash" \
       --user "$target_user" \
       --no-remount \
       --check

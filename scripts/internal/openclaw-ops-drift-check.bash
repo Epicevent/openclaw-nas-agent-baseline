@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  openclaw-ops-drift-check.sh [--registry PATH] [--images PATH] [--control PATH] [--manifest PATH] [--report PATH]
+  ops-monitor.sh drift-check [--registry PATH] [--images PATH] [--control PATH] [--manifest PATH] [--report PATH]
 
 Compares /srv/openclaw-ops/slots.yaml with live slot state.
 

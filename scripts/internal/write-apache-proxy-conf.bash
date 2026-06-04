@@ -4,13 +4,13 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  write-apache-proxy-conf.sh --user USER [--mode subdomain|path] [options]
+  internal/write-apache-proxy-conf.bash --user USER [--mode subdomain|path] [options]
 
 Writes an Apache reverse-proxy config for one OpenClaw account.
 
 Customer deployments should prefer subdomain mode:
 
-  sudo bash scripts/write-apache-proxy-conf.sh \
+  sudo scripts/slot-control.sh subdomain \
     --user oc3 \
     --mode subdomain \
     --host oc3.ji-tech.co.kr \
@@ -58,8 +58,8 @@ output=""
 apply=0
 reload_apache=0
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

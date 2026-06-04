@@ -64,13 +64,13 @@ Create a per-user snapshot:
 
 ```bash
 cd /opt/openclaw-nas-agent-baseline
-sudo bash scripts/recovery/backup-openclaw-state.sh --user oc1
+sudo scripts/recovery-control.sh backup --user oc1
 ```
 
 Repair with repo defaults:
 
 ```bash
-sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1
+sudo scripts/recovery-control.sh repair --user oc1
 ```
 
 When explicitly used for recovery on an empty account, the repair script also
@@ -90,13 +90,13 @@ recovery, default workspace seeding, or snapshot restore.
 Repair and overwrite default workspace files:
 
 ```bash
-sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 --force-defaults
+sudo scripts/recovery-control.sh repair --user oc1 --force-defaults
 ```
 
 Restore from a snapshot:
 
 ```bash
-sudo bash scripts/recovery/repair-openclaw-state.sh --user oc1 \
+sudo scripts/recovery-control.sh repair --user oc1 \
   --snapshot /home/oc1/.openclaw-recovery/snapshots/openclaw-state-oc1-YYYYMMDDHHMMSS.tar.gz
 ```
 
@@ -116,7 +116,7 @@ Run for many accounts:
 ```bash
 cd /opt/openclaw-nas-agent-baseline
 for i in $(seq 1 20); do
-  sudo bash scripts/recovery/repair-openclaw-state.sh --user "oc$i"
+  sudo scripts/recovery-control.sh repair --user "oc$i"
 done
 ```
 
@@ -137,6 +137,6 @@ docker exec openclaw-oc1-openclaw-gateway-1 sh -lc '
   id
   ls -ld /home/node/.openclaw /home/node/nas_docs
   cd /home/node/.openclaw/workspace/openclaw-nas-agent-baseline
-  bash scripts/check-baseline.sh
+  bash scripts/internal/check-baseline.bash
 '
 ```

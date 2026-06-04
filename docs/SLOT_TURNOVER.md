@@ -98,7 +98,7 @@ OpenClaw는 이미지 기반 fresh install 경로로 다시 만든다. 이때 pr
 필수가 아니다.
 
 ```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-image.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh install-openclaw \
   --user "$TARGET_USER" \
   --host "$CONTROL_UI_HOST" \
   --force \
@@ -112,7 +112,7 @@ SECRET_ENV="/root/openclaw-runtime-secrets.$TARGET_USER.env"
 sudo install -o root -g root -m 0600 /dev/null "$SECRET_ENV"
 sudo editor "$SECRET_ENV"
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/apply-runtime-secrets.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh runtime-secrets \
   --user "$TARGET_USER" \
   --host "$CONTROL_UI_HOST" \
   --env-file "$SECRET_ENV" \

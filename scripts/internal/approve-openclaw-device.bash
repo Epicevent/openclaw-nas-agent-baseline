@@ -4,8 +4,8 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  approve-openclaw-device.sh [--user USER] DEVICE_ID
-  approve-openclaw-device.sh [--user USER] --list
+  slot-control.sh approve-device [--user USER] DEVICE_ID
+  slot-control.sh approve-device [--user USER] --list
 
 Approves or lists OpenClaw Control UI devices for an OpenClaw account.
 
@@ -14,11 +14,11 @@ mode.
 
 Examples:
 
-  sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh --user oc1 --list
-  sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh --user oc1 62a39efd-d9d4-4eb4-8bdb-b9bbf61e1668
+  sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh approve-device --user oc1 --list
+  sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh approve-device --user oc1 62a39efd-d9d4-4eb4-8bdb-b9bbf61e1668
 
   sudo su - oc1
-  bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh 62a39efd-d9d4-4eb4-8bdb-b9bbf61e1668
+  /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh approve-device 62a39efd-d9d4-4eb4-8bdb-b9bbf61e1668
 USAGE
 }
 
@@ -27,8 +27,8 @@ device_id=""
 target_user=""
 user_arg=0
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in

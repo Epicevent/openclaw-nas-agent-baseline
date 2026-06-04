@@ -144,20 +144,20 @@ test "$(findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && 
 설치한다.
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-image.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh install-openclaw \
   --user "$TARGET_USER" \
   --host "$CONTROL_UI_HOST" \
   --image openclaw-nas-agent:baseline
 ```
 
 `--check`를 붙인 fresh install 검사는 provider/API key 없이도 통과할 수 있는
-smoke check다. 최종 운영 완료 확인은 runtime secret 주입 후 `apply-runtime-secrets.sh
+smoke check다. 최종 운영 완료 확인은 runtime secret 주입 후 `slot-control.sh runtime-secrets
 --check`로 따로 수행한다.
 
 부분 설치물을 덮어써야 할 때만 `--force`를 붙인다.
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/install-customer-slot-from-image.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh install-openclaw \
   --user "$TARGET_USER" \
   --host "$CONTROL_UI_HOST" \
   --image openclaw-nas-agent:baseline \
@@ -196,7 +196,7 @@ sudo grep -q '^GEMINI_API_KEY=' "$SECRET_ENV" && echo gemini_key_present
 주입하고 gateway를 재생성한다.
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/apply-runtime-secrets.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh runtime-secrets \
   --user "$TARGET_USER" \
   --host "$CONTROL_UI_HOST" \
   --env-file "$SECRET_ENV" \
@@ -252,7 +252,7 @@ OpenClaw에서 device approval을 요구하면 브라우저에 표시된 device 
 ```bash
 DEVICE_ID=DEVICE_ID_FROM_BROWSER
 
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh approve-device \
   --user "$TARGET_USER" \
   "$DEVICE_ID"
 ```
@@ -260,7 +260,7 @@ sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
 pending device 확인:
 
 ```bash
-sudo bash /opt/openclaw-nas-agent-baseline/scripts/approve-openclaw-device.sh \
+sudo /opt/openclaw-nas-agent-baseline/scripts/slot-control.sh approve-device \
   --user "$TARGET_USER" \
   --list
 ```

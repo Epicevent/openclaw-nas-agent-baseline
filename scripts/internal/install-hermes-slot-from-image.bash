@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  install-hermes-slot-from-image.sh --user USER --image IMAGE [options]
+  slot-control.sh install-hermes --user USER --image IMAGE [options]
 
 Reconfigures a prepared ocN slot to run a single Hermes container image.
 The image must contain Hermes Agent, Hermes Workspace, and the OpenClaw NAS
@@ -86,8 +86,8 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=scripts/lib-safe-compose.sh
-source "$script_dir/lib-safe-compose.sh"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
 
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" || "$target_home" != "/home/$target_user" ]]; then
@@ -377,7 +377,7 @@ else
   echo "hermes_config_update=skipped_no_gemini_key"
 fi
 
-bash "$script_dir/apply-hermes-workspace-guidance.sh" --user "$target_user"
+bash "$script_dir/apply-hermes-workspace-guidance.bash" --user "$target_user"
 
 cat > "$compose_dir/docker-compose.yml" <<EOF
 services:
@@ -490,7 +490,7 @@ EOF
     service apache2 reload
   fi
 elif [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
-  bash "$script_dir/write-apache-proxy-conf.sh" \
+  bash "$script_dir/write-apache-proxy-conf.bash" \
     --user "$target_user" \
     --mode subdomain \
     --host "$host" \
@@ -500,7 +500,7 @@ elif [[ -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; th
     --apply \
     --reload
 else
-  bash "$script_dir/write-apache-proxy-conf.sh" \
+  bash "$script_dir/write-apache-proxy-conf.bash" \
     --user "$target_user" \
     --mode subdomain \
     --host "$host" \
