@@ -117,6 +117,7 @@ import sys
 import time
 
 since_seconds = int(sys.argv[1])
+runtime_family = sys.argv[2] if len(sys.argv) > 2 else "openclaw"
 now = time.time()
 cutoff = now - since_seconds
 
@@ -137,11 +138,32 @@ TOKEN_USAGE = re.compile(
 )
 ISO_TS = re.compile(r"^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})")
 
-groups = [
-    ("app_log", ["/tmp/openclaw"], (".log",)),
-    ("state", ["/home/node/.openclaw", "/home/node/.config/openclaw"], None),
-    ("workspace", ["/home/node/.openclaw/workspace"], None),
-]
+if runtime_family == "hermes":
+    groups = [
+        ("app_log", ["/opt/data", "/opt/data/home/.hermes", "/tmp"], (".log",)),
+        ("state", ["/opt/data", "/opt/data/home/.hermes"], None),
+        ("workspace", ["/workspace"], None),
+    ]
+    provider_log_roots = ["/opt/data", "/opt/data/home/.hermes", "/tmp"]
+    skip_dirs = {
+        ".git",
+        "node_modules",
+        "nas_docs",
+        "skills",
+        "__pycache__",
+        ".cache",
+        "browser",
+        ".npm",
+        ".local",
+    }
+else:
+    groups = [
+        ("app_log", ["/tmp/openclaw"], (".log",)),
+        ("state", ["/home/node/.openclaw", "/home/node/.config/openclaw"], None),
+        ("workspace", ["/home/node/.openclaw/workspace"], None),
+    ]
+    provider_log_roots = ["/tmp/openclaw"]
+    skip_dirs = {".git", "node_modules", "nas_docs", "__pycache__"}
 
 def iso(ts):
     return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -166,7 +188,7 @@ for name, roots, suffixes in groups:
         if not os.path.exists(root):
             continue
         for dirpath, dirnames, filenames in os.walk(root):
-            dirnames[:] = [d for d in dirnames if d not in {".git", "node_modules"}]
+            dirnames[:] = [d for d in dirnames if d not in skip_dirs]
             for filename in filenames:
                 if suffixes and not filename.endswith(suffixes):
                     continue
@@ -196,11 +218,11 @@ token_usage_lines = 0
 provider_latest = 0.0
 untimed_provider_lines = 0
 
-for root in ["/tmp/openclaw"]:
+for root in provider_log_roots:
     if not os.path.exists(root):
         continue
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in {".git", "node_modules"}]
+        dirnames[:] = [d for d in dirnames if d not in skip_dirs]
         for filename in filenames:
             if not filename.endswith(".log"):
                 continue
@@ -242,11 +264,13 @@ print(f"container_app_log_provider_operation_lines_recent={operation_lines}")
 print(f"container_app_log_provider_token_usage_lines_recent={token_usage_lines}")
 print(f"container_app_log_provider_untimed_lines_recent={untimed_provider_lines}")
 print(f"container_app_log_provider_latest_at={iso(provider_latest) if provider_latest else 'none'}")
+print("usage_authoritative=no")
+print("usage_observation_source=docker_stdout_and_runtime_log_files")
 PY
 }
 
 print_usage_for_user() {
-  local user="$1" since="$2" since_seconds docker_since container tmp logs_rc status health started image_id log_lines error_lines warn_lines last_log_at file_latest
+  local user="$1" since="$2" since_seconds docker_since container tmp logs_rc status health started image_id log_lines error_lines warn_lines last_log_at runtime_family
   validate_user_name "$user"
   echo "target_user=$user"
   echo "usage_window=$since"
@@ -272,6 +296,11 @@ print_usage_for_user() {
   echo "container_health=$health"
   echo "container_started_at=$started"
   echo "container_image_id=$image_id"
+  runtime_family="$(docker exec "$container" sh -lc 'printf "%s" "${OPENCLAW_RUNTIME_FAMILY:-openclaw}"' 2>/dev/null || true)"
+  runtime_family="${runtime_family:-openclaw}"
+  echo "runtime_family=$runtime_family"
+  echo "usage_authoritative=no"
+  echo "usage_observation_source=docker_stdout_and_runtime_log_files"
 
   tmp="$(mktemp)"
   logs_rc=0
@@ -298,7 +327,7 @@ print_usage_for_user() {
   rm -f "$tmp"
 
   since_seconds="$(since_seconds_for_container_scan "$since")"
-  docker exec -i "$container" python3 - "$since_seconds" <<PY 2>/dev/null || echo "container_file_activity=unavailable"
+  docker exec -i "$container" python3 - "$since_seconds" "$runtime_family" <<PY 2>/dev/null || echo "container_file_activity=unavailable"
 $(container_activity_python)
 PY
 }
