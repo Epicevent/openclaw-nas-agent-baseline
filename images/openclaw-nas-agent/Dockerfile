@@ -14,7 +14,7 @@ FROM ${BASE_IMAGE}
 ARG RUNTIME_USER=node
 ARG OPENCLAW_DASHBOARD_TITLE=""
 ARG OPENCLAW_DASHBOARD_SOURCE_TEXT=OpenClaw
-ARG OPENCLAW_DASHBOARD_INCLUDE_REGEX='^/app/dist/(client|a2ui-shared|shared)-[^/]+[.]js$|^/app/dist/index[.]js$'
+ARG OPENCLAW_DASHBOARD_INCLUDE_REGEX='^/app/dist/(client|a2ui-shared|shared)-[^/]+[.]js$|^/app/dist/index[.]js$|^/app/dist/assets/index-[^/]+[.]js$'
 ARG OPENCLAW_DASHBOARD_EXCLUDE_REGEX='/node_modules/'
 ARG OPENCLAW_DASHBOARD_MAX_PATCHED_FILES=12
 ARG OPENCLAW_DASHBOARD_MAX_REPLACEMENTS=120
