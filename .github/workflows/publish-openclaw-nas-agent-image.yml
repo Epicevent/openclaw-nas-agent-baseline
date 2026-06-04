@@ -6,7 +6,7 @@ on:
       image_tag:
         description: Public GHCR tag to publish
         required: true
-        default: openclaw-dashboard-20260604-r8
+        default: openclaw-dashboard-20260605-r9
       base_image:
         description: Frozen OpenClaw runtime image digest to wrap, for example ghcr.io/epicevent/openclaw-nas-agent@sha256:...
         required: true
@@ -21,15 +21,15 @@ on:
       dashboard_include_regex:
         description: Path regex for dashboard files allowed to be patched
         required: true
-        default: ^/app/dist/(client|a2ui-shared|shared)-[^/]+[.]js$|^/app/dist/index[.]js$|^/app/dist/assets/index-[^/]+[.]js$|^/app/dist/.*[.]html$
+        default: ^/app/dist/control-ui/index[.]html$|^/app/dist/control-ui/assets/index-[^/]+[.]js$
       dashboard_max_patched_files:
         description: Maximum number of files the dashboard patch may touch
         required: true
-        default: "12"
+        default: "4"
       dashboard_max_replacements:
         description: Maximum number of text replacements the dashboard patch may make
         required: true
-        default: "120"
+        default: "30"
 
 permissions:
   contents: read

@@ -14,10 +14,10 @@ FROM ${BASE_IMAGE}
 ARG RUNTIME_USER=node
 ARG OPENCLAW_DASHBOARD_TITLE=""
 ARG OPENCLAW_DASHBOARD_SOURCE_TEXT=OpenClaw
-ARG OPENCLAW_DASHBOARD_INCLUDE_REGEX='^/app/dist/(client|a2ui-shared|shared)-[^/]+[.]js$|^/app/dist/index[.]js$|^/app/dist/assets/index-[^/]+[.]js$|^/app/dist/.*[.]html$'
+ARG OPENCLAW_DASHBOARD_INCLUDE_REGEX='^/app/dist/control-ui/index[.]html$|^/app/dist/control-ui/assets/index-[^/]+[.]js$'
 ARG OPENCLAW_DASHBOARD_EXCLUDE_REGEX='/node_modules/'
-ARG OPENCLAW_DASHBOARD_MAX_PATCHED_FILES=12
-ARG OPENCLAW_DASHBOARD_MAX_REPLACEMENTS=120
+ARG OPENCLAW_DASHBOARD_MAX_PATCHED_FILES=4
+ARG OPENCLAW_DASHBOARD_MAX_REPLACEMENTS=30
 
 USER root
 
@@ -42,6 +42,7 @@ RUN if [ -n "$OPENCLAW_DASHBOARD_TITLE" ]; then \
         --exclude-path-regex "$OPENCLAW_DASHBOARD_EXCLUDE_REGEX" \
         --max-patched-files "$OPENCLAW_DASHBOARD_MAX_PATCHED_FILES" \
         --max-replacements "$OPENCLAW_DASHBOARD_MAX_REPLACEMENTS" \
+        --visible-html-only \
         /app /workspace /home/node /usr/local/share /opt; \
     else \
       echo "openclaw_dashboard_title_patch=skipped"; \

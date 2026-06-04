@@ -22,6 +22,8 @@ JS_SUFFIXES = {
     ".mjs",
     ".cjs",
 }
+VISIBLE_ATTR_RE = re.compile(r'((?:alt|aria-label|title)=["\'])(.*?)(["\'])', re.IGNORECASE)
+TEXT_NODE_RE = re.compile(r">(.*?)<", re.DOTALL)
 
 SKIP_DIRS = {
     ".git",
@@ -72,7 +74,44 @@ def iter_files(
                 yield path
 
 
-def patch_js_string_literals(text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
+def replace_sources(text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
+    new_text = text
+    changed = 0
+    for source, target in replacements:
+        if source:
+            changed += new_text.count(source)
+            new_text = new_text.replace(source, target)
+    return new_text, changed
+
+
+def patch_visible_html_text(text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
+    changed = 0
+
+    def replace_text_node(match: re.Match[str]) -> str:
+        nonlocal changed
+        original = match.group(1)
+        replacement, count = replace_sources(original, replacements)
+        changed += count
+        return f">{replacement}<"
+
+    def replace_attr(match: re.Match[str]) -> str:
+        nonlocal changed
+        original = match.group(2)
+        replacement, count = replace_sources(original, replacements)
+        changed += count
+        return f"{match.group(1)}{replacement}{match.group(3)}"
+
+    text = TEXT_NODE_RE.sub(replace_text_node, text)
+    text = VISIBLE_ATTR_RE.sub(replace_attr, text)
+    return text, changed
+
+
+def patch_js_string_literals(
+    text: str,
+    replacements: list[tuple[str, str]],
+    *,
+    visible_html_only: bool,
+) -> tuple[str, int]:
     out: list[str] = []
     changed = 0
     i = 0
@@ -108,26 +147,16 @@ def patch_js_string_literals(text: str, replacements: list[tuple[str, str]]) -> 
             out.append(literal)
             continue
         body = literal[1:-1]
-        new_body = body
-        for source, target in replacements:
-            if source:
-                changed += new_body.count(source)
-                new_body = new_body.replace(source, target)
+        if visible_html_only:
+            new_body, count = patch_visible_html_text(body, replacements)
+        else:
+            new_body, count = replace_sources(body, replacements)
+        changed += count
         out.append(f"{quote}{new_body}{quote}")
     return "".join(out), changed
 
 
-def patch_text(text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
-    new_text = text
-    changed = 0
-    for source, target in replacements:
-        if source:
-            changed += new_text.count(source)
-            new_text = new_text.replace(source, target)
-    return new_text, changed
-
-
-def patch_file(path: Path, replacements: list[tuple[str, str]]) -> int:
+def patch_file(path: Path, replacements: list[tuple[str, str]], *, visible_html_only: bool) -> int:
     try:
         data = path.read_bytes()
     except OSError:
@@ -137,9 +166,15 @@ def patch_file(path: Path, replacements: list[tuple[str, str]]) -> int:
     text = data.decode("utf-8", errors="ignore")
     original = text
     if path.suffix.lower() in JS_SUFFIXES:
-        text, replacement_count = patch_js_string_literals(text, replacements)
+        text, replacement_count = patch_js_string_literals(
+            text,
+            replacements,
+            visible_html_only=visible_html_only,
+        )
+    elif visible_html_only:
+        text, replacement_count = patch_visible_html_text(text, replacements)
     else:
-        text, replacement_count = patch_text(text, replacements)
+        text, replacement_count = replace_sources(text, replacements)
     if text == original:
         return 0
     path.write_text(text, encoding="utf-8")
@@ -158,6 +193,11 @@ def main() -> int:
     parser.add_argument("--max-patched-files", type=int, default=80)
     parser.add_argument("--max-replacements", type=int, default=200)
     parser.add_argument("--allow-missing", action="store_true")
+    parser.add_argument(
+        "--visible-html-only",
+        action="store_true",
+        help="Only patch visible HTML text nodes and display attributes, including inside JS template strings.",
+    )
     args = parser.parse_args()
 
     sources = [args.source, *args.extra_source]
@@ -172,7 +212,7 @@ def main() -> int:
         root = Path(root_name)
         for path in iter_files(root, args.max_file_bytes, include_path_re, exclude_path_re):
             scanned += 1
-            replacement_count = patch_file(path, replacements)
+            replacement_count = patch_file(path, replacements, visible_html_only=args.visible_html_only)
             if replacement_count:
                 replacement_total += replacement_count
                 patched.append(path)
