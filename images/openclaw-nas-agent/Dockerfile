@@ -34,6 +34,10 @@ RUN if [ -n "$OPENCLAW_DASHBOARD_TITLE" ]; then \
         --source "$OPENCLAW_DASHBOARD_SOURCE_TEXT" \
         --extra-source Openclaw \
         --target "$OPENCLAW_DASHBOARD_TITLE" \
+        --include-path-regex '/(dist|build|public|assets|static|client|ui|web|frontend)/' \
+        --exclude-path-regex '/(docs|extensions|skills|qa|node_modules)/|/package[.]json$|/openclaw[.]plugin[.]json$' \
+        --max-patched-files 80 \
+        --max-replacements 200 \
         /app /workspace /home/node /usr/local/share /opt; \
     else \
       echo "openclaw_dashboard_title_patch=skipped"; \
