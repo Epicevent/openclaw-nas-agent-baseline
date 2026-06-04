@@ -6,11 +6,10 @@ on:
       image_tag:
         description: Public GHCR tag to publish
         required: true
-        default: openclaw-dashboard-20260604-r2
+        default: openclaw-dashboard-20260604-r3
       base_image:
-        description: OpenClaw runtime image to wrap
+        description: Frozen OpenClaw runtime image digest to wrap, for example ghcr.io/epicevent/openclaw-nas-agent@sha256:...
         required: true
-        default: ghcr.io/openclaw/openclaw:latest
       dashboard_title:
         description: Replacement text for the visible OpenClaw dashboard title
         required: true
@@ -41,6 +40,8 @@ jobs:
           set -euo pipefail
           [[ "${{ inputs.image_tag }}" =~ ^openclaw-[A-Za-z0-9._-]+$ ]]
           [[ "${{ inputs.base_image }}" != *" "* ]]
+          [[ "${{ inputs.base_image }}" == *@sha256:* ]]
+          [[ "${{ inputs.base_image }}" != "ghcr.io/openclaw/openclaw:latest" ]]
           [[ -n "${{ inputs.dashboard_title }}" ]]
           [[ "${{ inputs.runtime_user }}" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
 

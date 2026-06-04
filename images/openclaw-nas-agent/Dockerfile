@@ -14,6 +14,10 @@ FROM ${BASE_IMAGE}
 ARG RUNTIME_USER=node
 ARG OPENCLAW_DASHBOARD_TITLE=""
 ARG OPENCLAW_DASHBOARD_SOURCE_TEXT=OpenClaw
+ARG OPENCLAW_DASHBOARD_INCLUDE_REGEX='^/app/dist/openclaw-root-[^/]+[.]js$|^/app/dist/index[.]html$|^/app/(public|assets|static)/.*[.](html|svg|css|js)$'
+ARG OPENCLAW_DASHBOARD_EXCLUDE_REGEX='/node_modules/'
+ARG OPENCLAW_DASHBOARD_MAX_PATCHED_FILES=12
+ARG OPENCLAW_DASHBOARD_MAX_REPLACEMENTS=120
 
 USER root
 
@@ -34,10 +38,10 @@ RUN if [ -n "$OPENCLAW_DASHBOARD_TITLE" ]; then \
         --source "$OPENCLAW_DASHBOARD_SOURCE_TEXT" \
         --extra-source Openclaw \
         --target "$OPENCLAW_DASHBOARD_TITLE" \
-        --include-path-regex '/(dist|build|public|assets|static|client|ui|web|frontend)/' \
-        --exclude-path-regex '/(docs|extensions|skills|qa|node_modules)/|/package[.]json$|/openclaw[.]plugin[.]json$' \
-        --max-patched-files 80 \
-        --max-replacements 200 \
+        --include-path-regex "$OPENCLAW_DASHBOARD_INCLUDE_REGEX" \
+        --exclude-path-regex "$OPENCLAW_DASHBOARD_EXCLUDE_REGEX" \
+        --max-patched-files "$OPENCLAW_DASHBOARD_MAX_PATCHED_FILES" \
+        --max-replacements "$OPENCLAW_DASHBOARD_MAX_REPLACEMENTS" \
         /app /workspace /home/node /usr/local/share /opt; \
     else \
       echo "openclaw_dashboard_title_patch=skipped"; \
