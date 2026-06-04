@@ -17,6 +17,11 @@ TEXT_SUFFIXES = {
     ".svg",
     ".txt",
 }
+JS_SUFFIXES = {
+    ".js",
+    ".mjs",
+    ".cjs",
+}
 
 SKIP_DIRS = {
     ".git",
@@ -67,6 +72,61 @@ def iter_files(
                 yield path
 
 
+def patch_js_string_literals(text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
+    out: list[str] = []
+    changed = 0
+    i = 0
+    length = len(text)
+    while i < length:
+        char = text[i]
+        if char not in {"'", '"', "`"}:
+            out.append(char)
+            i += 1
+            continue
+
+        quote = char
+        start = i
+        i += 1
+        escaped = False
+        while i < length:
+            current = text[i]
+            if escaped:
+                escaped = False
+                i += 1
+                continue
+            if current == "\\":
+                escaped = True
+                i += 1
+                continue
+            if current == quote:
+                i += 1
+                break
+            i += 1
+
+        literal = text[start:i]
+        if len(literal) < 2 or literal[-1] != quote:
+            out.append(literal)
+            continue
+        body = literal[1:-1]
+        new_body = body
+        for source, target in replacements:
+            if source:
+                changed += new_body.count(source)
+                new_body = new_body.replace(source, target)
+        out.append(f"{quote}{new_body}{quote}")
+    return "".join(out), changed
+
+
+def patch_text(text: str, replacements: list[tuple[str, str]]) -> tuple[str, int]:
+    new_text = text
+    changed = 0
+    for source, target in replacements:
+        if source:
+            changed += new_text.count(source)
+            new_text = new_text.replace(source, target)
+    return new_text, changed
+
+
 def patch_file(path: Path, replacements: list[tuple[str, str]]) -> int:
     try:
         data = path.read_bytes()
@@ -76,11 +136,10 @@ def patch_file(path: Path, replacements: list[tuple[str, str]]) -> int:
         return 0
     text = data.decode("utf-8", errors="ignore")
     original = text
-    replacement_count = 0
-    for source, target in replacements:
-        if source:
-            replacement_count += text.count(source)
-            text = text.replace(source, target)
+    if path.suffix.lower() in JS_SUFFIXES:
+        text, replacement_count = patch_js_string_literals(text, replacements)
+    else:
+        text, replacement_count = patch_text(text, replacements)
     if text == original:
         return 0
     path.write_text(text, encoding="utf-8")

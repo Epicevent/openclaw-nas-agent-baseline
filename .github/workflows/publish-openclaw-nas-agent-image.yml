@@ -6,7 +6,7 @@ on:
       image_tag:
         description: Public GHCR tag to publish
         required: true
-        default: openclaw-dashboard-20260604-r3
+        default: openclaw-dashboard-20260604-r4
       base_image:
         description: Frozen OpenClaw runtime image digest to wrap, for example ghcr.io/epicevent/openclaw-nas-agent@sha256:...
         required: true
