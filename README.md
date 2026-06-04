@@ -87,7 +87,8 @@ public repo commit
 
   장기 production에서는 baseline image의 base image와 외부 dependency를 pinning한다.
 
-  nas-unregister는 fstab rule 제거일 뿐 active CIFS unmount 완료가 아니다.
+  nas-unregister는 기본적으로 fstab rule을 제거한다. active CIFS unmount,
+  credential 삭제, 빈 mount 폴더 정리는 명시 옵션으로 같이 수행한다.
 
   fresh install smoke check와 provider/API key 주입 후 final check를 구분한다.
 ```
@@ -468,5 +469,5 @@ docker ps
 - [svcops 운영계정](docs/SVCOPS.md)
 - [Slot turnover](docs/SLOT_TURNOVER.md)
 - [Updates](docs/UPDATES.md)
-- [Public registry 이미지 업데이트](docs/PUBLIC_REGISTRY_IMAGES.md)
+- [이미지 업데이트](docs/UPDATES.md)
 - [Recovery](docs/OPENCLAW_RECOVERY.md)

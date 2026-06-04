@@ -111,13 +111,13 @@ echo "control_ui_host=$CONTROL_UI_HOST"
 검증한다.
 
 ```bash
-IMAGE_REF="ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1"
+IMAGE_REF="ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260603-r16"
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
   image-release-add "$IMAGE_REF"
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
-  image-release-verify dashboard-20260602-r1
+  image-release-verify hermes-workspace-20260603-r16
 ```
 
 검증이 통과하면 `/srv/openclaw-ops/images.yaml`에 public ref, immutable runtime
@@ -137,8 +137,8 @@ mount했는지 확인한다.
 ```bash
 MOUNT_NAME=SHARE_NAME
 
-findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -o TARGET,SOURCE,FSTYPE,OPTIONS
-test "$(findmnt -T "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs
+findmnt -M "$TARGET_HOME/nas_docs/$MOUNT_NAME" -o TARGET,SOURCE,FSTYPE,OPTIONS
+test "$(findmnt -M "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs
 ```
 
 설치한다.

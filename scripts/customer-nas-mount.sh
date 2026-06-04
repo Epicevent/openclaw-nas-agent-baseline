@@ -212,6 +212,7 @@ status() {
     read -r fstab_source fstab_target fstab_type fstab_options _ <<<"$fstab_entry"
     echo "fstab_rule=present"
     echo "registered_share=$fstab_source"
+    echo "registered_source_share=$fstab_source"
     fstab_credentials="$(printf '%s' "$fstab_options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
     [[ -n "$fstab_credentials" ]] && echo "registered_credentials_file=$fstab_credentials"
   else
@@ -308,6 +309,7 @@ require_registered_share() {
   echo "== NAS target =="
   echo "linux_user=$(whoami)"
   echo "registered_share=$share"
+  echo "registered_source_share=$share"
   echo "mountpoint=$mountpoint"
   if [[ -s "$credentials" ]]; then
     nas_user="$(credential_nas_username)"

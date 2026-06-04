@@ -16,10 +16,10 @@ Usage:
   svcops-control.sh nas-search-smoke USER QUERY
   svcops-control.sh nas-runtime-root-fix USER
   svcops-control.sh nas-runtime-root-fix-all START END
-  svcops-control.sh nas-register USER SHARE
-  svcops-control.sh nas-register-all START END SHARE
-  svcops-control.sh nas-unregister USER
-  svcops-control.sh nas-unregister-all START END
+  svcops-control.sh nas-register USER SHARE [MOUNT_NAME]
+  svcops-control.sh nas-register-all START END SHARE [MOUNT_NAME]
+  svcops-control.sh nas-unregister USER [MOUNT_NAME] [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-unregister-all START END [MOUNT_NAME] [--unmount] [--delete-credential] [--delete-empty-dir]
   svcops-control.sh image-status USER
   svcops-control.sh image-status-all START END
   svcops-control.sh container-logs USER [LINES]
@@ -226,6 +226,7 @@ print_nas_status() {
     read -r source target fstype options _ <<<"$entry"
     echo "fstab_rule=present"
     echo "fstab_source=$source"
+    echo "source_share=$source"
     creds_path="$(printf '%s' "$options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
     [[ -n "$creds_path" ]] && echo "fstab_credentials=$creds_path"
   else
@@ -999,15 +1000,20 @@ case "$command_name" in
     ;;
 
   nas-register|nas-prepare)
-    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
     target_user="$1"
     share="$2"
+    mount_name="${3:-}"
     validate_user "$target_user"
     validate_share "$share"
-    mount_name="$(mount_name_from_share "$share")"
-    bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
-      --user "$target_user" \
-      --share "$share"
+    if [[ -n "$mount_name" ]]; then
+      validate_mount_name "$mount_name"
+    else
+      mount_name="$(mount_name_from_share "$share")"
+    fi
+    helper_args=(--user "$target_user" --share "$share")
+    [[ -n "$mount_name" ]] && helper_args+=(--mount-name "$mount_name")
+    bash "$script_dir/internal/write-user-nas-fstab-entry.bash" "${helper_args[@]}"
     target_home="$(customer_home "$target_user")"
     echo
     print_nas_status "$target_user" "$target_home" \
@@ -1019,23 +1025,26 @@ case "$command_name" in
     ;;
 
   nas-register-all)
-    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+    [[ $# -ge 3 && $# -le 4 ]] || { usage >&2; exit 2; }
     start="$1"
     end="$2"
     share="$3"
+    mount_name="${4:-}"
     [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
       echo "error: invalid START/END" >&2
       exit 2
     }
     validate_share "$share"
+    [[ -n "$mount_name" ]] && validate_mount_name "$mount_name"
     failed=0
     for i in $(seq "$start" "$end"); do
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
+        helper_args=(--user "$target_user" --share "$share")
+        [[ -n "$mount_name" ]] && helper_args+=(--mount-name "$mount_name")
         if ! bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
-          --user "$target_user" \
-          --share "$share" | sed -n '/^target_user=/p;/^mount_name=/p;/^mountpoint=/p;/^share=/p;/^fstab_user_mount=/p'; then
+          "${helper_args[@]}" | sed -n '/^target_user=/p;/^mount_name=/p;/^mountpoint=/p;/^source_share=/p;/^fstab_user_mount=/p'; then
           failed=1
         fi
       else
@@ -1047,28 +1056,77 @@ case "$command_name" in
     ;;
 
   nas-unregister)
-    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
+    shift
     validate_user "$target_user"
-    bash "$script_dir/internal/remove-user-nas-fstab-entry.bash" \
-      --user "$target_user"
+    helper_args=(--user "$target_user")
+    mount_name=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --unmount|--delete-credential|--delete-empty-dir|--no-daemon-reload)
+          helper_args+=("$1")
+          shift
+          ;;
+        --*)
+          echo "error: unknown nas-unregister option: $1" >&2
+          exit 2
+          ;;
+        *)
+          if [[ -n "$mount_name" ]]; then
+            echo "error: duplicate mount name: $1" >&2
+            exit 2
+          fi
+          mount_name="$1"
+          validate_mount_name "$mount_name"
+          helper_args+=(--mount-name "$mount_name")
+          shift
+          ;;
+      esac
+    done
+    bash "$script_dir/internal/remove-user-nas-fstab-entry.bash" "${helper_args[@]}"
     ;;
 
   nas-unregister-all)
-    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    [[ $# -ge 2 ]] || { usage >&2; exit 2; }
     start="$1"
     end="$2"
+    shift 2
     [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
       echo "error: invalid START/END" >&2
       exit 2
     }
+    unregister_extra=()
+    mount_name=""
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --unmount|--delete-credential|--delete-empty-dir|--no-daemon-reload)
+          unregister_extra+=("$1")
+          shift
+          ;;
+        --*)
+          echo "error: unknown nas-unregister-all option: $1" >&2
+          exit 2
+          ;;
+        *)
+          if [[ -n "$mount_name" ]]; then
+            echo "error: duplicate mount name: $1" >&2
+            exit 2
+          fi
+          mount_name="$1"
+          validate_mount_name "$mount_name"
+          unregister_extra+=(--mount-name "$mount_name")
+          shift
+          ;;
+      esac
+    done
     failed=0
     for i in $(seq "$start" "$end"); do
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
         if ! bash "$script_dir/internal/remove-user-nas-fstab-entry.bash" \
-          --user "$target_user" | sed -n '/^target_user=/p;/^mountpoint=/p;/^fstab_user_mount=/p;/^note=/p'; then
+          --user "$target_user" "${unregister_extra[@]}" | sed -n '/^target_user=/p;/^mount_name=/p;/^mountpoint=/p;/^source_share=/p;/^fstab_user_mount=/p;/^active_mount=/p;/^unmount=/p;/^credential_file=/p;/^empty_dir=/p;/^note=/p'; then
           failed=1
         fi
       else

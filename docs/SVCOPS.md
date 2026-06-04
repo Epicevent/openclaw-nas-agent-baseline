@@ -88,7 +88,13 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all
   20 \
   '//NAS_HOST/SHARE_NAME'
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-unregister-all 10 19
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-unregister-all \
+  10 \
+  19 \
+  SHARE_NAME \
+  --unmount \
+  --delete-credential \
+  --delete-empty-dir
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh usage-all 1 20 24h
 

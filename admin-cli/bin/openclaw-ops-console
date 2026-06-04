@@ -29,6 +29,7 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
 
 SLOT_RE = re.compile(r"^oc[1-9][0-9]*$")
 SHARE_RE = re.compile(r"^//[^\s/,]+/[^\s/,]+$")
+MOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/\-]{0,127}$")
 BASE_URL_RE = re.compile(r"^https?://[A-Za-z0-9._:\-/]+$")
 SINCE_RE = re.compile(r"^[0-9]+[mhd]$")
@@ -374,6 +375,16 @@ def valid_share(value: str) -> str:
     return value
 
 
+def valid_mount_name(value: str) -> str:
+    if not MOUNT_NAME_RE.match(value or ""):
+        raise ValueError("invalid mount name")
+    return value
+
+
+def truthy_param(params: dict[str, Any], key: str) -> bool:
+    return first_param(params, key).lower() in {"1", "true", "yes", "on"}
+
+
 def valid_model(value: str) -> str:
     if not MODEL_RE.match(value or ""):
         raise ValueError("invalid model")
@@ -553,6 +564,7 @@ class OpsConsole:
         base_url = first_param(params, "base_url", DEFAULT_BASE_URL)
         confirm = first_param(params, "confirm")
         share = first_param(params, "share")
+        mount_name = first_param(params, "mount_name")
         query = first_param(params, "query")
         image = first_param(params, "image")
         image_ref = first_param(params, "image_ref")
@@ -654,11 +666,23 @@ class OpsConsole:
             share = valid_share(share)
             if confirm != share:
                 raise ValueError("nas-register requires confirming the NAS share")
-            return ["nas-register", slot, share], 180
+            args = ["nas-register", slot, share]
+            if mount_name:
+                args.append(valid_mount_name(mount_name))
+            return args, 180
         if action == "nas-unregister":
             if confirm != slot:
                 raise ValueError("nas-unregister requires confirming the slot")
-            return ["nas-unregister", slot], 180
+            args = ["nas-unregister", slot]
+            if mount_name:
+                args.append(valid_mount_name(mount_name))
+            if truthy_param(params, "nas_unmount"):
+                args.append("--unmount")
+            if truthy_param(params, "delete_credential"):
+                args.append("--delete-credential")
+            if truthy_param(params, "delete_empty_dir"):
+                args.append("--delete-empty-dir")
+            return args, 180
         raise ValueError("unsupported action")
 
     def execute_action(self, action: str, params: dict[str, Any]) -> dict[str, Any]:
@@ -1073,8 +1097,8 @@ def html_page(csrf: str) -> str:
         <div class="action-group">
           <h3>Public image releases</h3>
           <div class="label">공개 registry 이미지를 digest 기준으로 등록, 검증, 채널 배포합니다.</div>
-          <div class="form-row"><label>Image ref</label><input id="imageRef" placeholder="ghcr.io/epicevent/openclaw-nas-agent:dashboard-20260602-r1"></div>
-          <div class="form-row"><label>Image</label><input id="imageName" placeholder="dashboard-20260602-r1"></div>
+          <div class="form-row"><label>Image ref</label><input id="imageRef" placeholder="ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260603-r16"></div>
+          <div class="form-row"><label>Image</label><input id="imageName" placeholder="hermes-workspace-20260603-r16"></div>
           <div class="form-row"><label>Channel</label><input id="imageChannel" placeholder="staging or oc15-20-test"></div>
           <div class="form-row"><label>Range</label><input id="imageStart" value="1"><input id="imageEnd" value="20"></div>
           <div class="form-row"><label>Confirm</label><input id="imageConfirm" placeholder="1-20"></div>
@@ -1095,6 +1119,10 @@ def html_page(csrf: str) -> str:
           <div class="label">데이터 접근 범위가 바뀌는 작업입니다. 확인값을 다시 입력해야 실행됩니다.</div>
           <label class="nas-lock"><input type="checkbox" id="nasUnlock" onchange="updateNasActionState()"> NAS 변경 버튼 활성화</label>
           <div class="form-row"><label>Share</label><input id="share" placeholder="//HOST/SHARE"></div>
+          <div class="form-row"><label>Mount</label><input id="mountName" placeholder="optional folder name"></div>
+          <label class="nas-lock"><input type="checkbox" id="nasUnmount"> unmount active CIFS</label>
+          <label class="nas-lock"><input type="checkbox" id="deleteCredential"> delete credential file</label>
+          <label class="nas-lock"><input type="checkbox" id="deleteEmptyDir"> delete empty mount dir</label>
           <div class="form-row"><label>확인</label><input id="confirm" placeholder="slot 또는 share를 다시 입력"></div>
           <div class="actions">
             <button class="warn nas-action" onclick="runSlotAction('nas-approve-share')">요청 승인</button>
@@ -1366,6 +1394,10 @@ def html_page(csrf: str) -> str:
         model: document.getElementById("model").value,
         base_url: document.getElementById("baseUrl").value,
         share: document.getElementById("share").value,
+        mount_name: document.getElementById("mountName")?.value || "",
+        nas_unmount: !!document.getElementById("nasUnmount")?.checked,
+        delete_credential: !!document.getElementById("deleteCredential")?.checked,
+        delete_empty_dir: !!document.getElementById("deleteEmptyDir")?.checked,
         confirm: document.getElementById("confirm").value,
         query: document.getElementById("searchQuery").value,
         image_ref: document.getElementById("imageRef").value,

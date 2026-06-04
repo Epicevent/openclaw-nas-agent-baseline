@@ -22,7 +22,6 @@ Directory layout:
 images/openclaw-nas-agent/   OpenClaw NAS Agent image recipe
 images/hermes-workspace/     Hermes Agent + Workspace image recipe
 images/shared/               document tooling shared by official images
-images/openclaw-overlays/    OpenClaw UI overlays
 ```
 
 If image publishing grows beyond a small number of official releases, this
