@@ -274,6 +274,13 @@ def extract_mount_sources(text: str):
     return customer, container
 
 
+def path_exists_if_readable(path: Path) -> bool | None:
+    try:
+        return path.exists()
+    except PermissionError:
+        return None
+
+
 meta, slots = parse_registry(registry)
 image_catalog = parse_image_catalog(images_path)
 expected_baseline_commit = meta.get("baseline_commit", "")
@@ -325,11 +332,15 @@ for slot in slots:
     else:
         detail.append("release_gate=pass")
 
-    if slot_type == "customer" and source_override.exists():
+    source_override_exists = path_exists_if_readable(source_override)
+    if slot_type == "customer" and source_override_exists is True:
         slot_failed = True
         detail.append(f"source_mode=fail forbidden_customer_source_override={source_override}")
     elif slot_type == "dev":
-        detail.append(f"source_mode={'enabled' if source_override.exists() else 'disabled'}")
+        if source_override_exists is None:
+            detail.append("source_mode=unknown permission_denied")
+        else:
+            detail.append(f"source_mode={'enabled' if source_override_exists else 'disabled'}")
 
     customer_mounts, container_mounts = extract_mount_sources(check_out)
     root_match = re.search(r"^INFO container_nas_root=(?P<root>\S+)", check_out, re.MULTILINE)
