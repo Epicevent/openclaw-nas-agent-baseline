@@ -212,7 +212,7 @@ container_path_for_nas_mountpoint() {
 }
 
 container_runtime_sh_for_family() {
-  local container="$1" runtime_family="$2" snippet="$3"
+  local container="$1" runtime_family="$2" snippet="$3" exec_user
   shift 3
   if [[ "$runtime_family" == "hermes" ]]; then
     docker exec "$container" sh -lc '
@@ -226,7 +226,12 @@ container_runtime_sh_for_family() {
       exec sh -c "$user_cmd" sh "$@"
     ' sh "$snippet" "$@"
   else
-    docker exec "$container" sh -c "$snippet" sh "$@"
+    exec_user="$(docker inspect -f '{{.Config.User}}' "$container" 2>/dev/null || true)"
+    if [[ -n "$exec_user" ]]; then
+      docker exec --user "$exec_user" "$container" sh -c "$snippet" sh "$@"
+    else
+      docker exec "$container" sh -c "$snippet" sh "$@"
+    fi
   fi
 }
 
@@ -543,17 +548,7 @@ fix_nas_runtime_root() {
   chown "$target_user:$data_group" "$nas_root"
   chmod 0550 "$nas_root"
   if [[ "$runtime_family" == "hermes" ]]; then
-    cat > "$override_file" <<EOF
-services:
-  openclaw-gateway:
-    volumes:
-      - type: bind
-        source: $nas_root
-        target: $container_root
-        read_only: true
-        bind:
-          propagation: rslave
-EOF
+    rm -f "$override_file"
   else
     cat > "$override_file" <<EOF
 services:
@@ -574,17 +569,21 @@ services:
         bind:
           propagation: rslave
 EOF
+    chown root:root "$override_file"
+    chmod 0644 "$override_file"
   fi
-  chown root:root "$override_file"
-  chmod 0644 "$override_file"
   echo "target_user=$target_user"
   echo "runtime_family=$runtime_family"
   echo "nas_root=$nas_root"
   echo "nas_root_owner=$target_user:$data_group"
   echo "nas_root_mode=0550"
   echo "container_nas_root=$container_root"
-  echo "compose_nas_override=$override_file"
-  echo "bind_propagation=rslave"
+  if [[ "$runtime_family" == "hermes" ]]; then
+    echo "compose_nas_override=not_needed_for_hermes"
+  else
+    echo "compose_nas_override=$override_file"
+    echo "bind_propagation=rslave"
+  fi
   refresh_gateway "$target_user"
   echo "== NAS visibility after runtime root fix =="
   verify_nas_visibility "$target_user"
@@ -911,12 +910,15 @@ verify_nas_visibility() {
     echo "INFO container_nas_visible_mounts=none"
   else
     container_root_options="$(container_findmnt_exact_field "$container" "$container_root" OPTIONS)"
-    if mount_options_include_ro "$container_root_options"; then
-      echo "PASS container_nas_root_readonly"
-    else
+    if container_runtime_sh_for_family "$container" "$runtime_family" \
+      'probe="$1/.openclaw_write_probe_$$"; if (: > "$probe") 2>/dev/null; then rm -f "$probe"; exit 0; fi; exit 1' \
+      "$container_root" >/dev/null 2>&1; then
       echo "FAIL container_nas_root_readonly"
+      echo "INFO container_nas_root_writable_by_runtime_user=$container_root"
       echo "INFO container_nas_root_options=${container_root_options:-missing}"
       container_failed=1
+    else
+      echo "PASS container_nas_root_readonly"
     fi
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$container_root" "$mountpoint" "$nas_mp")"
