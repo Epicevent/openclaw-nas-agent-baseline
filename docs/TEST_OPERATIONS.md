@@ -33,7 +33,7 @@ dev-hermess  dev-hermes
 고객 슬롯과 개발 슬롯은 자기 계정에서 요청을 만든다.
 
 ```bash
-agent-nas-mount --request-share '//NAS_HOST/SHARE'
+agent-nas-mount --request-share '//NAS_HOST/SHARE' --reset-credential --wait
 ```
 
 운영 자동승인은 `svcops` PM2 daemon이 처리한다.

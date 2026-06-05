@@ -57,28 +57,45 @@ allow: "//nas02.example.local/*"
 allow: "//nas02.example.local/OC1"
 ```
 
-Default local paths branch by NAS source. The NAS host is always rendered as a
-deterministic hash label:
+Default local paths branch by the full NAS source. The host and share both
+contribute deterministic labels, so the same share name on two NAS hosts cannot
+collide locally:
 
 ```text
-//nas01.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
-//nas02.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
+//nas01.example.local/OC1 -> ~/nas_docs/host-<hosthash>/OC1-<sharehash>
+//nas02.example.local/OC1 -> ~/nas_docs/host-<hosthash>/OC1-<sharehash>
 ```
 
-Normal customer requests should omit `--mount-name` so the wrapper derives the
-collision-safe local path:
+Customer requests use the full NAS share path. The wrapper derives the local
+path from that full path:
 
 ```text
-agent-nas-mount --request-share //nas01.example.local/OC1
-  -> ~/nas_docs/host-<hash>/OC1 points to //nas01.example.local/OC1
+agent-nas-mount --request-share //nas01.example.local/OC1 --reset-credential --wait
+  -> ~/nas_docs/host-<hosthash>/OC1-<sharehash> points to //nas01.example.local/OC1
 
-agent-nas-mount --request-share //nas02.example.local/OC1
-  -> ~/nas_docs/host-<hash>/OC1 points to //nas02.example.local/OC1
+agent-nas-mount --request-share //nas02.example.local/OC1 --reset-credential --wait
+  -> ~/nas_docs/host-<hosthash>/OC1-<sharehash> points to //nas02.example.local/OC1
 ```
 
-Explicit `--mount-name` is an advanced override for a single local path. It is
-not needed for normal requests and should not be used to represent multiple NAS
-sources with the same share name.
+After approval, the customer mounts the same full NAS share path:
+
+```bash
+agent-nas-mount --share //nas01.example.local/OC1 --reset-credential
+```
+
+The same account can unmount the exact registered NAS share without removing
+the operator-managed fstab rule:
+
+```bash
+agent-nas-mount --share //nas01.example.local/OC1 --unmount
+```
+
+The operator unregisters the same full NAS share path:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
+  nas-unregister oc1 //nas01.example.local/OC1 --unmount --delete-credential --delete-empty-dir
+```
 
 Automatic approval succeeds only when:
 
@@ -104,6 +121,15 @@ sudo -u svcops pm2 start /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh
   --name openclaw-nas-requests \
   -- nas-request-watch
 ```
+
+The watcher writes a public liveness state without secrets:
+
+```text
+/var/lib/openclaw-nas-agent/nas-request-watch.state
+```
+
+`agent-nas-mount --request-share ... --wait` prints that state while it waits,
+then mounts as soon as the fstab entry appears.
 
 The monitor writes action audit records to:
 

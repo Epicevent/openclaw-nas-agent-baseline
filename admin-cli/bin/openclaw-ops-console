@@ -30,7 +30,6 @@ DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
 
 SLOT_RE = re.compile(r"^(oc[1-9][0-9]*|dev-oc|dev-hermess)$")
 SHARE_RE = re.compile(r"^//[^\s/,]+/[^\s/,]+$")
-MOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/\-]{0,127}$")
 BASE_URL_RE = re.compile(r"^https?://[A-Za-z0-9._:\-/]+$")
 SINCE_RE = re.compile(r"^[0-9]+[mhd]$")
@@ -402,12 +401,6 @@ def valid_share(value: str) -> str:
     return value
 
 
-def valid_mount_name(value: str) -> str:
-    if not MOUNT_NAME_RE.match(value or ""):
-        raise ValueError("invalid mount name")
-    return value
-
-
 def truthy_param(params: dict[str, Any], key: str) -> bool:
     return first_param(params, key).lower() in {"1", "true", "yes", "on"}
 
@@ -612,7 +605,6 @@ class OpsConsole:
         base_url = first_param(params, "base_url", DEFAULT_BASE_URL)
         confirm = first_param(params, "confirm")
         share = first_param(params, "share")
-        mount_name = first_param(params, "mount_name")
         query = first_param(params, "query")
         image = first_param(params, "image")
         image_ref = first_param(params, "image_ref")
@@ -726,16 +718,12 @@ class OpsConsole:
             share = valid_share(share)
             if confirm != share:
                 raise ValueError("nas-register requires confirming the NAS share")
-            args = ["nas-register", slot, share]
-            if mount_name:
-                args.append(valid_mount_name(mount_name))
-            return args, 180
+            return ["nas-register", slot, share], 180
         if action == "nas-unregister":
-            if confirm != slot:
-                raise ValueError("nas-unregister requires confirming the slot")
-            args = ["nas-unregister", slot]
-            if mount_name:
-                args.append(valid_mount_name(mount_name))
+            share = valid_share(share)
+            if confirm != share:
+                raise ValueError("nas-unregister requires confirming the NAS share")
+            args = ["nas-unregister", slot, share]
             if truthy_param(params, "nas_unmount"):
                 args.append("--unmount")
             if truthy_param(params, "delete_credential"):
@@ -949,11 +937,10 @@ def html_page(csrf: str) -> str:
         <div class="label">NAS changes affect data access. Confirm the slot or share before running.</div>
         <label><input type="checkbox" id="nasUnlock" onchange="updateNasActionState()"> Enable NAS change buttons</label>
         <div class="form-row"><label>Share</label><input id="share" placeholder="//HOST/SHARE"></div>
-        <div class="form-row"><label>Mount</label><input id="mountName" placeholder="optional mount name"></div>
         <label><input type="checkbox" id="nasUnmount"> unmount active CIFS</label><br>
         <label><input type="checkbox" id="deleteCredential"> delete credential</label><br>
         <label><input type="checkbox" id="deleteEmptyDir"> delete empty mount dir</label>
-        <div class="form-row"><label>Confirm</label><input id="confirm" placeholder="slot or share"></div>
+        <div class="form-row"><label>Confirm</label><input id="confirm" placeholder="//HOST/SHARE"></div>
         <div class="actions">
           <button class="warn nas-action" onclick="runSlotAction('nas-approve-share')">approve request</button>
           <button class="warn nas-action" onclick="runSlotAction('nas-register')">register</button>
@@ -1123,7 +1110,6 @@ def html_page(csrf: str) -> str:
         model: document.getElementById("model").value,
         base_url: document.getElementById("baseUrl").value,
         share: document.getElementById("share").value,
-        mount_name: document.getElementById("mountName").value,
         nas_unmount: document.getElementById("nasUnmount").checked,
         delete_credential: document.getElementById("deleteCredential").checked,
         delete_empty_dir: document.getElementById("deleteEmptyDir").checked,

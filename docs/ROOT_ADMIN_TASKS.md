@@ -114,15 +114,17 @@ ref, digest, image id가 기록된다.
 
 실행 주체: **root 관리자**
 
-먼저 고객 계정의 NAS가 `/home/ocN/nas_docs/host-<hash>/SHARE` 형태로
+먼저 고객 계정의 NAS가 fstab의 정확한 `//HOST/SHARE` source로
 CIFS mount되어 있는지 확인한다.
 
 ```bash
-MOUNT_NAME="$(awk -v root="$TARGET_HOME/nas_docs/" '$0 !~ /^[[:space:]]*#/ && $3 == "cifs" && index($2, root) == 1 { sub(root, "", $2); print $2; exit }' /etc/fstab)"
-test -n "$MOUNT_NAME"
+NAS_SHARE='//NAS_HOST/SHARE'
+MOUNT_POINT="$(awk -v share="$NAS_SHARE" '$0 !~ /^[[:space:]]*#/ && $1 == share && $3 == "cifs" { print $2; exit }' /etc/fstab)"
+test -n "$MOUNT_POINT"
 
-findmnt -M "$TARGET_HOME/nas_docs/$MOUNT_NAME" -o TARGET,SOURCE,FSTYPE,OPTIONS
-test "$(findmnt -M "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs
+findmnt -M "$MOUNT_POINT" -o TARGET,SOURCE,FSTYPE,OPTIONS
+test "$(findmnt -M "$MOUNT_POINT" -n -o SOURCE)" = "$NAS_SHARE" && echo nas_source_ok
+test "$(findmnt -M "$MOUNT_POINT" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs
 ```
 
 OpenClaw family slot:

@@ -198,6 +198,10 @@ container_path_for_nas_mountpoint() {
   fi
 }
 
+mount_options_include_ro() {
+  [[ ",${1:-}," == *,ro,* ]]
+}
+
 if id -nG "$target_user" | tr ' ' '\n' | grep -qx docker; then
   fail "customer_not_in_docker_group"
 else
@@ -215,15 +219,23 @@ if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
   echo "INFO customer_nas_registered_mounts=none"
 else
   customer_nas_failed=0
+  host_nas_readonly_failed=0
   visible_nas_mountpoints=()
   echo "INFO customer_nas_registered_mount_count=${#nas_mountpoints[@]}"
   for nas_mp in "${nas_mountpoints[@]}"; do
     nas_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
     nas_source="$(openclaw_findmnt_exact_field "$nas_mp" SOURCE)"
     nas_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
+    nas_options="$(openclaw_findmnt_exact_field "$nas_mp" OPTIONS)"
     if [[ "$nas_target" == "$nas_mp" && "$nas_fstype" == "cifs" ]]; then
       echo "INFO customer_nas_mount=$nas_mp source=$nas_source"
       visible_nas_mountpoints+=("$nas_mp")
+      if mount_options_include_ro "$nas_options"; then
+        echo "INFO host_nas_readonly=$nas_mp"
+      else
+        host_nas_readonly_failed=1
+        echo "INFO host_nas_not_readonly=$nas_mp options=${nas_options:-missing}"
+      fi
       if sudo -u "$target_user" test -r "$nas_mp"; then
         :
       else
@@ -241,6 +253,11 @@ else
     pass "customer_nas_mounted_cifs"
   else
     fail "customer_nas_mounted_cifs"
+  fi
+  if [[ "${#visible_nas_mountpoints[@]}" -gt 0 && "$host_nas_readonly_failed" -eq 0 ]]; then
+    pass "host_nas_readonly"
+  else
+    fail "host_nas_readonly"
   fi
 fi
 
@@ -476,6 +493,13 @@ if docker inspect "$container" >/dev/null 2>&1; then
   container_nas_root="$(container_nas_root_for_runtime "$runtime_family")"
   echo "INFO container_nas_root=$container_nas_root"
   echo "INFO container_nas_exec_user=$([[ "$runtime_family" == "hermes" ]] && printf hermes || printf root)"
+  container_nas_root_options="$(container_findmnt_exact_field "$container" "$container_nas_root" OPTIONS)"
+  if mount_options_include_ro "$container_nas_root_options"; then
+    pass "container_nas_root_readonly"
+  else
+    fail "container_nas_root_readonly"
+    echo "INFO container_nas_root_options=${container_nas_root_options:-missing}"
+  fi
   if container_runtime_sh 'test -r "$1"' "$container_nas_root"; then
     pass "container_nas_read_ok"
   else
@@ -487,6 +511,7 @@ if docker inspect "$container" >/dev/null 2>&1; then
     echo "INFO container_nas_visible_mounts=none"
   else
     container_nas_failed=0
+    container_nas_readonly_failed=0
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$container_nas_root" "$nas_mountpoint" "$nas_mp")"
       if container_runtime_sh 'test -r "$1"' "$container_mp"; then
@@ -498,8 +523,15 @@ if docker inspect "$container" >/dev/null 2>&1; then
       container_nas_source="$(container_findmnt_exact_field "$container" "$container_mp" SOURCE)"
       container_nas_target="$(container_findmnt_exact_field "$container" "$container_mp" TARGET)"
       container_nas_fstype="$(container_findmnt_exact_field "$container" "$container_mp" FSTYPE)"
+      container_nas_options="$(container_findmnt_exact_field "$container" "$container_mp" OPTIONS)"
       if [[ "$container_nas_target" == "$container_mp" && "$container_nas_fstype" == "cifs" ]]; then
         echo "INFO container_nas_mount=$container_mp source=$container_nas_source"
+        if mount_options_include_ro "$container_nas_options"; then
+          echo "INFO container_nas_readonly=$container_mp"
+        else
+          container_nas_readonly_failed=1
+          echo "INFO container_nas_not_readonly=$container_mp options=${container_nas_options:-missing}"
+        fi
       else
         container_nas_failed=1
         echo "INFO container_nas_mount_bad=$container_mp target=${container_nas_target:-missing} fstype=${container_nas_fstype:-missing} source=${container_nas_source:-missing}"
@@ -509,6 +541,11 @@ if docker inspect "$container" >/dev/null 2>&1; then
       pass "container_nas_mounted_cifs"
     else
       fail "container_nas_mounted_cifs"
+    fi
+    if [[ "$container_nas_readonly_failed" -eq 0 ]]; then
+      pass "container_nas_mounts_readonly"
+    else
+      fail "container_nas_mounts_readonly"
     fi
   fi
 

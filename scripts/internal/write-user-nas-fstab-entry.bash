@@ -8,7 +8,7 @@ source "$script_dir/lib-safe-compose.bash"
 usage() {
   cat <<'USAGE'
 Usage:
-  svcops-control.sh nas-register USER //NAS_HOST/SHARE [MOUNT_NAME]
+  svcops-control.sh nas-register USER //NAS_HOST/SHARE
 
 Writes an /etc/fstab entry that lets USER mount only their own NAS mountpoint
 without sudo. The NAS credential file remains owned by USER and is not created
@@ -18,8 +18,6 @@ Options:
   --user USER              Target account, for example oc20. Required.
   --share SHARE            CIFS share path, for example //nas.example.com/share.
                             Required unless OPENCLAW_USER_NAS_SHARE is set.
-  --mount-name NAME        Local folder path under /home/USER/nas_docs.
-                            Default: derived from source as host-<hash>/SHARE.
   --no-daemon-reload       Do not run systemctl daemon-reload after fstab update.
 
 Run as root/admin.
@@ -44,12 +42,13 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     --mount-name)
-      mount_name="${2:?missing --mount-name value}"
-      shift 2
+      echo "error: --mount-name is not supported" >&2
+      echo "hint: mountpoint and credential path are derived from --share //HOST/SHARE" >&2
+      exit 2
       ;;
     --mountpoint|--credentials-path)
       echo "error: $1 is not supported" >&2
-      echo "hint: use --mount-name NAME; mountpoint and credential path are derived from that name." >&2
+      echo "hint: mountpoint and credential path are derived from --share //HOST/SHARE" >&2
       exit 2
       ;;
     --no-daemon-reload)
@@ -226,6 +225,19 @@ backup="/etc/fstab.$(date +%Y%m%d%H%M%S).bak"
 tmp="$(mktemp)"
 cp /etc/fstab "$backup"
 
+existing_mount_source="$(
+  awk -v mp="$mountpoint" '
+    $0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print $1; exit }
+  ' /etc/fstab 2>/dev/null || true
+)"
+if [[ -n "$existing_mount_source" && "$existing_mount_source" != "$share" ]]; then
+  echo "error: mountpoint already belongs to a different NAS share" >&2
+  echo "existing_share=$existing_mount_source" >&2
+  echo "requested_share=$share" >&2
+  echo "mountpoint=$mountpoint" >&2
+  exit 1
+fi
+
 if [[ -n "$mount_name" ]]; then
   begin="# BEGIN managed openclaw user NAS mount $target_user $mount_name"
   end="# END managed openclaw user NAS mount $target_user $mount_name"
@@ -261,17 +273,13 @@ fi
 
 echo "target_user=$target_user"
 echo "target_home=$target_home"
-echo "mount_name=${mount_name:-primary}"
+echo "derived_mount_name=${mount_name:-primary}"
 echo "mountpoint=$mountpoint"
 echo "credentials_path=$credentials_path"
-echo "source_share=$share"
+echo "nas_share=$share"
 echo "mount_cifs=$mount_cifs"
 echo "fstab_backup=$backup"
 echo "fstab_user_mount=ok"
 echo
 echo "Next, run as $target_user:"
-if [[ -n "$mount_name" ]]; then
-  echo "  agent-nas-mount --mount-name \"$mount_name\" --reset-credential"
-else
-  echo "  agent-nas-mount --reset-credential"
-fi
+echo "  agent-nas-mount --share \"$share\" --reset-credential"

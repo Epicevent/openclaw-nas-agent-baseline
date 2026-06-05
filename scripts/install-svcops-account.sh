@@ -116,6 +116,8 @@ chmod -R go-w "$prefix"
 chmod 0755 "$prefix" "$prefix/scripts"
 chmod 0755 "$control_script"
 
+install -d -o root -g "$group" -m 0775 /var/lib/openclaw-nas-agent
+
 sudo_tag=""
 if [[ "$nopasswd_sudo" -eq 1 ]]; then
   sudo_tag="NOPASSWD: "

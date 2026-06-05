@@ -4,16 +4,15 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  svcops-control.sh nas-unregister USER [MOUNT_NAME] [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-unregister USER //NAS_HOST/SHARE [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-unregister USER --all [--unmount] [--delete-credential] [--delete-empty-dir]
 
 Removes managed /etc/fstab CIFS user-mount rules for USER.
 
 Options:
   --user USER             Target account, for example oc20. Required.
-  --mount-name NAME       Remove only /home/USER/nas_docs/NAME.
-                          NAME may contain a managed host-hash/share path.
-  --mountpoint DIR        Remove only this mountpoint. Default: all under
-                          /home/USER/nas_docs.
+  --share SHARE           CIFS source to unregister, for example //NAS/SHARE.
+  --all                   Remove all managed NAS mounts for USER.
   --unmount               Unmount matching active CIFS mounts.
   --delete-credential     Delete matching NAS credential files.
   --delete-empty-dir      Remove matching empty mount directories after unmount.
@@ -24,8 +23,10 @@ USAGE
 }
 
 target_user=""
+share=""
 mount_name=""
 mountpoint=""
+remove_all=0
 daemon_reload=1
 do_unmount=0
 delete_credential=0
@@ -37,13 +38,18 @@ while [[ $# -gt 0 ]]; do
       target_user="${2:?missing --user value}"
       shift 2
       ;;
-    --mount-name)
-      mount_name="${2:?missing --mount-name value}"
+    --share)
+      share="${2:?missing --share value}"
       shift 2
       ;;
-    --mountpoint)
-      mountpoint="${2:?missing --mountpoint value}"
-      shift 2
+    --all)
+      remove_all=1
+      shift
+      ;;
+    --mount-name|--mountpoint)
+      echo "error: $1 is not supported" >&2
+      echo "hint: use --share //HOST/SHARE or --all" >&2
+      exit 2
       ;;
     --unmount)
       do_unmount=1
@@ -84,8 +90,18 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/lib-safe-compose.bash"
 openclaw_assert_managed_slot_name "$target_user" || exit $?
 
-if [[ -n "$mount_name" ]]; then
-  openclaw_nas_validate_mount_name "$mount_name" || exit $?
+if [[ "$remove_all" -eq 1 && -n "$share" ]]; then
+  echo "error: --share and --all are mutually exclusive" >&2
+  exit 2
+fi
+
+if [[ "$remove_all" -eq 0 ]]; then
+  if [[ -z "$share" ]]; then
+    echo "error: --share //HOST/SHARE is required unless --all is used" >&2
+    exit 2
+  fi
+  openclaw_nas_validate_share "$share" || exit $?
+  mount_name="$(openclaw_nas_mount_name_from_share "$share")"
 fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -101,14 +117,10 @@ fi
 
 nas_root="$target_home/nas_docs"
 credential_root="$target_home/.openclaw-nas/credentials"
-remove_all=0
-if [[ -z "$mountpoint" ]]; then
-  if [[ -n "$mount_name" ]]; then
-    mountpoint="$(openclaw_nas_mountpoint "$target_home" "$mount_name")"
-  else
-    mountpoint="$nas_root"
-    remove_all=1
-  fi
+if [[ "$remove_all" -eq 1 ]]; then
+  mountpoint="$nas_root"
+else
+  mountpoint="$(openclaw_nas_mountpoint "$target_home" "$mount_name")"
 fi
 
 case "$mountpoint" in
@@ -125,9 +137,9 @@ if [[ "$mountpoint" == *"/.."* || "$mountpoint" == *"/."*"/"* ]]; then
 fi
 
 source_share="$(
-  awk -v mp="$mountpoint" -v root="$mountpoint/" -v remove_all="$remove_all" '
+  awk -v mp="$mountpoint" -v root="$mountpoint/" -v remove_all="$remove_all" -v expected_share="$share" '
     $0 !~ /^[[:space:]]*#/ && $3 == "cifs" {
-      if ((!remove_all && $2 == mp) || (remove_all && ($2 == mp || index($2, root) == 1))) {
+      if ((!remove_all && $1 == expected_share && $2 == mp) || (remove_all && ($2 == mp || index($2, root) == 1))) {
         print $1
         exit
       }
@@ -151,23 +163,34 @@ else
 fi
 
 rc=0
-awk -v begin="$begin" -v end="$end" -v mp="$mountpoint" -v remove_all="$remove_all" '
-  remove_all && ($0 == begin || index($0, begin " ") == 1) {
-    removed = 1
-    skip = 1
-    next
-  }
-  !remove_all && $0 == begin { removed = 1; skip = 1; next }
-  skip && ($0 == end || index($0, end " ") == 1) { skip = 0; next }
-  skip { next }
-  $0 !~ /^[[:space:]]*#/ && $3 == "cifs" && ((remove_all && ($2 == mp || index($2, mp "/") == 1)) || (!remove_all && $2 == mp)) {
-    removed = 1
-    print "# disabled by openclaw user NAS unregister: " $0
-    next
-  }
-  { print }
-  END { exit removed ? 0 : 3 }
-' /etc/fstab > "$tmp" || rc=$?
+if [[ "$remove_all" -eq 1 ]]; then
+  awk -v begin="$begin" -v end="$end" -v mp="$mountpoint" '
+    ($0 == begin || index($0, begin " ") == 1) {
+      removed = 1
+      skip = 1
+      next
+    }
+    skip && ($0 == end || index($0, end " ") == 1) { skip = 0; next }
+    skip { next }
+    $0 !~ /^[[:space:]]*#/ && $3 == "cifs" && ($2 == mp || index($2, mp "/") == 1) {
+      removed = 1
+      print "# disabled by openclaw user NAS unregister: " $0
+      next
+    }
+    { print }
+    END { exit removed ? 0 : 3 }
+  ' /etc/fstab > "$tmp" || rc=$?
+else
+  awk -v mp="$mountpoint" -v expected_share="$share" '
+    $0 !~ /^[[:space:]]*#/ && $1 == expected_share && $2 == mp && $3 == "cifs" {
+      removed = 1
+      print "# disabled by openclaw user NAS unregister: " $0
+      next
+    }
+    { print }
+    END { exit removed ? 0 : 3 }
+  ' /etc/fstab > "$tmp" || rc=$?
+fi
 
 if [[ "$rc" -eq 3 ]]; then
   rm -f "$tmp"
@@ -314,9 +337,9 @@ fi
 
 echo "target_user=$target_user"
 echo "target_home=$target_home"
-echo "mount_name=${mount_name:-all}"
+echo "derived_mount_name=${mount_name:-all}"
 echo "mountpoint=$mountpoint"
-[[ -n "$source_share" ]] && echo "source_share=$source_share"
+[[ -n "$source_share" ]] && echo "nas_share=$source_share"
 echo "fstab_backup=$backup"
 echo "fstab_user_mount=$fstab_state"
 echo "active_mount=$(exact_mount_state "$mountpoint")"

@@ -18,10 +18,12 @@ Usage:
   svcops-control.sh nas-search-smoke USER QUERY
   svcops-control.sh nas-runtime-root-fix USER
   svcops-control.sh nas-runtime-root-fix-all START END
-  svcops-control.sh nas-register USER SHARE [MOUNT_NAME]
-  svcops-control.sh nas-register-all START END SHARE [MOUNT_NAME]
-  svcops-control.sh nas-unregister USER [MOUNT_NAME] [--unmount] [--delete-credential] [--delete-empty-dir]
-  svcops-control.sh nas-unregister-all START END [MOUNT_NAME] [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-register USER SHARE
+  svcops-control.sh nas-register-all START END SHARE
+  svcops-control.sh nas-unregister USER SHARE [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-unregister USER --all [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-unregister-all START END SHARE [--unmount] [--delete-credential] [--delete-empty-dir]
+  svcops-control.sh nas-unregister-all START END --all [--unmount] [--delete-credential] [--delete-empty-dir]
   svcops-control.sh image-status USER
   svcops-control.sh image-status-all START END
   svcops-control.sh container-logs USER [LINES]
@@ -228,6 +230,10 @@ container_runtime_sh_for_family() {
   fi
 }
 
+mount_options_include_ro() {
+  [[ ",${1:-}," == *,ro,* ]]
+}
+
 print_nas_status() {
   local target_user="$1" target_home="$2" mountpoint="${3:-}" credentials_path="${4:-}" mount_name="${5:-primary}"
   local entry source target fstype options creds_path current_target current_fstype current_source
@@ -235,7 +241,7 @@ print_nas_status() {
   credentials_path="${credentials_path:-$(nas_credentials_path "$target_home")}"
   echo "target_user=$target_user"
   echo "target_home=$target_home"
-  echo "mount_name=$mount_name"
+  echo "derived_mount_name=$mount_name"
   echo "mountpoint=$mountpoint"
 
   entry="$(awk -v mp="$mountpoint" '
@@ -245,7 +251,7 @@ print_nas_status() {
     read -r source target fstype options _ <<<"$entry"
     echo "fstab_rule=present"
     echo "fstab_source=$source"
-    echo "source_share=$source"
+    echo "nas_share=$source"
     creds_path="$(printf '%s' "$options" | tr ',' '\n' | awk -F= '$1 == "credentials" { print $2; exit }')"
     [[ -n "$creds_path" ]] && echo "fstab_credentials=$creds_path"
   else
@@ -313,13 +319,13 @@ print_nas_status() {
 }
 
 print_customer_nas_next_steps() {
-  local target_user="$1" mount_name="${2:-}"
-  if [[ -n "$mount_name" ]]; then
+  local target_user="$1" share="${2:-}"
+  if [[ -n "$share" ]]; then
     cat <<EOF
 customer_next_steps:
   after logging in as $target_user:
-  agent-nas-mount --mount-name $mount_name --status
-  agent-nas-mount --mount-name $mount_name --reset-credential
+  agent-nas-mount --share $share --status
+  agent-nas-mount --share $share --reset-credential
 EOF
   else
     cat <<EOF
@@ -386,20 +392,15 @@ print_share_request() {
   current_share="$(request_value CURRENT_REGISTERED_SHARE "$request_file")"
   requested_mountpoint="$(request_value MOUNTPOINT "$request_file")"
   requested_credentials="$(request_value CREDENTIALS_PATH "$request_file")"
-  mount_name="$(request_value MOUNT_NAME "$request_file")"
-  if [[ "$mount_name" == "primary" || -z "$mount_name" ]]; then
-    if cifs_share_is_valid "$requested_share"; then
-      mount_name="$(mount_name_from_share "$requested_share")"
-    else
-      mount_name="invalid"
-    fi
-  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$ ]]; then
+  if cifs_share_is_valid "$requested_share"; then
+    mount_name="$(mount_name_from_share "$requested_share")"
+  else
     mount_name="invalid"
   fi
   echo "share_request=present"
   echo "requested_by=${requested_by:-unknown}"
   echo "requested_at=${requested_at:-unknown}"
-  echo "mount_name=$mount_name"
+  echo "derived_mount_name=$mount_name"
   echo "derived_mountpoint=$(named_nas_mountpoint "$target_home" "$mount_name")"
   echo "derived_credentials_file=$(named_nas_credentials_path "$target_home" "$mount_name")"
   if [[ -n "$requested_mountpoint" || -n "$requested_credentials" ]]; then
@@ -410,7 +411,7 @@ print_share_request() {
     else
       echo "request_path_override=no"
     fi
-    echo "request_path_fields=ignored; paths are derived from mount_name"
+    echo "request_path_fields=ignored; paths are derived from requested_share"
   fi
   echo "current_registered_share=${current_share:-unknown}"
   echo "requested_share=${requested_share:-missing}"
@@ -435,18 +436,17 @@ approve_share_request() {
   fi
   requested_share="$(request_value REQUESTED_SHARE "$request_file")"
   validate_share "$requested_share"
-  mount_name="$(request_value MOUNT_NAME "$request_file")"
-  [[ "$mount_name" == "primary" || -z "$mount_name" ]] && mount_name="$(mount_name_from_share "$requested_share")"
+  mount_name="$(mount_name_from_share "$requested_share")"
   validate_mount_name "$mount_name"
   requested_mountpoint="$(named_nas_mountpoint "$target_home" "$mount_name")"
   requested_credentials="$(named_nas_credentials_path "$target_home" "$mount_name")"
 
   echo "approving_share_request_for=$target_user"
-  echo "mount_name=$mount_name"
+  echo "derived_mount_name=$mount_name"
   echo "mountpoint=$requested_mountpoint"
   echo "credentials_path=$requested_credentials"
   echo "requested_share=$requested_share"
-  helper_args=(--user "$target_user" --share "$requested_share" --mount-name "$mount_name")
+  helper_args=(--user "$target_user" --share "$requested_share")
   bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
     "${helper_args[@]}"
 
@@ -473,7 +473,7 @@ approve_share_request() {
   echo
   print_nas_status "$target_user" "$target_home" "$requested_mountpoint" "$requested_credentials" "${mount_name:-primary}"
   echo
-  print_customer_nas_next_steps "$target_user" "$mount_name"
+  print_customer_nas_next_steps "$target_user" "$requested_share"
 }
 
 reject_share_request() {
@@ -490,19 +490,14 @@ reject_share_request() {
   requested_share="$(request_value REQUESTED_SHARE "$request_file")"
   requested_at="$(request_value REQUESTED_AT "$request_file")"
   requested_by="$(request_value REQUESTED_BY "$request_file")"
-  mount_name="$(request_value MOUNT_NAME "$request_file")"
-  if [[ "$mount_name" == "primary" || -z "$mount_name" ]]; then
-    if cifs_share_is_valid "$requested_share"; then
-      mount_name="$(mount_name_from_share "$requested_share")"
-    else
-      mount_name="invalid"
-    fi
-  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$ ]]; then
+  if cifs_share_is_valid "$requested_share"; then
+    mount_name="$(mount_name_from_share "$requested_share")"
+  else
     mount_name="invalid"
   fi
 
   echo "rejecting_share_request_for=$target_user"
-  echo "mount_name=$mount_name"
+  echo "derived_mount_name=$mount_name"
   echo "requested_share=${requested_share:-missing}"
   echo "reject_reason=$reason"
 
@@ -789,8 +784,8 @@ refresh_gateway() {
 
 verify_nas_visibility() {
   local target_user="$1" target_home mountpoint container sample_count failed=0
-  local host_source host_fstype host_target container_source container_fstype container_target container_mp nas_mp share_name
-  local host_failed=0 container_failed=0
+  local host_source host_fstype host_target host_options container_source container_fstype container_target container_options container_mp nas_mp share_name
+  local host_failed=0 host_readonly_failed=0 container_failed=0 container_readonly_failed=0
   local runtime_family container_root
   local -a visible_nas_mountpoints=()
   target_home="$(customer_home "$target_user")"
@@ -805,7 +800,7 @@ verify_nas_visibility() {
   echo "+ account: $target_user"
   echo "+ host root:      $mountpoint"
   echo "+ container root: $container_root"
-  echo "+ rule:           host_root/host-<hash>/SHARE -> container_root/host-<hash>/SHARE"
+  echo "+ rule:           host_root/host-<hosthash>/SHARE-<sharehash> -> container_root/host-<hosthash>/SHARE-<sharehash>"
   mapfile -t nas_mountpoints < <(registered_nas_mountpoints "$mountpoint")
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
     echo "+ mounted shares: none"
@@ -818,6 +813,7 @@ verify_nas_visibility() {
       host_source="$(openclaw_findmnt_exact_field "$nas_mp" SOURCE)"
       host_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
       host_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
+      host_options="$(openclaw_findmnt_exact_field "$nas_mp" OPTIONS)"
       if [[ "$host_target" == "$nas_mp" && "$host_fstype" == "cifs" ]]; then
         echo "INFO host_nas_mount=$nas_mp source=$host_source"
         share_name="${nas_mp#$mountpoint/}"
@@ -825,6 +821,13 @@ verify_nas_visibility() {
         echo "| source:         $host_source"
         echo "| host path:      $nas_mp"
         echo "| host state:     mounted cifs"
+        if mount_options_include_ro "$host_options"; then
+          echo "| host readonly:  yes"
+        else
+          echo "INFO host_nas_not_readonly=$nas_mp options=${host_options:-missing}"
+          echo "| host readonly:  no"
+          host_readonly_failed=1
+        fi
         visible_nas_mountpoints+=("$nas_mp")
       elif [[ "$nas_mp" == "$mountpoint" && "${#nas_mountpoints[@]}" -gt 1 ]]; then
         :
@@ -841,6 +844,12 @@ verify_nas_visibility() {
       echo "FAIL host_nas_mounted_cifs"
       failed=1
     fi
+    if [[ "${#visible_nas_mountpoints[@]}" -gt 0 && "$host_readonly_failed" -eq 0 ]]; then
+      echo "PASS host_nas_readonly"
+    else
+      echo "FAIL host_nas_readonly"
+      failed=1
+    fi
   fi
 
   if ! docker ps --format '{{.Names}}' | grep -qx "$container"; then
@@ -852,16 +861,32 @@ verify_nas_visibility() {
     container_failed=1
     echo "INFO container_nas_visible_mounts=none"
   else
+    container_root_options="$(container_findmnt_exact_field "$container" "$container_root" OPTIONS)"
+    if mount_options_include_ro "$container_root_options"; then
+      echo "PASS container_nas_root_readonly"
+    else
+      echo "FAIL container_nas_root_readonly"
+      echo "INFO container_nas_root_options=${container_root_options:-missing}"
+      container_failed=1
+    fi
     for nas_mp in "${visible_nas_mountpoints[@]}"; do
       container_mp="$(container_path_for_nas_mountpoint "$container_root" "$mountpoint" "$nas_mp")"
       container_source="$(container_findmnt_exact_field "$container" "$container_mp" SOURCE)"
       container_target="$(container_findmnt_exact_field "$container" "$container_mp" TARGET)"
       container_fstype="$(container_findmnt_exact_field "$container" "$container_mp" FSTYPE)"
+      container_options="$(container_findmnt_exact_field "$container" "$container_mp" OPTIONS)"
       if [[ "$container_target" == "$container_mp" && "$container_fstype" == "cifs" ]] \
         && container_runtime_sh_for_family "$container" "$runtime_family" 'test -r "$1"' "$container_mp"; then
         echo "INFO container_nas_mount=$container_mp source=$container_source"
         echo "| container path: $container_mp"
         echo "| container state: mounted cifs"
+        if mount_options_include_ro "$container_options"; then
+          echo "| container readonly: yes"
+        else
+          echo "INFO container_nas_not_readonly=$container_mp options=${container_options:-missing}"
+          echo "| container readonly: no"
+          container_readonly_failed=1
+        fi
       else
         echo "INFO container_nas_mount_bad=$container_mp target=${container_target:-missing} fstype=${container_fstype:-missing} source=${container_source:-missing}"
         echo "| container path: $container_mp"
@@ -874,6 +899,12 @@ verify_nas_visibility() {
     echo "PASS container_nas_mounted_cifs"
   else
     echo "FAIL container_nas_mounted_cifs"
+    failed=1
+  fi
+  if [[ "${#visible_nas_mountpoints[@]}" -gt 0 && "$container_readonly_failed" -eq 0 ]]; then
+    echo "PASS container_nas_mounts_readonly"
+  else
+    echo "FAIL container_nas_mounts_readonly"
     failed=1
   fi
 
@@ -1276,19 +1307,13 @@ case "$command_name" in
     ;;
 
   nas-register|nas-prepare)
-    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
     share="$2"
-    mount_name="${3:-}"
     validate_user "$target_user"
     validate_share "$share"
-    if [[ -n "$mount_name" ]]; then
-      validate_mount_name "$mount_name"
-    else
-      mount_name="$(mount_name_from_share "$share")"
-    fi
+    mount_name="$(mount_name_from_share "$share")"
     helper_args=(--user "$target_user" --share "$share")
-    [[ -n "$mount_name" ]] && helper_args+=(--mount-name "$mount_name")
     bash "$script_dir/internal/write-user-nas-fstab-entry.bash" "${helper_args[@]}"
     target_home="$(customer_home "$target_user")"
     echo
@@ -1297,30 +1322,27 @@ case "$command_name" in
       "$(named_nas_credentials_path "$target_home" "$mount_name")" \
       "$mount_name"
     echo
-    print_customer_nas_next_steps "$target_user" "$mount_name"
+    print_customer_nas_next_steps "$target_user" "$share"
     ;;
 
   nas-register-all)
-    [[ $# -ge 3 && $# -le 4 ]] || { usage >&2; exit 2; }
+    [[ $# -eq 3 ]] || { usage >&2; exit 2; }
     start="$1"
     end="$2"
     share="$3"
-    mount_name="${4:-}"
     [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
       echo "error: invalid START/END" >&2
       exit 2
     }
     validate_share "$share"
-    [[ -n "$mount_name" ]] && validate_mount_name "$mount_name"
     failed=0
     for i in $(seq "$start" "$end"); do
       target_user="oc$i"
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
         helper_args=(--user "$target_user" --share "$share")
-        [[ -n "$mount_name" ]] && helper_args+=(--mount-name "$mount_name")
         if ! bash "$script_dir/internal/write-user-nas-fstab-entry.bash" \
-          "${helper_args[@]}" | sed -n '/^target_user=/p;/^mount_name=/p;/^mountpoint=/p;/^source_share=/p;/^fstab_user_mount=/p'; then
+          "${helper_args[@]}" | sed -n '/^target_user=/p;/^derived_mount_name=/p;/^mountpoint=/p;/^nas_share=/p;/^fstab_user_mount=/p'; then
           failed=1
         fi
       else
@@ -1332,12 +1354,19 @@ case "$command_name" in
     ;;
 
   nas-unregister)
-    [[ $# -ge 1 ]] || { usage >&2; exit 2; }
+    [[ $# -ge 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
     shift
     validate_user "$target_user"
     helper_args=(--user "$target_user")
-    mount_name=""
+    selector="$1"
+    shift
+    if [[ "$selector" == "--all" ]]; then
+      helper_args+=(--all)
+    else
+      validate_share "$selector"
+      helper_args+=(--share "$selector")
+    fi
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --unmount|--delete-credential|--delete-empty-dir|--no-daemon-reload)
@@ -1349,14 +1378,9 @@ case "$command_name" in
           exit 2
           ;;
         *)
-          if [[ -n "$mount_name" ]]; then
-            echo "error: duplicate mount name: $1" >&2
-            exit 2
-          fi
-          mount_name="$1"
-          validate_mount_name "$mount_name"
-          helper_args+=(--mount-name "$mount_name")
-          shift
+          echo "error: unexpected nas-unregister argument: $1" >&2
+          echo "hint: use nas-unregister USER //HOST/SHARE or nas-unregister USER --all" >&2
+          exit 2
           ;;
       esac
     done
@@ -1364,16 +1388,22 @@ case "$command_name" in
     ;;
 
   nas-unregister-all)
-    [[ $# -ge 2 ]] || { usage >&2; exit 2; }
+    [[ $# -ge 3 ]] || { usage >&2; exit 2; }
     start="$1"
     end="$2"
-    shift 2
+    selector="$3"
+    shift 3
     [[ "$start" =~ ^[0-9]+$ && "$end" =~ ^[0-9]+$ && "$start" -le "$end" ]] || {
       echo "error: invalid START/END" >&2
       exit 2
     }
     unregister_extra=()
-    mount_name=""
+    if [[ "$selector" == "--all" ]]; then
+      unregister_extra+=(--all)
+    else
+      validate_share "$selector"
+      unregister_extra+=(--share "$selector")
+    fi
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --unmount|--delete-credential|--delete-empty-dir|--no-daemon-reload)
@@ -1385,14 +1415,9 @@ case "$command_name" in
           exit 2
           ;;
         *)
-          if [[ -n "$mount_name" ]]; then
-            echo "error: duplicate mount name: $1" >&2
-            exit 2
-          fi
-          mount_name="$1"
-          validate_mount_name "$mount_name"
-          unregister_extra+=(--mount-name "$mount_name")
-          shift
+          echo "error: unexpected nas-unregister-all argument: $1" >&2
+          echo "hint: use nas-unregister-all START END //HOST/SHARE or --all" >&2
+          exit 2
           ;;
       esac
     done
@@ -1402,7 +1427,7 @@ case "$command_name" in
       echo "== $target_user =="
       if id "$target_user" >/dev/null 2>&1; then
         if ! bash "$script_dir/internal/remove-user-nas-fstab-entry.bash" \
-          --user "$target_user" "${unregister_extra[@]}" | sed -n '/^target_user=/p;/^mount_name=/p;/^mountpoint=/p;/^source_share=/p;/^fstab_user_mount=/p;/^active_mount=/p;/^unmount=/p;/^credential_file=/p;/^empty_dir=/p;/^note=/p'; then
+          --user "$target_user" "${unregister_extra[@]}" | sed -n '/^target_user=/p;/^derived_mount_name=/p;/^mountpoint=/p;/^nas_share=/p;/^fstab_user_mount=/p;/^active_mount=/p;/^unmount=/p;/^credential_file=/p;/^empty_dir=/p;/^note=/p'; then
           failed=1
         fi
       else

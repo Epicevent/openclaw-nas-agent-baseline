@@ -177,17 +177,19 @@ if [[ "$skip_nas_check" -eq 0 ]]; then
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
     echo "error: no registered NAS CIFS mount under $nas_mount" >&2
     echo "hint: customer requests a source with agent-nas-mount --request-share '//NAS_HOST/SHARE'" >&2
-    echo "hint: the default local path is generated as host-<hash>/SHARE to avoid cross-NAS name collisions" >&2
+    echo "hint: the default local path is generated as host-<hosthash>/SHARE-<sharehash> to avoid cross-NAS name collisions" >&2
     exit 1
   fi
   nas_check_failed=0
   for nas_mp in "${nas_mountpoints[@]}"; do
     nas_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
     nas_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
+    nas_source="$(awk -v mp="$nas_mp" '$0 !~ /^[[:space:]]*#/ && $2 == mp && $3 == "cifs" { print $1; exit }' /etc/fstab 2>/dev/null || true)"
     if [[ "$nas_target" != "$nas_mp" || "$nas_fstype" != "cifs" ]]; then
-      nas_rel="${nas_mp#$nas_mount/}"
       echo "error: NAS is not mounted as CIFS at $nas_mp" >&2
-      echo "hint: customer should run agent-nas-mount --mount-name \"$nas_rel\" --reset-credential" >&2
+      if [[ -n "$nas_source" ]]; then
+        echo "hint: customer should run agent-nas-mount --share \"$nas_source\" --reset-credential" >&2
+      fi
       nas_check_failed=1
     fi
   done

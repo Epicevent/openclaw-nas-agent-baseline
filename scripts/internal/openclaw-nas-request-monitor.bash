@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  ops-monitor.sh nas-request-check [--registry PATH] [--policy PATH] [--control PATH] [--start N] [--end N] [--actions-log PATH]
+  ops-monitor.sh nas-request-check [--registry PATH] [--policy PATH] [--control PATH] [--start N] [--end N] [--actions-log PATH] [--state-file PATH]
   ops-monitor.sh nas-request-watch [same args]
 
 Approves or rejects managed slot NAS share requests by account grant policy.
@@ -20,6 +20,7 @@ registry="/srv/openclaw-ops/slots.yaml"
 policy="/srv/openclaw-ops/nas-policy.yaml"
 control="/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh"
 actions_log="/srv/openclaw-ops/reports/actions.log"
+state_file="/var/lib/openclaw-nas-agent/nas-request-watch.state"
 start=1
 end=20
 interval="${OPENCLAW_NAS_REQUEST_INTERVAL_SECONDS:-30}"
@@ -40,6 +41,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --actions-log)
       actions_log="${2:?missing actions log path}"
+      shift 2
+      ;;
+    --state-file)
+      state_file="${2:?missing state file path}"
       shift 2
       ;;
     --start)
@@ -67,7 +72,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 run_once() {
-  python3 - "$registry" "$policy" "$control" "$actions_log" "$start" "$end" <<'PY'
+  python3 - "$registry" "$policy" "$control" "$actions_log" "$state_file" "$start" "$end" <<'PY'
 from __future__ import annotations
 
 import fnmatch
@@ -84,8 +89,9 @@ registry = Path(sys.argv[1])
 policy_path = Path(sys.argv[2])
 control = sys.argv[3]
 actions_log = Path(sys.argv[4])
-start = int(sys.argv[5])
-end = int(sys.argv[6])
+state_file = Path(sys.argv[5])
+start = int(sys.argv[6])
+end = int(sys.argv[7])
 
 
 def now_iso() -> str:
@@ -280,6 +286,28 @@ def log_action(action: str, user: str, params: dict, exit_code: int, duration: f
         pass
 
 
+def write_state(status: str, handled: int, failures: int) -> None:
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = state_file.with_suffix(state_file.suffix + ".tmp")
+    tmp.write_text(
+        "\n".join(
+            [
+                f"timestamp={now_iso()}",
+                f"status={status}",
+                f"handled={handled}",
+                f"failures={failures}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    os.replace(tmp, state_file)
+    try:
+        os.chmod(state_file, 0o644)
+    except PermissionError:
+        pass
+
+
 def evaluate(user: str, request: dict[str, str], lane: str, policy: dict) -> tuple[bool, str, dict]:
     share = request.get("requested_share", "")
     account = (policy.get("accounts") or {}).get(user)
@@ -287,7 +315,7 @@ def evaluate(user: str, request: dict[str, str], lane: str, policy: dict) -> tup
         return False, "hold_lane_denied", {}
     if request.get("request_path_override") == "yes":
         return False, "path_override_denied", {}
-    if request.get("mount_name") == "invalid":
+    if request.get("derived_mount_name") == "invalid" or request.get("mount_name") == "invalid":
         return False, "unsafe_mount_name", {}
     if not account:
         return False, "policy_missing", {}
@@ -313,6 +341,7 @@ def evaluate(user: str, request: dict[str, str], lane: str, policy: dict) -> tup
 
 
 def main() -> int:
+    write_state("RUNNING", 0, 0)
     lanes = parse_slots(registry)
     policy = parse_policy(policy_path)
     users = [f"oc{i}" for i in range(start, end + 1)]
@@ -358,6 +387,7 @@ def main() -> int:
     print(f"nas_request_check_finished={now_iso()}")
     print(f"handled={handled}")
     print(f"failures={failed}")
+    write_state("PASS" if failed == 0 else "FAIL", handled, failed)
     return 1 if failed else 0
 
 

@@ -36,17 +36,23 @@ openclaw_nas_host_label() {
 openclaw_nas_safe_share_label() {
   local share_name="${1:-}"
   share_name="${share_name//[^A-Za-z0-9._-]/_}"
+  if [[ ! "$share_name" =~ ^[A-Za-z0-9] ]]; then
+    share_name="share${share_name}"
+  fi
+  share_name="${share_name:0:48}"
   printf '%s' "$share_name"
 }
 
 openclaw_nas_mount_name_from_share() {
-  local share="${1:-}" rest host share_name mount_name
+  local share="${1:-}" rest host share_name share_label share_digest mount_name
   openclaw_nas_validate_share "$share" || return $?
   rest="${share#//}"
   host="${rest%%/*}"
   share_name="${rest#*/}"
   share_name="${share_name%%/*}"
-  mount_name="$(openclaw_nas_host_label "$host")/$(openclaw_nas_safe_share_label "$share_name")"
+  share_label="$(openclaw_nas_safe_share_label "$share_name")"
+  share_digest="$(printf '%s' "$share" | sha256sum | awk '{ print substr($1, 1, 12) }')"
+  mount_name="$(openclaw_nas_host_label "$host")/${share_label}-${share_digest}"
   openclaw_nas_validate_mount_name "$mount_name" || return $?
   printf '%s' "$mount_name"
 }

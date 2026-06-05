@@ -90,10 +90,9 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register "$T
 고객 계정에서:
 
 ```bash
-MOUNT_NAME="$(awk -v root="$HOME/nas_docs/" '$0 !~ /^[[:space:]]*#/ && $3 == "cifs" && index($2, root) == 1 { sub(root, "", $2); print $2; exit }' /etc/fstab)"
-test -n "$MOUNT_NAME"
-agent-nas-mount --mount-name "$MOUNT_NAME" --reset-credential
-agent-nas-mount --mount-name "$MOUNT_NAME" --status
+NAS_SHARE='//NAS_HOST/SHARE'
+agent-nas-mount --request-share "$NAS_SHARE" --reset-credential --wait
+agent-nas-mount --share "$NAS_SHARE" --status
 ```
 
 OpenClaw는 이미지 기반 fresh install 경로로 다시 만든다. 이때 provider/API key는
@@ -154,8 +153,8 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
 runtime .env는 root:root 0600
 고객 계정은 runtime env/config를 읽지 못함
 고객 계정은 docker group에 없음
-OpenClaw 컨테이너는 NAS mount를 /home/node/nas_docs/host-<hash>/SHARE에서 읽음
-Hermes 컨테이너는 NAS mount를 /workspace/nas_docs/host-<hash>/SHARE에서 읽음
+OpenClaw 컨테이너는 NAS mount를 /home/node/nas_docs/host-<hosthash>/SHARE-<sharehash>에서 읽음
+Hermes 컨테이너는 NAS mount를 /workspace/nas_docs/host-<hosthash>/SHARE-<sharehash>에서 읽음
 subdomain origin은 해당 ocN host만 허용
 새 provider/API key가 runtime env에 주입됨
 ```

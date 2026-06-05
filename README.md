@@ -84,15 +84,15 @@ recovery state는 설치 단계에서 건드리지 않는다.
 고객 슬롯과 개발 슬롯은 자기 계정에서 NAS mount 요청을 만든다.
 
 ```bash
-agent-nas-mount --request-share '//NAS_HOST/SHARE'
+agent-nas-mount --request-share '//NAS_HOST/SHARE' --reset-credential --wait
 ```
 
 기본 로컬 경로는 source에서 자동 파생된다. NAS host 부분은 항상 hash label로
 바뀐다.
 
 ```text
-//nas01.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
-//nas02.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
+//nas01.example.local/OC1 -> ~/nas_docs/host-<hosthash>/OC1-<sharehash>
+//nas02.example.local/OC1 -> ~/nas_docs/host-<hosthash>/OC1-<sharehash>
 ```
 
 운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 계정별 grant만 본다.
