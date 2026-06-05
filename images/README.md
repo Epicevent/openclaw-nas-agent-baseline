@@ -25,7 +25,7 @@ customization as minified asset rewrites here.
 Directory layout:
 
 ```text
-images/openclaw-nas-agent/   OpenClaw NAS Agent image recipe
+images/openclaw-nas-agent/   OpenClaw-family image recipe
 images/hermes-workspace/     Hermes Agent base + Workspace source image recipe
 images/shared/               document tooling shared by official images
 ```

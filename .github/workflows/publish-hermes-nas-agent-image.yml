@@ -1,4 +1,4 @@
-name: Publish Hermes NAS Agent Image
+name: Publish Hermes Family Runtime Image
 
 on:
   workflow_dispatch:
@@ -60,7 +60,7 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build Hermes NAS Agent image
+      - name: Build Hermes family runtime image
         shell: bash
         run: |
           set -euo pipefail
@@ -81,7 +81,7 @@ jobs:
             --label "org.opencontainers.image.hermes.agent.revision=${{ inputs.hermes_agent_source_ref }}" \
             --label "org.opencontainers.image.hermes.workspace.source=${{ inputs.hermes_workspace_source_repo }}" \
             --label "org.opencontainers.image.hermes.workspace.revision=${{ inputs.hermes_workspace_source_ref }}" \
-            --label "org.opencontainers.image.title=OpenClaw NAS Agent Hermes ${{ inputs.image_tag }}" \
+            --label "org.opencontainers.image.title=JiTech Hermes-family runtime ${{ inputs.image_tag }}" \
             -t "$image_ref" \
             -f images/hermes-workspace/Dockerfile .
 

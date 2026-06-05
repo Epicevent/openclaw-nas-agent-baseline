@@ -1,12 +1,12 @@
 # 테스트 운영 절차
 
-이 문서는 테스트 slot을 실제 사용자에게 넘기기 전 확인할 기준이다.
+이 문서는 테스트 slot을 실제 사용자에게 넘기기 전 확인 기준이다.
 
 ## 기준 파일
 
 ```text
 /srv/openclaw-ops/slots.yaml
-  slot lane만 기록한다.
+  slot -> lane만 기록한다.
 
 /srv/openclaw-ops/images.yaml
   public registry image release와 digest를 기록한다.
@@ -15,7 +15,7 @@
   계정별 NAS 자동승인 grant를 기록한다.
 ```
 
-사용자 실명, NAS password, API key, gateway token은 이 세 파일에 저장하지 않는다.
+사용자 실명, NAS password, API key, gateway token은 이 파일들에 저장하지 않는다.
 
 ## Lane
 
@@ -33,7 +33,7 @@ dev-hermess  dev-hermes
 고객은 자기 계정에서 요청을 만든다.
 
 ```bash
-openclaw-nas-mount --request-share '//NAS_HOST/SHARE'
+agent-nas-mount --request-share '//NAS_HOST/SHARE'
 ```
 
 운영 자동승인:
@@ -68,14 +68,14 @@ sudo -u svcops pm2 start /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh
   -- health-watch
 ```
 
-health check는 실제 live 상태를 본다.
+health check는 live 상태를 본다.
 
 ```text
 release gate
 container image
 customer NAS mount
 container NAS visibility
-source mode 금지 여부
+customer slot source mode 금지 여부
 ```
 
 ## 사용자 전달 전 확인
@@ -109,5 +109,5 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-release-pr
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-rollout hermes
 ```
 
-`image-rollout openclaw`는 lane이 `openclaw`인 고객 slot만 대상으로 한다.
+`image-rollout openclaw`은 lane이 `openclaw`인 고객 slot만 대상으로 한다.
 `image-rollout hermes`는 lane이 `hermes`인 고객 slot만 대상으로 한다.

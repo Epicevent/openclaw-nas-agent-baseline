@@ -1,24 +1,37 @@
-# OpenClaw NAS Agent Baseline
+# AI Agent Slot Operations
 
-이 저장소는 OpenClaw/Hermes 제품 소스 저장소가 아니다.
+이 저장소는 제품 소스 저장소가 아니라 서버 운영 패키지다.
 
-역할은 다음 네 가지다.
+담당 범위는 다음이다.
 
 ```text
 host install
 svcops/root wrapper
 NAS mount 운영
-public registry image release / rollout / health check
+public registry image release / rollout
+slot health check
+operator console
 ```
 
-OpenClaw와 Hermes 커스터마이즈 소스는 각각 별도 제품 소스 저장소에서 개발하고,
-이 저장소는 그 결과로 발행된 public registry image를 서버 slot에 적용한다.
+담당하지 않는 것은 다음이다.
+
+```text
+OpenClaw/Hermes 제품 소스 개발
+고객별 secret 저장
+NAS 문서 저장
+고객 slot 안에서 source 개발
+host에서 제품 런타임 도구 설치
+```
+
+OpenClaw와 Hermes 커스터마이즈는 별도 제품 소스 저장소에서 개발한다. 이 운영
+패키지는 그 소스 commit으로 발행된 public registry image를 서버 slot에 적용하고
+검증한다.
 
 ## 실행 주체
 
 ```text
 root 관리자
-  서버 초기 준비, Linux 계정 생성, runtime secret 주입, Apache 반영, 설치본 갱신.
+  서버 초기 준비, Linux 계정 생성, runtime secret 주입, Apache 반영, slot 설치/갱신.
 
 svcops
   제한 운영 계정. sudo로 svcops-control.sh wrapper만 실행한다.
@@ -38,44 +51,45 @@ openclawdev
 ```text
 /srv/openclaw-ops/slots.yaml
   slot -> lane만 기록한다.
-  예: oc1=openclaw, oc15=hermes, dev-oc=dev-openclaw
 
 /srv/openclaw-ops/images.yaml
-  public registry image catalog.
-  image ref, digest, source ref, channel 상태를 기록한다.
+  public registry image ref, digest, source ref, channel 상태를 기록한다.
 
 /srv/openclaw-ops/nas-policy.yaml
-  계정별 NAS 자동승인 grant 정책.
+  계정별 NAS 자동승인 grant 정책을 기록한다.
 
 /srv/openclaw-ops/reports/actions.log
-  운영 조치 감사 로그.
+  운영 조치 감사 로그를 기록한다.
 ```
 
 `slots.yaml`에는 NAS password, API key, gateway token, 고객 문서, handoff 값,
 release gate 기록, 기대 NAS share를 저장하지 않는다.
 
-## 설치 기준
+## Host Install
 
-서버 설치본 기준은 다음 파일의 `source_commit`이다.
+서버 설치본 기준은 manifest의 `source_commit`이다.
 
 ```text
 /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
 ```
 
-호스트 설치 절차는 [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에만 둔다.
-README에는 같은 shell 절차를 복사해 두지 않는다.
+host 설치 절차는 [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에만 둔다. README는
+일상 운영 기준과 책임 범위만 설명한다.
+
+`install.sh`는 운영 패키지만 설치한다. 제품 source, customer slot, runtime image,
+recovery state는 설치 단계에서 건드리지 않는다.
 
 ## NAS 자동승인
 
 고객은 자기 계정에서 NAS mount 요청을 만든다.
 
 ```bash
-openclaw-nas-mount --request-share '//NAS_HOST/SHARE'
+agent-nas-mount --request-share '//NAS_HOST/SHARE'
 ```
 
-운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 grant만 본다.
-범위 안이면 fstab managed entry를 자동 등록하고, 범위 밖이면 request를 rejected로
-이동한다. NAS username/password는 계속 고객 계정에서 직접 입력한다.
+운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 grant만 본다. 범위 안이면
+fstab managed entry를 자동 등록하고, 범위 밖이면 request를 rejected로 이동한다.
+NAS username/password는 고객 계정에서 직접 입력한다.
 
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check
@@ -88,12 +102,12 @@ process: openclaw-nas-requests
 command: ops-monitor.sh nas-request-watch
 ```
 
-정책 형식은 [NAS Policy](docs/NAS_POLICY.md)에 둔다.
+정책 형식은 [NAS Policy](docs/NAS_POLICY.md)를 따른다.
 
 ## Health Check
 
-`health-check`는 lane 원장, image catalog, live server 상태를 읽어서 현재 상태를
-확인한다. NAS 상태는 `slots.yaml`에 적힌 기대값과 비교하지 않고 실제
+`health-check`는 lane 저장소, image catalog, live server 상태를 읽어 현재 상태를
+확인한다. NAS 상태는 `slots.yaml`의 기대값과 비교하지 않고 실제
 fstab/mount/container visibility를 본다.
 
 ```bash
@@ -122,7 +136,7 @@ image-rollout
 image-rollback
 ```
 
-자세한 절차는 [Updates](docs/UPDATES.md)에 둔다.
+자세한 절차는 [Updates](docs/UPDATES.md)를 따른다.
 
 ## Dev Slot
 
@@ -133,8 +147,9 @@ dev-oc       OpenClaw source mode 확인
 dev-hermess  Hermes source mode 확인
 ```
 
-dev slot에서 확인한 뒤 source commit으로 image를 발행하고, 그 image만 고객 slot에
-rollout한다. source/image 경계는 [Source Management](docs/SOURCE_MANAGEMENT.md)에 둔다.
+dev slot에서 확인한 source commit으로 image를 발행하고, 그 image만 고객 slot에
+rollout한다. source/image 경계는 [Source Management](docs/SOURCE_MANAGEMENT.md)를
+따른다.
 
 ## 보안 기준
 

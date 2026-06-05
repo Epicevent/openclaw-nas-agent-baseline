@@ -1,70 +1,97 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-commands=(
-  python3
-  node
-  npm
-  fc-list
-  rg
-  jq
-  yq
-  fdfind
-  file
-  unzip
-  7zz
-  7z
-  libreoffice
-  soffice
-  pandoc
-  pdftotext
-  pdfinfo
-  tesseract
-  ocrmypdf
-  xlsx2csv
-  in2csv
-  ssconvert
-  antiword
-  catdoc
-  hwp5txt
-  hwp5proc
-  openclaw-hwp-text
-  openclaw-document-tools
-  openclaw
-  clawhub
-)
+prefix="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+failed=0
 
-printf '%-14s %s\n' "COMMAND" "STATUS"
-printf '%-14s %s\n' "-------" "------"
+pass() {
+  printf 'PASS %s\n' "$*"
+}
 
-for command_name in "${commands[@]}"; do
-  if command -v "$command_name" >/dev/null 2>&1; then
-    printf '%-14s %s\n' "$command_name" "ok: $(command -v "$command_name")"
+fail() {
+  printf 'FAIL %s\n' "$*"
+  failed=1
+}
+
+need_file() {
+  local path="$1"
+  if [[ -f "$prefix/$path" ]]; then
+    pass "file_$path"
   else
-    printf '%-14s %s\n' "$command_name" "missing"
+    fail "file_$path"
   fi
-done
+}
 
-echo
-echo "Korean runtime:"
-if locale charmap 2>/dev/null | grep -qi UTF-8; then
-  echo "locale_utf8=ok"
+need_executable() {
+  local path="$1"
+  if [[ -x "$prefix/$path" ]]; then
+    pass "executable_$path"
+  else
+    fail "executable_$path"
+  fi
+}
+
+need_dir() {
+  local path="$1"
+  if [[ -d "$prefix/$path" ]]; then
+    pass "dir_$path"
+  else
+    fail "dir_$path"
+  fi
+}
+
+need_file "README.md"
+need_file "install.sh"
+need_file ".openclaw-baseline-manifest"
+
+need_executable "scripts/svcops-control.sh"
+need_executable "scripts/slot-control.sh"
+need_executable "scripts/ops-monitor.sh"
+need_executable "scripts/customer-nas-mount.sh"
+need_executable "scripts/install-svcops-account.sh"
+need_executable "admin-cli/bin/openclaw-ops-console"
+
+need_dir "images"
+need_dir "docs"
+
+if [[ -d "$prefix/openclaw" ]]; then
+  fail "product_source_dir_absent"
 else
-  echo "locale_utf8=missing"
+  pass "product_source_dir_absent"
 fi
 
-if locale -a 2>/dev/null | grep -Eiq '^ko_KR(\.utf8|\.UTF-8)?$'; then
-  echo "ko_locale=ok"
+if [[ -d "$prefix/container" ]]; then
+  fail "legacy_container_dir_absent"
 else
-  echo "ko_locale=missing"
+  pass "legacy_container_dir_absent"
 fi
 
-if command -v fc-list >/dev/null 2>&1 && [[ "$(fc-list :lang=ko 2>/dev/null | wc -l)" -gt 0 ]]; then
-  echo "korean_fonts=ok"
+if [[ "$(id -u)" -eq 0 || "$prefix" == /opt/* ]]; then
+  if [[ -x /usr/local/bin/agent-nas-mount ]]; then
+    pass "customer_nas_helper_alias_present"
+  else
+    fail "customer_nas_helper_alias_present"
+  fi
+
+  if [[ -L /usr/local/bin/openclaw-nas-mount ]]; then
+    target="$(readlink /usr/local/bin/openclaw-nas-mount 2>/dev/null || true)"
+    if [[ "$target" == "$prefix/scripts/customer-nas-mount.sh" ]]; then
+      fail "legacy_customer_nas_helper_alias_absent"
+    else
+      pass "legacy_customer_nas_helper_alias_absent"
+    fi
+  else
+    pass "legacy_customer_nas_helper_alias_absent"
+  fi
 else
-  echo "korean_fonts=missing"
+  pass "customer_nas_helper_alias_skipped"
 fi
 
-echo
-echo "OpenClaw skills:"
-openclaw skills check || true
+if grep -RIn -- '--repair-user\|--repair-users\|repairing OpenClaw state' "$prefix/install.sh" "$prefix/README.md" "$prefix/docs" 2>/dev/null | grep -q .; then
+  grep -RIn -- '--repair-user\|--repair-users\|repairing OpenClaw state' "$prefix/install.sh" "$prefix/README.md" "$prefix/docs" 2>/dev/null || true
+  fail "host_install_product_repair_absent"
+else
+  pass "host_install_product_repair_absent"
+fi
+
+exit "$failed"

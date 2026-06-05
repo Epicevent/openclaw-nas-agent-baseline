@@ -251,7 +251,7 @@ echo "fstab_user_mount=ok"
 echo
 echo "Next, run as $target_user:"
 if [[ -n "$mount_name" ]]; then
-  echo "  openclaw-nas-mount --mount-name \"$mount_name\" --reset-credential"
+  echo "  agent-nas-mount --mount-name \"$mount_name\" --reset-credential"
 else
-  echo "  openclaw-nas-mount --reset-credential"
+  echo "  agent-nas-mount --reset-credential"
 fi

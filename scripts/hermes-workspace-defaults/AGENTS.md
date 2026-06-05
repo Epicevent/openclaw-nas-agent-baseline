@@ -1,6 +1,6 @@
 # Hermes Workspace Runtime Notes
 
-This slot runs inside a Hermes Agent container prepared by OpenClaw NAS Agent.
+This slot runs inside a Hermes Agent container prepared by the slot operations package.
 
 Important paths:
 

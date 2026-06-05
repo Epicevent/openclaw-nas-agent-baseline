@@ -90,8 +90,8 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register "$T
 고객 계정에서:
 
 ```bash
-openclaw-nas-mount --mount-name SHARE_NAME --reset-credential
-openclaw-nas-mount --mount-name SHARE_NAME --status
+agent-nas-mount --mount-name SHARE_NAME --reset-credential
+agent-nas-mount --mount-name SHARE_NAME --status
 ```
 
 OpenClaw는 이미지 기반 fresh install 경로로 다시 만든다. 이때 provider/API key는

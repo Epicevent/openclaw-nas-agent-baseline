@@ -176,7 +176,7 @@ if [[ "$skip_nas_check" -eq 0 ]]; then
   ' /etc/fstab 2>/dev/null)
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
     echo "error: no registered NAS CIFS mount under $nas_mount" >&2
-    echo "hint: svcops should register a share, then the customer runs openclaw-nas-mount --mount-name SHARE_NAME --reset-credential" >&2
+    echo "hint: svcops should register a share, then the customer runs agent-nas-mount --mount-name SHARE_NAME --reset-credential" >&2
     exit 1
   fi
   nas_check_failed=0
@@ -185,7 +185,7 @@ if [[ "$skip_nas_check" -eq 0 ]]; then
     nas_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
     if [[ "$nas_target" != "$nas_mp" || "$nas_fstype" != "cifs" ]]; then
       echo "error: NAS is not mounted as CIFS at $nas_mp" >&2
-      echo "hint: customer should run openclaw-nas-mount --mount-name \"${nas_mp##*/}\" --reset-credential" >&2
+      echo "hint: customer should run agent-nas-mount --mount-name \"${nas_mp##*/}\" --reset-credential" >&2
       nas_check_failed=1
     fi
   done

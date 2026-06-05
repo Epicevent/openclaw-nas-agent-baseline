@@ -332,15 +332,15 @@ print_customer_nas_next_steps() {
     cat <<EOF
 customer_next_steps:
   after logging in as $target_user:
-  openclaw-nas-mount --mount-name $mount_name --status
-  openclaw-nas-mount --mount-name $mount_name --reset-credential
+  agent-nas-mount --mount-name $mount_name --status
+  agent-nas-mount --mount-name $mount_name --reset-credential
 EOF
   else
     cat <<EOF
 customer_next_steps:
   after logging in as $target_user:
-  openclaw-nas-mount --status
-  openclaw-nas-mount --reset-credential
+  agent-nas-mount --status
+  agent-nas-mount --reset-credential
 EOF
   fi
 }

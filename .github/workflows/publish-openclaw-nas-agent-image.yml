@@ -1,4 +1,4 @@
-name: Publish OpenClaw NAS Agent Image
+name: Publish OpenClaw Family Runtime Image
 
 on:
   workflow_dispatch:
@@ -59,7 +59,7 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build OpenClaw NAS Agent image
+      - name: Build OpenClaw family runtime image
         shell: bash
         run: |
           set -euo pipefail
@@ -74,8 +74,8 @@ jobs:
             --label "org.opencontainers.image.base.name=${{ inputs.base_image }}" \
             --label "org.opencontainers.image.openclaw.source=${{ inputs.openclaw_source_repo }}" \
             --label "org.opencontainers.image.openclaw.revision=${{ inputs.openclaw_source_ref }}" \
-            --label "org.opencontainers.image.title=OpenClaw NAS Agent ${{ inputs.image_tag }}" \
-            --label "org.opencontainers.image.description=OpenClaw image built from managed source with NAS document tools" \
+            --label "org.opencontainers.image.title=JiTech OpenClaw-family runtime ${{ inputs.image_tag }}" \
+            --label "org.opencontainers.image.description=OpenClaw-family runtime built from managed source with NAS document tools" \
             -t "$image_ref" \
             -f images/openclaw-nas-agent/Dockerfile .
 

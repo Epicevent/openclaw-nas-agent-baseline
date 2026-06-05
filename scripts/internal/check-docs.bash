@@ -68,6 +68,20 @@ else
   pass "removed_local_image_build_reference_absent"
 fi
 
+if grep_md 'openclaw-nas-mount' | grep -q .; then
+  grep_md 'openclaw-nas-mount'
+  fail "legacy_customer_nas_command_in_docs"
+else
+  pass "legacy_customer_nas_command_absent"
+fi
+
+if grep -RInE -- '--repair-user|--repair-users|repairing OpenClaw state' "$repo_root/install.sh" "$repo_root/README.md" "$repo_root/docs" 2>/dev/null | grep -q .; then
+  grep -RInE -- '--repair-user|--repair-users|repairing OpenClaw state' "$repo_root/install.sh" "$repo_root/README.md" "$repo_root/docs" 2>/dev/null || true
+  fail "host_install_product_repair_reference_absent"
+else
+  pass "host_install_product_repair_reference_absent"
+fi
+
 if grep -RInE 'dashboard-20260602-r1|openclaw-overlays' \
   "$repo_root/README.md" "$repo_root/docs" "$repo_root/images" "$repo_root/.github" "$repo_root/admin-cli" \
   --include='*.md' --include='*.yml' --include='*.yaml' --include='openclaw-ops-console' 2>/dev/null | grep -q .; then

@@ -4,9 +4,9 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  install.sh [--prefix DIR] [--repair-user USER] [--repair-users LIST] [--force-defaults] [--check]
+  install.sh [--prefix DIR] [--check]
 
-Installs this OpenClaw NAS agent baseline bundle into a host path.
+Installs the slot operations package into a host path.
 
 Default:
   /opt/openclaw-nas-agent-baseline
@@ -15,13 +15,16 @@ Examples:
   sudo bash install.sh
   sudo bash install.sh --check
 
-This installer does not store NAS credentials, OpenClaw tokens, or API keys.
+This installer does not install product source, modify customer slots, build
+runtime images, or repair product state. Customer slots are updated by image
+rollout commands after a registry image has been verified.
+
+This installer does not store NAS credentials, provider/API keys, gateway
+tokens, or customer data.
 USAGE
 }
 
 prefix="/opt/openclaw-nas-agent-baseline"
-repair_users=()
-force_defaults=0
 run_check=0
 
 while [[ $# -gt 0 ]]; do
@@ -29,19 +32,6 @@ while [[ $# -gt 0 ]]; do
     --prefix)
       prefix="${2:?missing prefix}"
       shift 2
-      ;;
-    --repair-user)
-      repair_users+=("${2:?missing user}")
-      shift 2
-      ;;
-    --repair-users)
-      IFS=',' read -r -a parsed_users <<<"${2:?missing users}"
-      repair_users+=("${parsed_users[@]}")
-      shift 2
-      ;;
-    --force-defaults)
-      force_defaults=1
-      shift
       ;;
     --check)
       run_check=1
@@ -96,6 +86,8 @@ prune_installed_package() {
     return 0
   fi
 
+  # The list includes current package paths and legacy payload paths that
+  # earlier installers may have copied into the operations prefix.
   for path in \
     README.md \
     LICENSE \
@@ -193,7 +185,13 @@ if [[ "$(id -u)" -eq 0 ]]; then
   chown -R root:root "$prefix"
   if [[ -x "$prefix/scripts/customer-nas-mount.sh" ]]; then
     mkdir -p /usr/local/bin
-    ln -sfn "$prefix/scripts/customer-nas-mount.sh" /usr/local/bin/openclaw-nas-mount
+    ln -sfn "$prefix/scripts/customer-nas-mount.sh" /usr/local/bin/agent-nas-mount
+    if [[ -L /usr/local/bin/openclaw-nas-mount ]]; then
+      legacy_target="$(readlink /usr/local/bin/openclaw-nas-mount 2>/dev/null || true)"
+      if [[ "$legacy_target" == "$prefix/scripts/customer-nas-mount.sh" ]]; then
+        rm -f /usr/local/bin/openclaw-nas-mount
+      fi
+    fi
   fi
 fi
 
@@ -203,20 +201,10 @@ echo "installed: $prefix"
 echo "baseline_manifest=$prefix/.openclaw-baseline-manifest"
 echo "installed_source_commit=$source_commit"
 
-for user in "${repair_users[@]}"; do
-  [[ -n "$user" ]] || continue
-  args=(--user "$user")
-  if [[ "$force_defaults" -eq 1 ]]; then
-    args+=(--force-defaults)
-  fi
-  echo "repairing OpenClaw state for: $user"
-  bash "$prefix/scripts/internal/recovery-repair-openclaw-state.bash" "${args[@]}"
-done
-
 if [[ "$run_check" -eq 1 ]]; then
-  echo "running baseline check:"
+  echo "running operations package check:"
   bash "$prefix/scripts/internal/check-docs.bash"
-  bash "$prefix/scripts/internal/check-baseline.bash" || true
+  bash "$prefix/scripts/internal/check-baseline.bash"
 fi
 
 cat <<EOF
@@ -224,7 +212,7 @@ cat <<EOF
 Next useful commands:
   cd $prefix
   sudo bash scripts/install-svcops-account.sh --set-password --nopasswd-sudo
-  openclaw-nas-mount --help
-  sudo scripts/svcops-control.sh check oc1 oc1.ji-tech.co.kr
+  agent-nas-mount --help
+  sudo scripts/ops-monitor.sh health-check --report /srv/openclaw-ops/reports/health-latest.txt
   less README.md
 EOF

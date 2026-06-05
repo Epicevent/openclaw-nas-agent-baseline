@@ -1,4 +1,4 @@
-# Build a single-container Hermes runtime image for OpenClaw NAS Agent slots.
+# Build a single-container Hermes runtime image for managed agent slots.
 #
 # Usage:
 #   docker build \
@@ -13,7 +13,7 @@
 # The final image contains:
 #   - Hermes Agent gateway/runtime from BASE_IMAGE
 #   - Hermes Workspace web UI built from HERMES_WORKSPACE_SOURCE_*
-#   - OpenClaw NAS Agent document-reading baseline packages
+#   - shared document-reading baseline packages
 ARG BASE_IMAGE=nousresearch/hermes-agent:latest
 ARG HERMES_AGENT_SOURCE_REPO=https://github.com/NousResearch/hermes-agent.git
 ARG HERMES_AGENT_SOURCE_REF=main
@@ -94,7 +94,7 @@ ENTRYPOINT ["/init", "/opt/hermes/docker/main-wrapper.sh"]
 CMD ["gateway", "run"]
 
 LABEL org.opencontainers.image.title="OpenClaw Hermes Workspace NAS Agent"
-LABEL org.opencontainers.image.description="Single-container Hermes Agent + Hermes Workspace image with OpenClaw NAS document baseline"
+LABEL org.opencontainers.image.description="Single-container Hermes Agent + Hermes Workspace image with shared NAS document tools"
 LABEL org.opencontainers.image.family="hermes"
 LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
 LABEL org.opencontainers.image.hermes.source="${HERMES_AGENT_SOURCE_REPO}"

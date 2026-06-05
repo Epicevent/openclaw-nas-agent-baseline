@@ -10,7 +10,7 @@ Usage:
 Shows what the gateway container can see under its NAS document root.
 For Hermes slots the root is /workspace/nas_docs.
 For OpenClaw slots the root is /home/node/nas_docs.
-It never reads NAS credentials, OpenClaw tokens, or provider/API keys.
+It never reads NAS credentials, gateway tokens, or provider/API keys.
 USAGE
 }
 

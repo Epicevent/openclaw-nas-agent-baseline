@@ -58,7 +58,7 @@ ENV LANG=ko_KR.UTF-8 \
 
 USER ${RUNTIME_USER}
 
-LABEL org.opencontainers.image.title="OpenClaw NAS Agent Baseline"
+LABEL org.opencontainers.image.title="JiTech OpenClaw-family runtime"
 LABEL org.opencontainers.image.description="OpenClaw runtime image built from a managed source ref with NAS document tools"
 LABEL org.opencontainers.image.family="openclaw"
 LABEL org.opencontainers.image.openclaw.source="${OPENCLAW_SOURCE_REPO}"

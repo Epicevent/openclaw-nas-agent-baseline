@@ -18,7 +18,7 @@ source "$script_dir/internal/lib-safe-compose.bash"
 usage() {
   cat <<'USAGE'
 Usage:
-  openclaw-nas-mount [options]
+  agent-nas-mount [options]
   customer-nas-mount.sh [options]
 
 Creates the customer's NAS credential file if needed and mounts the registered
@@ -203,7 +203,7 @@ print_registered_child_mounts() {
     fi
     echo "registered_child_state_$n=$state"
     [[ -n "$source" ]] && echo "registered_child_mounted_source_$n=$source"
-    echo "child_mount_command_$n=openclaw-nas-mount --mount-name $name --status"
+    echo "child_mount_command_$n=agent-nas-mount --mount-name $name --status"
   done <<<"$lines"
 }
 
@@ -211,7 +211,7 @@ status() {
   local current_target current_source current_fstype fstab_entry fstab_source fstab_target fstab_type fstab_options fstab_credentials nas_user next_action
   echo "== NAS status =="
   echo "scope=customer_account_only"
-  echo "note=OpenClaw container visibility requires operator nas-verify"
+  echo "note=container visibility requires operator nas-verify"
   echo "linux_user=$(whoami)"
   echo "home=$HOME"
   echo "mount_name=${mount_name:-primary}"
@@ -247,11 +247,11 @@ status() {
     echo "mounted_fstype=$current_fstype"
     if [[ -n "${fstab_source:-}" && "$current_source" != "$fstab_source" ]]; then
       echo "mount_matches_registered_share=no"
-      echo "next_action=openclaw-nas-mount --remount"
+      echo "next_action=agent-nas-mount --remount"
     else
       echo "mount_matches_registered_share=yes"
       echo "next_action=shell_ok"
-      echo "openclaw_next_action=if OpenClaw cannot see NAS, ask operator to run nas-verify $(whoami)"
+      echo "container_next_action=if the agent cannot see NAS, ask operator to run nas-verify $(whoami)"
     fi
   else
     echo "mount_state=not_mounted"
@@ -259,9 +259,9 @@ status() {
     if [[ -z "$fstab_entry" ]]; then
       next_action="ask operator to register the NAS share"
     elif [[ ! -s "$credentials" ]]; then
-      next_action="openclaw-nas-mount --reset-credential"
+      next_action="agent-nas-mount --reset-credential"
     else
-      next_action="openclaw-nas-mount --remount"
+      next_action="agent-nas-mount --remount"
     fi
     echo "next_action=$next_action"
   fi

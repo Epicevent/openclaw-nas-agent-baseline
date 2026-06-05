@@ -1,6 +1,6 @@
 # Updates
 
-OpenClaw NAS Agent updates are image rollouts from the public registry.
+Slot runtime updates are image rollouts from the public registry.
 Images contain code, UI, document tools, fonts, and locale packages. They do
 not contain API keys, NAS credentials, gateway tokens, customer documents,
 slot registries, or server `.env` files.
@@ -125,7 +125,7 @@ Currently active recipes:
 ```text
 images/hermes-workspace/     Hermes Agent base + Workspace source integrated image
 images/shared/               document tooling shared by official images
-images/openclaw-nas-agent/   base wrapper for OpenClaw-compatible images
+images/openclaw-nas-agent/   OpenClaw-family image recipe
 ```
 
 Publishing workflows are separated by runtime family:

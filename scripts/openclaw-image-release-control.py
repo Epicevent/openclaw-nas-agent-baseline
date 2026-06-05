@@ -194,7 +194,7 @@ def write_images(path: Path, state: dict[str, Any]) -> None:
     channels = state.get("channels") or {}
     images = state.get("images") or []
     lines: list[str] = []
-    lines.append("# OpenClaw public image release cache.\n")
+    lines.append("# Public runtime image release cache.\n")
     lines.append("# Image contents are public; secrets and customer state stay outside images.\n")
     lines.append("meta:\n")
     for key in ("schema_version", "source_of_truth", "registry", "updated_at"):
@@ -1004,7 +1004,7 @@ def cmd_status_all(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="OpenClaw public registry image release control")
+    parser = argparse.ArgumentParser(description="Public registry runtime image release control")
     parser.add_argument("--slots", type=Path, default=DEFAULT_SLOTS)
     parser.add_argument("--images", type=Path, default=DEFAULT_IMAGES)
     parser.add_argument("--actions-log", type=Path, default=DEFAULT_ACTIONS_LOG)
