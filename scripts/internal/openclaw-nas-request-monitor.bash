@@ -7,7 +7,7 @@ Usage:
   ops-monitor.sh nas-request-check [--registry PATH] [--policy PATH] [--control PATH] [--start N] [--end N] [--actions-log PATH]
   ops-monitor.sh nas-request-watch [same args]
 
-Approves or rejects customer NAS share requests by account grant policy.
+Approves or rejects managed slot NAS share requests by account grant policy.
 The monitor never reads or stores NAS passwords.
 USAGE
 }
@@ -283,8 +283,6 @@ def log_action(action: str, user: str, params: dict, exit_code: int, duration: f
 def evaluate(user: str, request: dict[str, str], lane: str, policy: dict) -> tuple[bool, str, dict]:
     share = request.get("requested_share", "")
     account = (policy.get("accounts") or {}).get(user)
-    if lane.startswith("dev-"):
-        return False, "dev_slot_denied", {}
     if lane == "hold":
         return False, "hold_lane_denied", {}
     if request.get("request_path_override") == "yes":

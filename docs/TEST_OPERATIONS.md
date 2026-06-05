@@ -30,7 +30,7 @@ dev-hermess  dev-hermes
 
 ## NAS 요청 처리
 
-고객은 자기 계정에서 요청을 만든다.
+고객 슬롯과 개발 슬롯은 자기 계정에서 요청을 만든다.
 
 ```bash
 agent-nas-mount --request-share '//NAS_HOST/SHARE'

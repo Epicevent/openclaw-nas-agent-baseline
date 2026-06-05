@@ -31,6 +31,11 @@ accounts:
     grants:
       - allow: "//192.168.0.222/*"
     max_mounts: unlimited
+  dev-hermess:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
 ```
 
 Grant forms:
@@ -50,11 +55,12 @@ auto_approve=true
 requested_share matches one grant
 max_mounts is not exceeded
 request has no path override
-slot lane is not dev-*
+slot lane is not hold
 ```
 
-The monitor registers the fstab entry only. The customer still enters the NAS
-username and password in their own Linux account.
+The monitor registers the fstab entry only. The slot user still enters the NAS
+username and password in that Linux account. Dev slots are allowed only when
+they have an explicit account grant.
 
 ## Monitor
 

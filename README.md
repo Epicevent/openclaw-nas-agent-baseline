@@ -81,15 +81,15 @@ recovery state는 설치 단계에서 건드리지 않는다.
 
 ## NAS 자동승인
 
-고객은 자기 계정에서 NAS mount 요청을 만든다.
+고객 슬롯과 개발 슬롯은 자기 계정에서 NAS mount 요청을 만든다.
 
 ```bash
 agent-nas-mount --request-share '//NAS_HOST/SHARE'
 ```
 
-운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 grant만 본다. 범위 안이면
-fstab managed entry를 자동 등록하고, 범위 밖이면 request를 rejected로 이동한다.
-NAS username/password는 고객 계정에서 직접 입력한다.
+운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 계정별 grant만 본다.
+범위 안이면 fstab managed entry를 자동 등록하고, 범위 밖이면 request를
+rejected로 이동한다. NAS username/password는 해당 Linux 계정에서 직접 입력한다.
 
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check
