@@ -935,8 +935,11 @@ ensure_dev_slot_accounts() {
     useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$runtime_user"
   fi
   usermod -aG "$data_group" "$runtime_user"
+  mkdir -p "$target_home/nas_docs"
   gpasswd -d "$target_user" docker >/dev/null 2>&1 || true
   gpasswd -d "$target_user" sudo >/dev/null 2>&1 || true
+  chown "$target_user:$data_group" "$target_home/nas_docs"
+  chmod 0550 "$target_home/nas_docs"
   chown "$target_user:$target_user" "$target_home"
   chmod 0750 "$target_home"
 
