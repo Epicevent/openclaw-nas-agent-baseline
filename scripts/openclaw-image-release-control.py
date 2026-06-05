@@ -215,6 +215,10 @@ def write_images(path: Path, state: dict[str, Any]) -> None:
             "version",
             "source_repo",
             "source_ref",
+            "agent_source_repo",
+            "agent_source_ref",
+            "workspace_source_repo",
+            "workspace_source_ref",
             "base_image",
             "workspace_image",
             "registry_ref",
@@ -334,17 +338,29 @@ def image_release_from_ref(ref: str, name: str | None = None) -> dict[str, str]:
     os_name = str(info.get("Os", ""))
     arch = str(info.get("Architecture", ""))
     labels = {str(key): str(value) for key, value in ((info.get("Config") or {}).get("Labels") or {}).items()}
-    source_repo = labels.get("org.opencontainers.image.openclaw.source", "")
-    source_ref = labels.get("org.opencontainers.image.openclaw.revision", "")
-    if not source_repo:
-        source_repo = labels.get("org.opencontainers.image.hermes.source", "")
-    if not source_ref:
-        source_ref = labels.get("org.opencontainers.image.hermes.revision", "")
+    openclaw_source_repo = labels.get("org.opencontainers.image.openclaw.source", "")
+    openclaw_source_ref = labels.get("org.opencontainers.image.openclaw.revision", "")
+    agent_source_repo = (
+        labels.get("org.opencontainers.image.hermes.agent.source", "")
+        or labels.get("org.opencontainers.image.hermes.source", "")
+    )
+    agent_source_ref = (
+        labels.get("org.opencontainers.image.hermes.agent.revision", "")
+        or labels.get("org.opencontainers.image.hermes.revision", "")
+    )
+    workspace_source_repo = labels.get("org.opencontainers.image.hermes.workspace.source", "")
+    workspace_source_ref = labels.get("org.opencontainers.image.hermes.workspace.revision", "")
     base_image = labels.get("org.opencontainers.image.base.name", "")
     workspace_image = labels.get("org.opencontainers.image.workspace.name", "")
     family = labels.get("org.opencontainers.image.family", "")
     if not family:
         family = "hermes" if release_name.startswith("hermes-") else "openclaw"
+    if family == "hermes":
+        source_repo = workspace_source_repo or agent_source_repo
+        source_ref = workspace_source_ref or agent_source_ref
+    else:
+        source_repo = openclaw_source_repo
+        source_ref = openclaw_source_ref
     aliases = ",".join(sorted({ref, runtime_ref, release_name}))
     return {
         "name": release_name,
@@ -352,6 +368,10 @@ def image_release_from_ref(ref: str, name: str | None = None) -> dict[str, str]:
         "version": release_name.split("-", 1)[1] if "-" in release_name else release_name,
         "source_repo": source_repo,
         "source_ref": source_ref,
+        "agent_source_repo": agent_source_repo,
+        "agent_source_ref": agent_source_ref,
+        "workspace_source_repo": workspace_source_repo,
+        "workspace_source_ref": workspace_source_ref,
         "base_image": base_image,
         "workspace_image": workspace_image,
         "registry_ref": ref,
@@ -725,6 +745,8 @@ def cmd_list(args: argparse.Namespace) -> int:
         print(
             f"image={image.get('name')} family={image.get('family')} status={image.get('status')} "
             f"source_ref={image.get('source_ref', '')} base_image={image.get('base_image', '')} "
+            f"agent_source_ref={image.get('agent_source_ref', '')} "
+            f"workspace_source_ref={image.get('workspace_source_ref', '')} "
             f"ref={image.get('registry_ref')} runtime_ref={image.get('runtime_ref')} image_id={image.get('image_id')}"
         )
     return 0
@@ -744,6 +766,14 @@ def cmd_add(args: argparse.Namespace) -> int:
         print(f"source_repo={image['source_repo']}")
     if image.get("source_ref"):
         print(f"source_ref={image['source_ref']}")
+    if image.get("agent_source_repo"):
+        print(f"agent_source_repo={image['agent_source_repo']}")
+    if image.get("agent_source_ref"):
+        print(f"agent_source_ref={image['agent_source_ref']}")
+    if image.get("workspace_source_repo"):
+        print(f"workspace_source_repo={image['workspace_source_repo']}")
+    if image.get("workspace_source_ref"):
+        print(f"workspace_source_ref={image['workspace_source_ref']}")
     if image.get("base_image"):
         print(f"base_image={image['base_image']}")
     if image.get("workspace_image"):
@@ -773,6 +803,10 @@ def cmd_verify(args: argparse.Namespace) -> int:
                 "aliases",
                 "source_repo",
                 "source_ref",
+                "agent_source_repo",
+                "agent_source_ref",
+                "workspace_source_repo",
+                "workspace_source_ref",
                 "base_image",
                 "workspace_image",
             }
@@ -850,6 +884,10 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
         f"image_channel={channel}\n"
         f"source_repo={image.get('source_repo', '')}\n"
         f"source_ref={image.get('source_ref', '')}\n"
+        f"agent_source_repo={image.get('agent_source_repo', '')}\n"
+        f"agent_source_ref={image.get('agent_source_ref', '')}\n"
+        f"workspace_source_repo={image.get('workspace_source_repo', '')}\n"
+        f"workspace_source_ref={image.get('workspace_source_ref', '')}\n"
         f"base_image={image.get('base_image', '')}\n"
         f"runtime_ref={image_ref}\n"
         f"{out}"

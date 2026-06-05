@@ -160,6 +160,8 @@ An image release is acceptable only when it can answer these questions:
 ```text
 Which custom OpenClaw source commit was used?
 Which frozen runtime base digest was used?
+For Hermes, which Agent source commit was represented by the base image?
+For Hermes, which Workspace source commit was built into the UI?
 Which image digest was published?
 Which slots were rolled out?
 Did the browser-render check and slot deployment check pass?

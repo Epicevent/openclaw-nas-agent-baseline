@@ -373,6 +373,16 @@ for slot in slots:
     lines.append(f"host={subdomain}")
     if expected_image:
         lines.append(f"expected_image_name={expected_image.get('name', '')}")
+        lines.append(f"expected_image_family={expected_image.get('family', '')}")
+        lines.append(f"expected_image_source_repo={expected_image.get('source_repo', '')}")
+        lines.append(f"expected_image_source_ref={expected_image.get('source_ref', '')}")
+        lines.append(f"expected_image_agent_source_repo={expected_image.get('agent_source_repo', '')}")
+        lines.append(f"expected_image_agent_source_ref={expected_image.get('agent_source_ref', '')}")
+        lines.append(f"expected_image_workspace_source_repo={expected_image.get('workspace_source_repo', '')}")
+        lines.append(f"expected_image_workspace_source_ref={expected_image.get('workspace_source_ref', '')}")
+        lines.append(f"expected_image_base={expected_image.get('base_image', '')}")
+        lines.append(f"expected_image_workspace={expected_image.get('workspace_image', '')}")
+        lines.append(f"expected_image_status={expected_image.get('status', '')}")
         lines.append(f"expected_image_ref={expected_image.get('runtime_ref') or expected_image.get('registry_ref', '')}")
         lines.append(f"expected_image_id={expected_image.get('image_id', '')}")
         if expected_image.get("digest"):

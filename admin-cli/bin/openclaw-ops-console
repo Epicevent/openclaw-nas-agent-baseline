@@ -538,6 +538,10 @@ class OpsConsole:
                     "expected_image_family": drift_slot.get("expected_image_family", ""),
                     "expected_image_source_repo": drift_slot.get("expected_image_source_repo", ""),
                     "expected_image_source_ref": drift_slot.get("expected_image_source_ref", ""),
+                    "expected_image_agent_source_repo": drift_slot.get("expected_image_agent_source_repo", ""),
+                    "expected_image_agent_source_ref": drift_slot.get("expected_image_agent_source_ref", ""),
+                    "expected_image_workspace_source_repo": drift_slot.get("expected_image_workspace_source_repo", ""),
+                    "expected_image_workspace_source_ref": drift_slot.get("expected_image_workspace_source_ref", ""),
                     "expected_image_base": drift_slot.get("expected_image_base", ""),
                     "expected_image_workspace": drift_slot.get("expected_image_workspace", ""),
                     "expected_image_ref": drift_slot.get("expected_image_ref", ""),
@@ -1050,16 +1054,27 @@ def html_page(csrf: str) -> str:
       renderSlots();
       const item = state.slots.find(row => row.slot === slot) || {};
       const sourceRef = item.expected_image_source_ref ? item.expected_image_source_ref.slice(0, 12) : "-";
+      const agentRef = item.expected_image_agent_source_ref ? item.expected_image_agent_source_ref.slice(0, 12) : "-";
+      const workspaceRef = item.expected_image_workspace_source_ref ? item.expected_image_workspace_source_ref.slice(0, 12) : "-";
+      const isHermes = (item.expected_image_family || item.lane || "").includes("hermes");
       document.getElementById("detailTitle").textContent = `${slot} Detail`;
       document.getElementById("slotMeta").textContent = `${item.subdomain || ""} ? lane ${item.lane || ""} ? NAS ${item.container_nas_live || item.customer_nas_live || "missing"}`;
-      document.getElementById("slotCards").innerHTML = [
+      const cards = [
         card("Mode", item.slot_mode || "-", item.slot_type || "-"),
         card("Status", pill(item.status), item.gate_checked_at || ""),
         card("Health", pill(item.drift_result), needsAttention(item) ? "needs attention" : "normal"),
         card("Expected image", item.expected_image_name || item.image_name || "-", item.expected_image_status || item.image_channel || ""),
-        card("Source ref", sourceRef, item.expected_image_source_repo || item.expected_image_base || ""),
         card("Running image", item.actual_image_line || "-", item.expected_image_ref || item.image_tag || ""),
-      ].join("");
+      ];
+      if (isHermes) {
+        cards.splice(4, 0,
+          card("Agent source", agentRef, item.expected_image_agent_source_repo || item.expected_image_base || ""),
+          card("Workspace source", workspaceRef, item.expected_image_workspace_source_repo || item.expected_image_workspace || "")
+        );
+      } else {
+        cards.splice(4, 0, card("Source ref", sourceRef, item.expected_image_source_repo || item.expected_image_base || ""));
+      }
+      document.getElementById("slotCards").innerHTML = cards.join("");
       document.getElementById("nasTreeMeta").textContent = "No NAS tree loaded.";
       document.getElementById("nasTree").innerHTML = "";
     }

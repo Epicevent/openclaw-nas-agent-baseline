@@ -51,8 +51,16 @@ image_id
 status
 ```
 
-For Hermes images, the catalog records `family=hermes`, the Hermes base image,
-and the Workspace image used by that release.
+For Hermes images, the catalog records `family=hermes`, the Hermes Agent base
+image, the Hermes Agent source ref that matches that base, and the Hermes
+Workspace source ref that was built into the final image.
+
+```text
+agent_source_repo
+agent_source_ref
+workspace_source_repo
+workspace_source_ref
+```
 
 ## Rollout
 
@@ -115,7 +123,7 @@ see [Source Management](SOURCE_MANAGEMENT.md).
 Currently active recipes:
 
 ```text
-images/hermes-workspace/     Hermes Agent + Workspace integrated image
+images/hermes-workspace/     Hermes Agent base + Workspace source integrated image
 images/shared/               document tooling shared by official images
 images/openclaw-nas-agent/   base wrapper for OpenClaw-compatible images
 ```

@@ -1459,6 +1459,10 @@ container_image_openclaw_source={{with .Config.Labels}}{{index . "org.opencontai
 container_image_openclaw_ref={{with .Config.Labels}}{{index . "org.opencontainers.image.openclaw.revision"}}{{end}}
 container_image_hermes_source={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.source"}}{{end}}
 container_image_hermes_ref={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.revision"}}{{end}}
+container_image_hermes_agent_source={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.agent.source"}}{{end}}
+container_image_hermes_agent_ref={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.agent.revision"}}{{end}}
+container_image_hermes_workspace_source={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.workspace.source"}}{{end}}
+container_image_hermes_workspace_ref={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.workspace.revision"}}{{end}}
 container_image_base={{with .Config.Labels}}{{index . "org.opencontainers.image.base.name"}}{{end}}
 container_image_workspace={{with .Config.Labels}}{{index . "org.opencontainers.image.workspace.name"}}{{end}}' || true
     fi

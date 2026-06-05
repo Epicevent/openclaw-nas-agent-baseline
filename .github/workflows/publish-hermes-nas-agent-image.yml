@@ -11,10 +11,22 @@ on:
         description: Hermes Agent runtime base image
         required: true
         default: nousresearch/hermes-agent:v2026.5.29.2
-      hermes_workspace_image:
-        description: Hermes Workspace UI image
+      hermes_agent_source_repo:
+        description: Hermes Agent source repository matching hermes_base_image
         required: true
-        default: ghcr.io/outsourc-e/hermes-workspace:latest
+        default: https://github.com/NousResearch/hermes-agent.git
+      hermes_agent_source_ref:
+        description: Hermes Agent source commit matching hermes_base_image
+        required: true
+        default: 77a1650c78a4cb1813d8a81fa1da40a15b6a3ec5
+      hermes_workspace_source_repo:
+        description: Hermes Workspace source repository
+        required: true
+        default: https://github.com/outsourc-e/hermes-workspace.git
+      hermes_workspace_source_ref:
+        description: Hermes Workspace source commit
+        required: true
+        default: 7f845bc9298ed80068f4b9e793fca34b73f3b569
 
 permissions:
   contents: read
@@ -37,7 +49,10 @@ jobs:
           set -euo pipefail
           [[ "${{ inputs.image_tag }}" =~ ^hermes-[A-Za-z0-9._-]+$ ]]
           [[ "${{ inputs.hermes_base_image }}" =~ ^[A-Za-z0-9._:@/-]+$ ]]
-          [[ "${{ inputs.hermes_workspace_image }}" =~ ^[A-Za-z0-9._:@/-]+$ ]]
+          [[ "${{ inputs.hermes_agent_source_repo }}" =~ ^https://github.com/[-A-Za-z0-9_.]+/[-A-Za-z0-9_.]+[.]git$ ]]
+          [[ "${{ inputs.hermes_agent_source_ref }}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${{ inputs.hermes_workspace_source_repo }}" =~ ^https://github.com/[-A-Za-z0-9_.]+/[-A-Za-z0-9_.]+[.]git$ ]]
+          [[ "${{ inputs.hermes_workspace_source_ref }}" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Log in to GHCR
         shell: bash
@@ -52,12 +67,20 @@ jobs:
           image_ref="$IMAGE_REPOSITORY:${{ inputs.image_tag }}"
           docker build \
             --build-arg BASE_IMAGE="${{ inputs.hermes_base_image }}" \
-            --build-arg HERMES_WORKSPACE_IMAGE="${{ inputs.hermes_workspace_image }}" \
+            --build-arg HERMES_AGENT_SOURCE_REPO="${{ inputs.hermes_agent_source_repo }}" \
+            --build-arg HERMES_AGENT_SOURCE_REF="${{ inputs.hermes_agent_source_ref }}" \
+            --build-arg HERMES_WORKSPACE_SOURCE_REPO="${{ inputs.hermes_workspace_source_repo }}" \
+            --build-arg HERMES_WORKSPACE_SOURCE_REF="${{ inputs.hermes_workspace_source_ref }}" \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.family=hermes" \
             --label "org.opencontainers.image.base.name=${{ inputs.hermes_base_image }}" \
-            --label "org.opencontainers.image.workspace.name=${{ inputs.hermes_workspace_image }}" \
+            --label "org.opencontainers.image.hermes.source=${{ inputs.hermes_agent_source_repo }}" \
+            --label "org.opencontainers.image.hermes.revision=${{ inputs.hermes_agent_source_ref }}" \
+            --label "org.opencontainers.image.hermes.agent.source=${{ inputs.hermes_agent_source_repo }}" \
+            --label "org.opencontainers.image.hermes.agent.revision=${{ inputs.hermes_agent_source_ref }}" \
+            --label "org.opencontainers.image.hermes.workspace.source=${{ inputs.hermes_workspace_source_repo }}" \
+            --label "org.opencontainers.image.hermes.workspace.revision=${{ inputs.hermes_workspace_source_ref }}" \
             --label "org.opencontainers.image.title=OpenClaw NAS Agent Hermes ${{ inputs.image_tag }}" \
             -t "$image_ref" \
             -f images/hermes-workspace/Dockerfile .

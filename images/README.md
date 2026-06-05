@@ -18,13 +18,15 @@ does not build images during normal server operation.
 
 OpenClaw UI/runtime customization is developed in the custom OpenClaw source
 repository, then this directory builds an image from that exact source commit.
-Do not maintain normal UI customization as minified asset rewrites here.
+Hermes images have two source refs: Hermes Agent for backend/runtime behavior
+and Hermes Workspace for the browser UI. Do not maintain normal UI
+customization as minified asset rewrites here.
 
 Directory layout:
 
 ```text
 images/openclaw-nas-agent/   OpenClaw NAS Agent image recipe
-images/hermes-workspace/     Hermes Agent + Workspace image recipe
+images/hermes-workspace/     Hermes Agent base + Workspace source image recipe
 images/shared/               document tooling shared by official images
 ```
 
