@@ -36,13 +36,7 @@ dev-hermess  dev-hermes
 agent-nas-mount --request-share '//NAS_HOST/SHARE'
 ```
 
-운영 자동승인:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check
-```
-
-상시 감시:
+운영 자동승인은 `svcops` PM2 daemon이 처리한다.
 
 ```bash
 sudo -u svcops pm2 start /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh \

@@ -103,7 +103,7 @@ Inspect pending requests:
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-requests 1 20
 ```
 
-Run one policy pass:
+Run one policy pass for diagnostics or immediate retry only:
 
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check

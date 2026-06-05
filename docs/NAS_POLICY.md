@@ -64,13 +64,7 @@ they have an explicit account grant.
 
 ## Monitor
 
-One-shot check:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check
-```
-
-PM2 watch:
+Normal operation is the PM2 watcher:
 
 ```bash
 sudo -u svcops pm2 start /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh \
@@ -83,6 +77,9 @@ The monitor writes action audit records to:
 ```text
 /srv/openclaw-ops/reports/actions.log
 ```
+
+`nas-request-check` is a one-shot diagnostic or immediate retry command. It is
+not the normal approval flow.
 
 Manual approval remains available for exception handling:
 

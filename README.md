@@ -91,11 +91,7 @@ agent-nas-mount --request-share '//NAS_HOST/SHARE'
 범위 안이면 fstab managed entry를 자동 등록하고, 범위 밖이면 request를
 rejected로 이동한다. NAS username/password는 해당 Linux 계정에서 직접 입력한다.
 
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check
-```
-
-상시 감시는 `svcops` PM2에서 실행한다.
+자동 처리는 `svcops` PM2 daemon이 수행한다.
 
 ```text
 process: openclaw-nas-requests
@@ -156,7 +152,7 @@ rollout한다. source/image 경계는 [Source Management](docs/SOURCE_MANAGEMENT
 ```text
 고객 계정은 sudo/docker 권한이 없어야 한다.
 고객 slot은 registry image digest만 바라봐야 한다.
-dev slot 요청은 NAS 자동승인 대상이 아니다.
+NAS 자동승인은 고객/dev 구분이 아니라 nas-policy grant 기준으로만 판단한다.
 root/admin 작업 중 고객 active session이 있으면 안 된다.
 secret 원문은 slots.yaml, images.yaml, actions.log에 저장하지 않는다.
 ```
