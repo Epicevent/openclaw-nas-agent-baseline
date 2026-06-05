@@ -1011,6 +1011,7 @@ source_mode_status() {
     echo "workspace_package_json=$([[ -f "$artifact_path/package.json" ]] && echo present || echo missing)"
     echo "workspace_server_entry=$([[ -f "$artifact_path/server-entry.js" ]] && echo present || echo missing)"
     echo "workspace_node_modules=$([[ -d "$artifact_path/node_modules" ]] && echo present || echo missing)"
+    echo "workspace_dist=$([[ -f "$artifact_path/dist/server/server.js" ]] && echo present || echo missing)"
   fi
   echo "container_path=$container_path"
   echo "source_override=$override_path"
@@ -1035,6 +1036,7 @@ source_mode_enable() {
     [[ -f "$artifact_path/package.json" ]] || { echo "FAIL hermes_workspace_package_json_missing=$artifact_path/package.json"; return 1; }
     [[ -f "$artifact_path/server-entry.js" ]] || { echo "FAIL hermes_workspace_server_entry_missing=$artifact_path/server-entry.js"; return 1; }
     [[ -d "$artifact_path/node_modules" ]] || { echo "FAIL hermes_workspace_node_modules_missing=$artifact_path/node_modules"; return 1; }
+    [[ -f "$artifact_path/dist/server/server.js" ]] || { echo "FAIL hermes_workspace_dist_missing=$artifact_path/dist/server/server.js"; return 1; }
   fi
   openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" || return 1
 
@@ -1053,7 +1055,7 @@ EOF
 services:
   openclaw-gateway:
     volumes:
-      - $source_path:$container_path:ro
+      - $source_path:$container_path:rw
 EOF
   fi
   chown root:root "$override_path"
