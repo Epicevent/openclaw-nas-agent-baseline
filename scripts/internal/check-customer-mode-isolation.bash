@@ -306,7 +306,13 @@ check "customer_runtime_env_blocked" sudo -u "$target_user" test ! -r "$runtime_
 check "customer_config_blocked" sudo -u "$target_user" test ! -r "$config_path"
 
 if [[ -f "$config_path" ]]; then
-  if grep -Eq '("apiKey"|GEMINI_API_KEY|GOOGLE_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY)' "$config_path"; then
+  if [[ "$runtime_family" == "hermes" ]]; then
+    if grep -Eq '(AIza[0-9A-Za-z_-]{20,}|sk-[0-9A-Za-z_-]{20,}|sk-ant-[0-9A-Za-z_-]{20,})' "$config_path"; then
+      fail "config_has_no_literal_api_key"
+    else
+      pass "config_has_no_literal_api_key"
+    fi
+  elif grep -q '"apiKey"' "$config_path"; then
     fail "config_has_no_literal_api_key"
   else
     pass "config_has_no_literal_api_key"

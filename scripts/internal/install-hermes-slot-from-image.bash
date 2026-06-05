@@ -458,6 +458,15 @@ fi
 
 docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'
 
+for _ in 1 2 3 4 5; do
+  [[ -f "$hermes_home/config.yaml" ]] && break
+  sleep 1
+done
+if [[ -f "$hermes_home/config.yaml" ]]; then
+  chown "$runtime_user:$data_group" "$hermes_home/config.yaml"
+  chmod 0600 "$hermes_home/config.yaml"
+fi
+
 apache_output="/etc/apache2/openclaw/apache-subdomain-${target_user}.conf"
 if [[ "$local_only_dashboard" -eq 1 && -d /etc/apache2/openclaw && -x "$(command -v apache2ctl || true)" ]]; then
   tmp_apache="$(mktemp)"
