@@ -346,6 +346,12 @@ services:
       - "$data_gid"
 EOF
 
+chown -R root:root "$compose_dir"
+find "$compose_dir" -type d -exec chmod 0755 {} +
+find "$compose_dir" -type f -exec chmod 0644 {} +
+chmod 0600 "$compose_dir/.env"
+chown root:root "$compose_dir/.env" "$compose_dir/docker-compose.host-user.yml"
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "error: python3 is required to initialize production OpenClaw config" >&2
   exit 1
