@@ -212,6 +212,10 @@ def write_images(path: Path, state: dict[str, Any]) -> None:
         for key in (
             "family",
             "version",
+            "source_repo",
+            "source_ref",
+            "base_image",
+            "workspace_image",
             "registry_ref",
             "runtime_ref",
             "digest",
@@ -328,17 +332,33 @@ def image_release_from_ref(ref: str, name: str | None = None) -> dict[str, str]:
     created_at = str(info.get("Created", "")) or now_iso()
     os_name = str(info.get("Os", ""))
     arch = str(info.get("Architecture", ""))
+    labels = {str(key): str(value) for key, value in ((info.get("Config") or {}).get("Labels") or {}).items()}
+    source_repo = labels.get("org.opencontainers.image.openclaw.source", "")
+    source_ref = labels.get("org.opencontainers.image.openclaw.revision", "")
+    if not source_repo:
+        source_repo = labels.get("org.opencontainers.image.hermes.source", "")
+    if not source_ref:
+        source_ref = labels.get("org.opencontainers.image.hermes.revision", "")
+    base_image = labels.get("org.opencontainers.image.base.name", "")
+    workspace_image = labels.get("org.opencontainers.image.workspace.name", "")
+    family = labels.get("org.opencontainers.image.family", "")
+    if not family:
+        family = "hermes" if release_name.startswith("hermes-") else "openclaw"
     aliases = ",".join(sorted({ref, runtime_ref, release_name}))
     return {
         "name": release_name,
-        "family": release_name.split("-", 1)[0],
+        "family": family,
         "version": release_name.split("-", 1)[1] if "-" in release_name else release_name,
+        "source_repo": source_repo,
+        "source_ref": source_ref,
+        "base_image": base_image,
+        "workspace_image": workspace_image,
         "registry_ref": ref,
         "runtime_ref": runtime_ref,
         "digest": digest,
         "image_id": image_id,
         "status": "candidate",
-        "role": "hermes" if release_name.startswith("hermes-") else "custom" if "dashboard" in release_name else "baseline",
+        "role": "hermes" if family == "hermes" else "openclaw",
         "created_at": created_at,
         "updated_at": now_iso(),
         "aliases": aliases,
@@ -674,7 +694,11 @@ def cmd_list(args: argparse.Namespace) -> int:
     for channel, image_name in sorted((state.get("channels") or {}).items()):
         print(f"channel={channel} image={image_name}")
     for image in sorted(state.get("images", []), key=lambda item: item.get("name", "")):
-        print(f"image={image.get('name')} family={image.get('family')} status={image.get('status')} ref={image.get('registry_ref')} runtime_ref={image.get('runtime_ref')} image_id={image.get('image_id')}")
+        print(
+            f"image={image.get('name')} family={image.get('family')} status={image.get('status')} "
+            f"source_ref={image.get('source_ref', '')} base_image={image.get('base_image', '')} "
+            f"ref={image.get('registry_ref')} runtime_ref={image.get('runtime_ref')} image_id={image.get('image_id')}"
+        )
     return 0
 
 
@@ -688,6 +712,14 @@ def cmd_add(args: argparse.Namespace) -> int:
     print(f"runtime_ref={image['runtime_ref']}")
     print(f"digest={image.get('digest', '')}")
     print(f"image_id={image['image_id']}")
+    if image.get("source_repo"):
+        print(f"source_repo={image['source_repo']}")
+    if image.get("source_ref"):
+        print(f"source_ref={image['source_ref']}")
+    if image.get("base_image"):
+        print(f"base_image={image['base_image']}")
+    if image.get("workspace_image"):
+        print(f"workspace_image={image['workspace_image']}")
     print("status=candidate")
     return 0
 
@@ -699,7 +731,25 @@ def cmd_verify(args: argparse.Namespace) -> int:
         raise SystemExit(f"error: image not found in release cache: {args.image}")
     docker_pull(image.get("registry_ref") or image.get("runtime_ref") or image["name"])
     latest = image_release_from_ref(image.get("registry_ref") or image.get("runtime_ref") or image["name"], image["name"])
-    image.update({key: value for key, value in latest.items() if key in {"runtime_ref", "digest", "image_id", "updated_at", "aliases"}})
+    image.update(
+        {
+            key: value
+            for key, value in latest.items()
+            if key
+            in {
+                "family",
+                "runtime_ref",
+                "digest",
+                "image_id",
+                "updated_at",
+                "aliases",
+                "source_repo",
+                "source_ref",
+                "base_image",
+                "workspace_image",
+            }
+        }
+    )
     findings = secret_env_findings(image)
     if findings:
         image["status"] = "failed"
@@ -769,6 +819,9 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
         f"image_name={image['name']}\n"
         f"image_family={family or 'openclaw'}\n"
         f"image_channel={channel}\n"
+        f"source_repo={image.get('source_repo', '')}\n"
+        f"source_ref={image.get('source_ref', '')}\n"
+        f"base_image={image.get('base_image', '')}\n"
         f"runtime_ref={image_ref}\n"
         f"{out}"
     )

@@ -79,6 +79,17 @@ else
   pass "stale_dashboard_image_reference_absent"
 fi
 
+if grep -RInE 'patch-openclaw-dashboard-title|OPENCLAW_DASHBOARD_' \
+  "$repo_root/images" "$repo_root/.github" "$repo_root/docs" \
+  --include='*.py' --include='*.yml' --include='*.yaml' --include='*.md' 2>/dev/null | grep -q .; then
+  grep -RInE 'patch-openclaw-dashboard-title|OPENCLAW_DASHBOARD_' \
+    "$repo_root/images" "$repo_root/.github" "$repo_root/docs" \
+    --include='*.py' --include='*.yml' --include='*.yaml' --include='*.md' 2>/dev/null || true
+  fail "openclaw_dist_patch_path_absent"
+else
+  pass "openclaw_dist_patch_path_absent"
+fi
+
 if [[ -d "$repo_root/container" ]]; then
   fail "legacy_container_directory_present"
 else

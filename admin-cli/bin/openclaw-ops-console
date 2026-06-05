@@ -499,6 +499,11 @@ class OpsConsole:
                     "image_channel": slot.get("image_channel", ""),
                     "image_name": slot.get("image_name", ""),
                     "expected_image_name": drift_slot.get("expected_image_name", ""),
+                    "expected_image_family": drift_slot.get("expected_image_family", ""),
+                    "expected_image_source_repo": drift_slot.get("expected_image_source_repo", ""),
+                    "expected_image_source_ref": drift_slot.get("expected_image_source_ref", ""),
+                    "expected_image_base": drift_slot.get("expected_image_base", ""),
+                    "expected_image_workspace": drift_slot.get("expected_image_workspace", ""),
                     "expected_image_ref": drift_slot.get("expected_image_ref", ""),
                     "expected_image_status": drift_slot.get("expected_image_status", ""),
                     "actual_image_line": drift_slot.get("image", ""),
@@ -1290,6 +1295,8 @@ def html_page(csrf: str) -> str:
       selectedSlot = slot;
       renderSlots();
       const item = state.slots.find(row => row.slot === slot) || {{}};
+      const sourceRef = item.expected_image_source_ref ? item.expected_image_source_ref.slice(0, 12) : "-";
+      const imageFamily = item.expected_image_family || (item.image_name || "").split("-")[0] || "-";
       document.getElementById("detailTitle").textContent = `${{slot}} 상세`;
       document.getElementById("slotMeta").innerHTML =
         `${{escapeHtml(item.subdomain || "")}} · ${{escapeHtml(item.nas_share || "")}} · expected ${{escapeHtml(item.expected_image_name || item.image_name || item.image_tag || "")}}`;
@@ -1297,7 +1304,8 @@ def html_page(csrf: str) -> str:
         <div class="slot-card"><div class="label">운영 상태</div><div class="value">${{pill(item.status)}}</div></div>
         <div class="slot-card"><div class="label">Release gate</div><div class="value">${{pill(item.gate_status || "missing")}}</div><div class="subline">${{escapeHtml(item.gate_checked_at || "")}}</div></div>
         <div class="slot-card"><div class="label">Drift</div><div class="value">${{pill(item.drift_result)}}</div><div class="subline">${{isAttention(item) ? "확인 필요" : "정상 범위"}}</div></div>
-        <div class="slot-card"><div class="label">Expected image</div><div class="value">${{escapeHtml(item.expected_image_name || item.image_name || "-")}}</div><div class="subline">${{escapeHtml(item.expected_image_status || item.image_channel || "")}}</div></div>
+        <div class="slot-card"><div class="label">Expected image</div><div class="value">${{escapeHtml(item.expected_image_name || item.image_name || "-")}}</div><div class="subline">${{escapeHtml(imageFamily)}} · ${{escapeHtml(item.expected_image_status || item.image_channel || "")}}</div></div>
+        <div class="slot-card"><div class="label">Source ref</div><div class="value">${{escapeHtml(sourceRef)}}</div><div class="subline">${{escapeHtml(item.expected_image_source_repo || item.expected_image_base || "")}}</div></div>
         <div class="slot-card"><div class="label">Image check</div><div class="value">${{escapeHtml(item.actual_image_line || "-")}}</div><div class="subline">${{escapeHtml(item.expected_image_ref || item.image_tag || "")}}</div></div>
       `;
       document.getElementById("nasTreeMeta").textContent = "선택한 슬롯의 컨테이너 NAS 기준 경로를 불러옵니다.";

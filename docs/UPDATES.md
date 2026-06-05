@@ -36,6 +36,24 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
   image-release-verify "$IMAGE_NAME"
 ```
 
+`image-release-add` stores the release metadata in `/srv/openclaw-ops/images.yaml`.
+For OpenClaw source-built images, the catalog includes:
+
+```text
+family
+source_repo
+source_ref
+base_image
+registry_ref
+runtime_ref
+digest
+image_id
+status
+```
+
+For Hermes images, the catalog records `family=hermes`, the Hermes base image,
+and the Workspace image used by that release.
+
 ## Rollout
 
 `staging` targets `oc1` when no explicit slot channel is set.
@@ -89,6 +107,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-rollback o
 The host operations package does not build images during normal server
 operation. Public image publishing is handled by workflow-dispatched image
 recipes under `images/`.
+
+OpenClaw customization source is not maintained as post-build asset patches in
+this repository. OpenClaw images are built from a managed custom source commit;
+see [Source Management](SOURCE_MANAGEMENT.md).
 
 Currently active recipes:
 

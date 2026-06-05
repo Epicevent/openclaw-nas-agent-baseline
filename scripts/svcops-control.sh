@@ -1171,6 +1171,13 @@ container_image_ref={{.Config.Image}}
 container_image_id={{.Image}}'
     if docker image inspect "$image_ref" >/dev/null 2>&1; then
       docker image inspect "$image_ref" --format 'container_image_repo_digests={{join .RepoDigests ","}}' || true
+      docker image inspect "$image_ref" --format 'container_image_family={{with .Config.Labels}}{{index . "org.opencontainers.image.family"}}{{end}}
+container_image_openclaw_source={{with .Config.Labels}}{{index . "org.opencontainers.image.openclaw.source"}}{{end}}
+container_image_openclaw_ref={{with .Config.Labels}}{{index . "org.opencontainers.image.openclaw.revision"}}{{end}}
+container_image_hermes_source={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.source"}}{{end}}
+container_image_hermes_ref={{with .Config.Labels}}{{index . "org.opencontainers.image.hermes.revision"}}{{end}}
+container_image_base={{with .Config.Labels}}{{index . "org.opencontainers.image.base.name"}}{{end}}
+container_image_workspace={{with .Config.Labels}}{{index . "org.opencontainers.image.workspace.name"}}{{end}}' || true
     fi
     ;;
 

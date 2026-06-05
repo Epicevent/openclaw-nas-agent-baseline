@@ -16,6 +16,10 @@ host .env files
 The host package installs and rolls out images through `svcops-control.sh`. It
 does not build images during normal server operation.
 
+OpenClaw UI/runtime customization is developed in the custom OpenClaw source
+repository, then this directory builds an image from that exact source commit.
+Do not maintain normal UI customization as minified asset rewrites here.
+
 Directory layout:
 
 ```text

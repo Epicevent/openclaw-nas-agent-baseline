@@ -17,6 +17,8 @@ ARG BASE_IMAGE=nousresearch/hermes-agent:latest
 FROM ${HERMES_WORKSPACE_IMAGE} AS hermes_workspace
 
 FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+ARG HERMES_WORKSPACE_IMAGE
 
 USER root
 
@@ -72,3 +74,6 @@ CMD ["gateway", "run"]
 
 LABEL org.opencontainers.image.title="OpenClaw Hermes Workspace NAS Agent"
 LABEL org.opencontainers.image.description="Single-container Hermes Agent + Hermes Workspace image with OpenClaw NAS document baseline"
+LABEL org.opencontainers.image.family="hermes"
+LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
+LABEL org.opencontainers.image.workspace.name="${HERMES_WORKSPACE_IMAGE}"

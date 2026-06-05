@@ -196,10 +196,28 @@ def resolve_expected_image(slot, meta, catalog):
                     "digest": image.get("digest", ""),
                     "image_id": image.get("image_id", ""),
                     "status": image.get("status", ""),
+                    "family": image.get("family", ""),
+                    "source_repo": image.get("source_repo", ""),
+                    "source_ref": image.get("source_ref", ""),
+                    "base_image": image.get("base_image", ""),
+                    "workspace_image": image.get("workspace_image", ""),
                     "unresolved": "",
                 }
             if value and key_name in {"image_name", "image_channel"}:
-                return {"source": key_name, "name": value, "ref": "", "digest": "", "image_id": "", "status": "", "unresolved": value}
+                return {
+                    "source": key_name,
+                    "name": value,
+                    "ref": "",
+                    "digest": "",
+                    "image_id": "",
+                    "status": "",
+                    "family": "",
+                    "source_repo": "",
+                    "source_ref": "",
+                    "base_image": "",
+                    "workspace_image": "",
+                    "unresolved": value,
+                }
     return {
         "source": "meta",
         "name": meta.get("image_tag", ""),
@@ -207,6 +225,11 @@ def resolve_expected_image(slot, meta, catalog):
         "digest": "",
         "image_id": meta.get("image_id", ""),
         "status": "",
+        "family": "",
+        "source_repo": "",
+        "source_ref": "",
+        "base_image": "",
+        "workspace_image": "",
         "unresolved": "",
     }
 
@@ -354,6 +377,16 @@ for slot in slots:
     lines.append(f"expected_container_nas={expected_container_path}->{nas_share}")
     lines.append(f"expected_image_source={expected_image.get('source', '')}")
     lines.append(f"expected_image_name={expected_image.get('name', '') or 'missing'}")
+    if expected_image.get("family"):
+        lines.append(f"expected_image_family={expected_image.get('family')}")
+    if expected_image.get("source_repo"):
+        lines.append(f"expected_image_source_repo={expected_image.get('source_repo')}")
+    if expected_image.get("source_ref"):
+        lines.append(f"expected_image_source_ref={expected_image.get('source_ref')}")
+    if expected_image.get("base_image"):
+        lines.append(f"expected_image_base={expected_image.get('base_image')}")
+    if expected_image.get("workspace_image"):
+        lines.append(f"expected_image_workspace={expected_image.get('workspace_image')}")
     lines.append(f"expected_image_ref={expected_image.get('ref', '') or 'missing'}")
     lines.append(f"expected_image_id={expected_image.get('image_id', '') or 'missing'}")
     if expected_image.get("digest"):
