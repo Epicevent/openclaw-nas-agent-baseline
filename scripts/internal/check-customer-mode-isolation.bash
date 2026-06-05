@@ -274,14 +274,18 @@ if [[ "$runtime_family" == "hermes" ]]; then
         echo "FAIL hermes_config_not_regular=$config_path"
       elif [[ -f "$config_path" ]]; then
         owner="$(stat -c '%U' "$config_path" 2>/dev/null || true)"
+        group="$(stat -c '%G' "$config_path" 2>/dev/null || true)"
         links="$(stat -c '%h' "$config_path" 2>/dev/null || true)"
         if [[ "$owner" != "$runtime_user" && "$owner" != root ]]; then
           echo "FAIL hermes_config_owner=$owner"
         fi
+        if [[ "$group" != "$data_group" && "$group" != root ]]; then
+          echo "FAIL hermes_config_group=$group"
+        fi
         if [[ "$links" != "1" ]]; then
           echo "FAIL hermes_config_hardlink_count=$links"
         fi
-        if find "$config_path" -maxdepth 0 -perm /077 2>/dev/null | grep -q .; then
+        if find "$config_path" -maxdepth 0 -perm /027 2>/dev/null | grep -q .; then
           echo "FAIL hermes_config_permissions=$(stat -c '%a' "$config_path" 2>/dev/null || echo unknown)"
         fi
       fi

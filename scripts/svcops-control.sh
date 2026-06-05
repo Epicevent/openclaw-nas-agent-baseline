@@ -1101,10 +1101,15 @@ case "$command_name" in
     host="$2"
     validate_user "$target_user"
     validate_host "$host"
+    check_args=()
+    if openclaw_is_dev_slot "$target_user"; then
+      check_args+=(--skip-provider-key-check)
+    fi
     bash "$script_dir/internal/check-customer-deployment.bash" \
       --user "$target_user" \
       --expected-basepath / \
-      --expected-origin "https://$host"
+      --expected-origin "https://$host" \
+      "${check_args[@]}"
     ;;
 
   check-all)
