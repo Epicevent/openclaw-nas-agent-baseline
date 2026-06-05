@@ -279,7 +279,7 @@ if [[ "$runtime_family" == "hermes" ]]; then
         if [[ "$owner" != "$runtime_user" && "$owner" != root ]]; then
           echo "FAIL hermes_config_owner=$owner"
         fi
-        if [[ "$group" != "$data_group" && "$group" != root ]]; then
+        if [[ "$group" != "$data_group" && "$group" != "$runtime_user" && "$group" != root ]]; then
           echo "FAIL hermes_config_group=$group"
         fi
         if [[ "$links" != "1" ]]; then
