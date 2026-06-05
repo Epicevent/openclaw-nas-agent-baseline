@@ -96,7 +96,7 @@ openclaw_validate_port() {
 openclaw_dev_source_path() {
   case "${1:-}" in
     dev-oc) printf '%s\n' /home/openclawdev/src/openclaw-jitech ;;
-    dev-hermess) printf '%s\n' /home/openclawdev/src/hermes-jitech ;;
+    dev-hermess) printf '%s\n' /home/openclawdev/src/hermes-workspace-jitech ;;
     *) return 1 ;;
   esac
 }
@@ -104,7 +104,7 @@ openclaw_dev_source_path() {
 openclaw_dev_source_artifact_path() {
   case "${1:-}" in
     dev-oc) printf '%s\n' /home/openclawdev/src/openclaw-jitech/dist/control-ui ;;
-    dev-hermess) printf '%s\n' /home/openclawdev/src/hermes-jitech ;;
+    dev-hermess) printf '%s\n' /home/openclawdev/src/hermes-workspace-jitech ;;
     *) return 1 ;;
   esac
 }

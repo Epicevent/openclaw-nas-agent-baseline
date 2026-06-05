@@ -1007,6 +1007,11 @@ source_mode_status() {
   echo "source_path_state=$([[ -d "$source_path" ]] && echo present || echo missing)"
   echo "artifact_path=$artifact_path"
   echo "artifact_path_state=$([[ -e "$artifact_path" ]] && echo present || echo missing)"
+  if [[ "$target_user" == "dev-hermess" ]]; then
+    echo "workspace_package_json=$([[ -f "$artifact_path/package.json" ]] && echo present || echo missing)"
+    echo "workspace_server_entry=$([[ -f "$artifact_path/server-entry.js" ]] && echo present || echo missing)"
+    echo "workspace_node_modules=$([[ -d "$artifact_path/node_modules" ]] && echo present || echo missing)"
+  fi
   echo "container_path=$container_path"
   echo "source_override=$override_path"
   echo "source_mode=$([[ -f "$override_path" ]] && echo enabled || echo disabled)"
@@ -1026,6 +1031,11 @@ source_mode_enable() {
   [[ -d "$compose_dir" ]] || { echo "FAIL compose_dir_missing=$compose_dir"; return 1; }
   [[ -d "$source_path" ]] || { echo "FAIL source_path_missing=$source_path"; return 1; }
   [[ -e "$artifact_path" ]] || { echo "FAIL source_artifact_missing=$artifact_path"; return 1; }
+  if [[ "$target_user" == "dev-hermess" ]]; then
+    [[ -f "$artifact_path/package.json" ]] || { echo "FAIL hermes_workspace_package_json_missing=$artifact_path/package.json"; return 1; }
+    [[ -f "$artifact_path/server-entry.js" ]] || { echo "FAIL hermes_workspace_server_entry_missing=$artifact_path/server-entry.js"; return 1; }
+    [[ -d "$artifact_path/node_modules" ]] || { echo "FAIL hermes_workspace_node_modules_missing=$artifact_path/node_modules"; return 1; }
+  fi
   openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" || return 1
 
   if [[ "$target_user" == "dev-oc" ]]; then

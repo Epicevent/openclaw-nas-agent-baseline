@@ -14,8 +14,12 @@ Epicevent/openclaw-jitech
   dashboard UI, default provider/model UX, branding, workflow behavior
 
 Epicevent/hermes-jitech
-  Hermes custom source
-  Hermes UI, Gemini model UX, NAS workspace behavior, provider settings UX
+  Hermes Agent custom source
+  backend/runtime behavior, provider defaults, tool/runtime behavior
+
+Epicevent/hermes-workspace-jitech
+  Hermes Workspace custom source
+  browser UI, Gemini model UX, NAS workspace display, provider settings UX
 
 Epicevent/openclaw-nas-agent-baseline
   host operations package
@@ -62,13 +66,19 @@ dev-oc
 dev-hermess
   Hermes source confirmation slot
   public host: dev-hermess.ji-tech.co.kr
-  source path: /home/openclawdev/src/hermes-jitech
+  workspace source path: /home/openclawdev/src/hermes-workspace-jitech
+  agent source path: /home/openclawdev/src/hermes-jitech
 ```
 
 `dev-oc` and `dev-hermess` are not sudo/docker accounts. They are managed like
 customer accounts, with separate runtime users and data groups. The developer
 account `openclawdev` owns and builds source; the dev slots only expose the
 result through their containers and Apache subdomains.
+
+Hermes has two source lanes. The visible web app is Hermes Workspace, so
+`source-mode-enable dev-hermess` mounts `/home/openclawdev/src/hermes-workspace-jitech`
+into `/opt/hermes-workspace`. The Hermes Agent runtime source remains separate
+and is used by image builds only when that runtime itself is customized.
 
 Source mode is only valid for dev slots:
 
@@ -105,9 +115,10 @@ https://github.com/openclaw/openclaw.git
 Upstream is used for merging and comparison, not as the direct production
 source for JiTech images.
 
-Hermes images use the same catalog fields. Until a Hermes custom source
-repository is used by the image recipe, the Hermes image records the Hermes
-runtime base image and Workspace image as its build inputs.
+Hermes images use the same catalog fields, but they have two upstream inputs:
+the Hermes Agent runtime image and the Hermes Workspace UI source/image. A
+Workspace-only customization must not pretend to be a Hermes Agent runtime
+change.
 
 ## Initial OpenClaw Seed
 
