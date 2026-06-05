@@ -272,7 +272,7 @@ status() {
 }
 
 write_share_request() {
-  local share="$1" request_dir request_file current_share requested_at request_kind
+  local share="$1" request_dir request_file current_share requested_at request_kind command_mount_arg next_action
   validate_share "$share"
   request_dir="$HOME/.openclaw-nas"
   request_file="$request_dir/share-request.env"
@@ -304,7 +304,21 @@ write_share_request() {
   echo "mountpoint=$mountpoint"
   echo "requested_share=$share"
   echo "current_registered_share=${current_share:-missing}"
-  echo "next_action=ask operator to approve this request"
+  if [[ -n "$mount_name" ]]; then
+    command_mount_arg=" --mount-name $mount_name"
+  else
+    command_mount_arg=""
+  fi
+  if [[ "$current_share" == "$share" ]]; then
+    if [[ -s "$credentials" ]]; then
+      next_action="agent-nas-mount${command_mount_arg} --remount"
+    else
+      next_action="agent-nas-mount${command_mount_arg} --reset-credential"
+    fi
+  else
+    next_action="wait for automatic NAS approval daemon"
+  fi
+  echo "next_action=$next_action"
 }
 
 require_registered_share() {
