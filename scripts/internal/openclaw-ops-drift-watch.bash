@@ -14,7 +14,7 @@ while true; do
   latest="$report_dir/drift-latest.txt"
   history="$report_dir/drift-${ts//[:+]/_}.txt"
   echo "drift_watch_tick=$ts"
-  if "$checker" --registry "$registry" --images "$images" --report "$latest"; then
+  if bash "$checker" --registry "$registry" --images "$images" --report "$latest"; then
     result="PASS"
   else
     result="FAIL"
