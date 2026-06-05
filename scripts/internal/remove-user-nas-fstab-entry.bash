@@ -11,6 +11,7 @@ Removes managed /etc/fstab CIFS user-mount rules for USER.
 Options:
   --user USER             Target account, for example oc20. Required.
   --mount-name NAME       Remove only /home/USER/nas_docs/NAME.
+                          NAME may contain a managed host-hash/share path.
   --mountpoint DIR        Remove only this mountpoint. Default: all under
                           /home/USER/nas_docs.
   --unmount               Unmount matching active CIFS mounts.
@@ -83,9 +84,8 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/lib-safe-compose.bash"
 openclaw_assert_managed_slot_name "$target_user" || exit $?
 
-if [[ -n "$mount_name" && ( "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ) ]]; then
-  echo "error: invalid mount name: $mount_name" >&2
-  exit 2
+if [[ -n "$mount_name" ]]; then
+  openclaw_nas_validate_mount_name "$mount_name" || exit $?
 fi
 
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -104,7 +104,7 @@ credential_root="$target_home/.openclaw-nas/credentials"
 remove_all=0
 if [[ -z "$mountpoint" ]]; then
   if [[ -n "$mount_name" ]]; then
-    mountpoint="$nas_root/$mount_name"
+    mountpoint="$(openclaw_nas_mountpoint "$target_home" "$mount_name")"
   else
     mountpoint="$nas_root"
     remove_all=1
@@ -237,23 +237,39 @@ if [[ "$delete_credential" -eq 1 ]]; then
       credential_count=0
       while IFS= read -r -d '' cred_file; do
         case "$cred_file" in
-          "$credential_root"/*.cred) ;;
+          "$credential_root"/*) ;;
           *) echo "error: refusing credential path: $cred_file" >&2; exit 1 ;;
         esac
+        rel_cred="${cred_file#$credential_root/}"
+        if [[ "$rel_cred" == *"/.."* || "$rel_cred" == *"/."*"/"* ]]; then
+          echo "error: refusing credential path with dot components: $cred_file" >&2
+          exit 1
+        fi
         [[ ! -L "$cred_file" ]] || { echo "error: refusing symlink credential: $cred_file" >&2; exit 1; }
         rm -f "$cred_file"
         credential_count=$((credential_count + 1))
-      done < <(find "$credential_root" -maxdepth 1 -type f -name '*.cred' -print0 2>/dev/null || true)
+      done < <(find "$credential_root" -type f -name '*.cred' -print0 2>/dev/null || true)
+      while IFS= read -r -d '' empty_cred_dir; do
+        case "$empty_cred_dir" in
+          "$credential_root") ;;
+          "$credential_root"/*) rmdir "$empty_cred_dir" 2>/dev/null || true ;;
+        esac
+      done < <(find "$credential_root" -mindepth 1 -depth -type d -empty -print0 2>/dev/null || true)
       credential_result="removed_count_$credential_count"
     fi
   else
     if [[ -z "$mount_name" ]]; then
       credential_result="requires_mount_name"
     else
-      credential_path="$credential_root/$mount_name.cred"
+      credential_path="$(openclaw_nas_credentials_path "$target_home" "$mount_name")"
       if [[ -e "$credential_path" || -L "$credential_path" ]]; then
         [[ ! -L "$credential_path" ]] || { echo "error: refusing symlink credential: $credential_path" >&2; exit 1; }
         rm -f "$credential_path"
+        cred_parent="$(dirname "$credential_path")"
+        while [[ "$cred_parent" == "$credential_root/"* && "$cred_parent" != "$credential_root" ]]; do
+          rmdir "$cred_parent" 2>/dev/null || break
+          cred_parent="$(dirname "$cred_parent")"
+        done
         credential_result="removed"
       fi
     fi
@@ -267,18 +283,27 @@ if [[ "$delete_empty_dir" -eq 1 ]]; then
     empty_count=0
     if [[ -d "$nas_root" && ! -L "$nas_root" ]]; then
       while IFS= read -r -d '' child_dir; do
+        case "$child_dir" in
+          "$nas_root"/*) ;;
+          *) echo "error: refusing mount directory path: $child_dir" >&2; exit 1 ;;
+        esac
         if [[ "$(exact_mount_state "$child_dir")" != "not_mounted" ]]; then
           continue
         fi
         if rmdir "$child_dir" 2>/dev/null; then
           empty_count=$((empty_count + 1))
         fi
-      done < <(find "$nas_root" -mindepth 1 -maxdepth 1 -type d -print0 2>/dev/null || true)
+      done < <(find "$nas_root" -xdev -mindepth 1 -depth -type d -empty -print0 2>/dev/null || true)
       empty_dir_result="removed_count_$empty_count"
     fi
   else
     if [[ -d "$mountpoint" && ! -L "$mountpoint" ]]; then
       if [[ "$(exact_mount_state "$mountpoint")" == "not_mounted" ]] && rmdir "$mountpoint" 2>/dev/null; then
+        mount_parent="$(dirname "$mountpoint")"
+        while [[ "$mount_parent" == "$nas_root/"* && "$mount_parent" != "$nas_root" ]]; do
+          rmdir "$mount_parent" 2>/dev/null || break
+          mount_parent="$(dirname "$mount_parent")"
+        done
         empty_dir_result="removed"
       else
         empty_dir_result="kept_non_empty_or_mounted"

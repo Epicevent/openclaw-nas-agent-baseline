@@ -126,24 +126,15 @@ validate_host() {
 }
 
 cifs_share_is_valid() {
-  local share="$1"
-  [[ "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]
+  openclaw_nas_share_is_valid "$1"
 }
 
 validate_share() {
-  local share="$1"
-  if ! cifs_share_is_valid "$share"; then
-    echo "error: invalid CIFS share path: $share" >&2
-    exit 2
-  fi
+  openclaw_nas_validate_share "$1" || exit $?
 }
 
 validate_mount_name() {
-  local name="$1"
-  if [[ "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-    echo "error: invalid mount name: $name" >&2
-    exit 2
-  fi
+  openclaw_nas_validate_mount_name "$1" || exit $?
 }
 
 validate_reject_reason() {
@@ -163,12 +154,7 @@ validate_gemini_model() {
 }
 
 mount_name_from_share() {
-  local share="$1" rest name
-  rest="${share#//}"
-  rest="${rest#*/}"
-  name="${rest%%/*}"
-  validate_mount_name "$name"
-  printf '%s' "$name"
+  openclaw_nas_mount_name_from_share "$1"
 }
 
 customer_home() {
@@ -182,7 +168,7 @@ nas_mountpoint() {
 
 named_nas_mountpoint() {
   local target_home="$1" mount_name="$2"
-  printf '%s/nas_docs/%s' "$target_home" "$mount_name"
+  openclaw_nas_mountpoint "$target_home" "$mount_name"
 }
 
 nas_credentials_path() {
@@ -192,7 +178,7 @@ nas_credentials_path() {
 
 named_nas_credentials_path() {
   local target_home="$1" mount_name="$2"
-  printf '%s/.openclaw-nas/credentials/%s.cred' "$target_home" "$mount_name"
+  openclaw_nas_credentials_path "$target_home" "$mount_name"
 }
 
 registered_nas_mountpoints() {
@@ -407,7 +393,7 @@ print_share_request() {
     else
       mount_name="invalid"
     fi
-  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$ ]]; then
     mount_name="invalid"
   fi
   echo "share_request=present"
@@ -511,7 +497,7 @@ reject_share_request() {
     else
       mount_name="invalid"
     fi
-  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(/[A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$ ]]; then
     mount_name="invalid"
   fi
 
@@ -819,7 +805,7 @@ verify_nas_visibility() {
   echo "+ account: $target_user"
   echo "+ host root:      $mountpoint"
   echo "+ container root: $container_root"
-  echo "+ rule:           host_root/SHARE_NAME -> container_root/SHARE_NAME"
+  echo "+ rule:           host_root/host-<hash>/SHARE -> container_root/host-<hash>/SHARE"
   mapfile -t nas_mountpoints < <(registered_nas_mountpoints "$mountpoint")
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
     echo "+ mounted shares: none"

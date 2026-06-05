@@ -75,6 +75,13 @@ else
   pass "legacy_customer_nas_command_absent"
 fi
 
+if grep_md 'NAS_HOST/SHARE_NAME|nas_docs/SHARE_NAME|NAS_A|NAS_B|nas-a\.example|nas-b\.example|same ~/nas_docs' | grep -q .; then
+  grep_md 'NAS_HOST/SHARE_NAME|nas_docs/SHARE_NAME|NAS_A|NAS_B|nas-a\.example|nas-b\.example|same ~/nas_docs'
+  fail "legacy_single_nas_path_reference_absent"
+else
+  pass "legacy_single_nas_path_reference_absent"
+fi
+
 if grep -RInE -- '--repair-user|--repair-users|repairing OpenClaw state' "$repo_root/install.sh" "$repo_root/README.md" "$repo_root/docs" 2>/dev/null | grep -q .; then
   grep -RInE -- '--repair-user|--repair-users|repairing OpenClaw state' "$repo_root/install.sh" "$repo_root/README.md" "$repo_root/docs" 2>/dev/null || true
   fail "host_install_product_repair_reference_absent"

@@ -18,8 +18,8 @@ Options:
   --user USER              Target account, for example oc20. Required.
   --share SHARE            CIFS share path, for example //nas.example.com/share.
                             Required unless OPENCLAW_USER_NAS_SHARE is set.
-  --mount-name NAME        Local folder name under /home/USER/nas_docs.
-                            Default: derived from SHARE_NAME.
+  --mount-name NAME        Local folder path under /home/USER/nas_docs.
+                            Default: derived from source as host-<hash>/SHARE.
   --no-daemon-reload       Do not run systemctl daemon-reload after fstab update.
 
 Run as root/admin.
@@ -82,28 +82,11 @@ fi
 
 openclaw_assert_managed_slot_name "$target_user" || exit $?
 
-if [[ ! "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]; then
-  echo "error: invalid CIFS share path: $share" >&2
-  echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
-  exit 2
-fi
+openclaw_nas_validate_share "$share" || exit $?
 
-if [[ -n "$mount_name" && ( "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ) ]]; then
-  echo "error: invalid mount name: $mount_name" >&2
-  exit 2
+if [[ -n "$mount_name" ]]; then
+  openclaw_nas_validate_mount_name "$mount_name" || exit $?
 fi
-
-mount_name_from_share() {
-  local unc="$1" rest name
-  rest="${unc#//}"
-  rest="${rest#*/}"
-  name="${rest%%/*}"
-  if [[ -z "$name" || "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-    echo "error: could not derive safe mount name from share: $unc" >&2
-    exit 2
-  fi
-  printf '%s' "$name"
-}
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
@@ -124,11 +107,45 @@ fi
 target_gid="$(getent group "$data_group" | cut -d: -f3)"
 
 if [[ -z "$mount_name" ]]; then
-  mount_name="$(mount_name_from_share "$share")"
+  mount_name="$(openclaw_nas_mount_name_from_share "$share")"
 fi
 
-mountpoint="$target_home/nas_docs/$mount_name"
-credentials_path="$target_home/.openclaw-nas/credentials/$mount_name.cred"
+mountpoint="$(openclaw_nas_mountpoint "$target_home" "$mount_name")"
+credentials_path="$(openclaw_nas_credentials_path "$target_home" "$mount_name")"
+
+assert_no_symlink_chain() {
+  local path="$1" current="" part
+  local -a parts
+  [[ "$path" == /* ]] || return 0
+  IFS='/' read -r -a parts <<<"$path"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    current="$current/$part"
+    if [[ -L "$current" ]]; then
+      echo "error: refusing symlink in managed NAS path: $current" >&2
+      exit 1
+    fi
+  done
+}
+
+fix_managed_mount_dirs() {
+  local root="$1" leaf="$2" current rel part
+  local -a parts
+  chown "$target_user:$data_group" "$root" 2>/dev/null || true
+  chmod 0550 "$root" 2>/dev/null || true
+  rel="${leaf#$root/}"
+  current="$root"
+  IFS='/' read -r -a parts <<<"$rel"
+  for part in "${parts[@]}"; do
+    [[ -n "$part" ]] || continue
+    current="$current/$part"
+    if [[ "$(openclaw_findmnt_exact_field "$current" TARGET)" == "$current" ]]; then
+      continue
+    fi
+    chown "$target_user:$data_group" "$current" 2>/dev/null || true
+    chmod 0550 "$current" 2>/dev/null || true
+  done
+}
 
 for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" "$target_home/.openclaw-nas/credentials" "$mountpoint" "$credentials_path"; do
   if [[ -L "$path" ]]; then
@@ -136,6 +153,8 @@ for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" 
     exit 1
   fi
 done
+assert_no_symlink_chain "$mountpoint"
+assert_no_symlink_chain "$credentials_path"
 
 case "$mountpoint" in
   "$target_home/nas_docs/"*) ;;
@@ -185,8 +204,9 @@ for path in "$target_home" "$target_home/nas_docs" "$target_home/.openclaw-nas" 
     exit 1
   fi
 done
-chown "$target_user:$data_group" "$target_home/nas_docs" 2>/dev/null || true
-chmod 0550 "$target_home/nas_docs" 2>/dev/null || true
+assert_no_symlink_chain "$mountpoint"
+assert_no_symlink_chain "$credentials_path"
+fix_managed_mount_dirs "$target_home/nas_docs" "$mountpoint"
 current_mount_target="$(openclaw_findmnt_exact_field "$mountpoint" TARGET)"
 if [[ "$current_mount_target" == "$mountpoint" ]]; then
   echo "warn: mountpoint is already mounted; skipping ownership fix: $mountpoint" >&2

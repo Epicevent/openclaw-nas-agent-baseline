@@ -29,12 +29,14 @@ accounts:
   oc1:
     auto_approve: true
     grants:
-      - allow: "//192.168.0.222/*"
+      - allow: "//nas01.example.local/*"
+      - allow: "//nas02.example.local/*"
     max_mounts: unlimited
   dev-hermess:
     auto_approve: true
     grants:
-      - allow: "//192.168.0.222/*"
+      - allow: "//nas01.example.local/*"
+      - allow: "//nas02.example.local/*"
     max_mounts: unlimited
 ```
 
@@ -46,6 +48,37 @@ Grant forms:
 //HOST/SHARE       exact share
 //HOST/PREFIX-*    share prefix
 ```
+
+Multiple grants can be active at the same time:
+
+```text
+allow: "//nas01.example.local/*"
+allow: "//nas02.example.local/*"
+allow: "//nas02.example.local/OC1"
+```
+
+Default local paths branch by NAS source. The NAS host is always rendered as a
+deterministic hash label:
+
+```text
+//nas01.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
+//nas02.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
+```
+
+Normal customer requests should omit `--mount-name` so the wrapper derives the
+collision-safe local path:
+
+```text
+agent-nas-mount --request-share //nas01.example.local/OC1
+  -> ~/nas_docs/host-<hash>/OC1 points to //nas01.example.local/OC1
+
+agent-nas-mount --request-share //nas02.example.local/OC1
+  -> ~/nas_docs/host-<hash>/OC1 points to //nas02.example.local/OC1
+```
+
+Explicit `--mount-name` is an advanced override for a single local path. It is
+not needed for normal requests and should not be used to represent multiple NAS
+sources with the same share name.
 
 Automatic approval succeeds only when:
 

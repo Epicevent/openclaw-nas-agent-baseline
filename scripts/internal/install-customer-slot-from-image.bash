@@ -11,7 +11,7 @@ image. This is the fast fresh-install path for a prepared ocN slot.
 
 Prerequisites:
   - USER exists.
-  - at least one registered /home/USER/nas_docs/SHARE_NAME CIFS mount exists.
+  - at least one registered CIFS mount exists under /home/USER/nas_docs.
   - OPENCLAW_IMAGE, or --image, points at a ready OpenClaw baseline image.
   - Provider/API keys are optional at install time and can be applied later with
     slot-control.sh runtime-secrets.
@@ -176,7 +176,8 @@ if [[ "$skip_nas_check" -eq 0 ]]; then
   ' /etc/fstab 2>/dev/null)
   if [[ "${#nas_mountpoints[@]}" -eq 0 ]]; then
     echo "error: no registered NAS CIFS mount under $nas_mount" >&2
-    echo "hint: svcops should register a share, then the customer runs agent-nas-mount --mount-name SHARE_NAME --reset-credential" >&2
+    echo "hint: customer requests a source with agent-nas-mount --request-share '//NAS_HOST/SHARE'" >&2
+    echo "hint: the default local path is generated as host-<hash>/SHARE to avoid cross-NAS name collisions" >&2
     exit 1
   fi
   nas_check_failed=0
@@ -184,8 +185,9 @@ if [[ "$skip_nas_check" -eq 0 ]]; then
     nas_target="$(openclaw_findmnt_exact_field "$nas_mp" TARGET)"
     nas_fstype="$(openclaw_findmnt_exact_field "$nas_mp" FSTYPE)"
     if [[ "$nas_target" != "$nas_mp" || "$nas_fstype" != "cifs" ]]; then
+      nas_rel="${nas_mp#$nas_mount/}"
       echo "error: NAS is not mounted as CIFS at $nas_mp" >&2
-      echo "hint: customer should run agent-nas-mount --mount-name \"${nas_mp##*/}\" --reset-credential" >&2
+      echo "hint: customer should run agent-nas-mount --mount-name \"$nas_rel\" --reset-credential" >&2
       nas_check_failed=1
     fi
   done

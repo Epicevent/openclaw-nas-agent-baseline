@@ -114,11 +114,12 @@ ref, digest, image id가 기록된다.
 
 실행 주체: **root 관리자**
 
-먼저 고객 계정의 NAS가 `/home/ocN/nas_docs/SHARE_NAME` 형태로 CIFS mount되어
-있는지 확인한다.
+먼저 고객 계정의 NAS가 `/home/ocN/nas_docs/host-<hash>/SHARE` 형태로
+CIFS mount되어 있는지 확인한다.
 
 ```bash
-MOUNT_NAME=SHARE_NAME
+MOUNT_NAME="$(awk -v root="$TARGET_HOME/nas_docs/" '$0 !~ /^[[:space:]]*#/ && $3 == "cifs" && index($2, root) == 1 { sub(root, "", $2); print $2; exit }' /etc/fstab)"
+test -n "$MOUNT_NAME"
 
 findmnt -M "$TARGET_HOME/nas_docs/$MOUNT_NAME" -o TARGET,SOURCE,FSTYPE,OPTIONS
 test "$(findmnt -M "$TARGET_HOME/nas_docs/$MOUNT_NAME" -n -o FSTYPE)" = cifs && echo nas_mounted_cifs

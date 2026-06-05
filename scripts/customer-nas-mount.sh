@@ -29,7 +29,7 @@ Options:
   --status              Show mount/credential status only.
   --request-share SHARE Create an operator approval request for a new NAS share.
   --request-mount SHARE Create an operator approval request for a named NAS
-                        mount under ~/nas_docs/SHARE_NAME.
+                        mount. Default local path is ~/nas_docs/host-<hash>/SHARE.
   --mount-name NAME     Use an already registered named mount under
                         ~/nas_docs/NAME.
   --remount             Unmount first, then mount again.
@@ -103,30 +103,15 @@ if [[ -n "${OPENCLAW_NAS_MOUNTPOINT:-}" || -n "${OPENCLAW_NAS_CREDENTIALS:-}" ]]
 fi
 
 validate_mount_name() {
-  local name="$1"
-  if [[ "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
-    echo "error: invalid mount name: $name" >&2
-    echo "hint: use letters, numbers, dot, dash, or underscore" >&2
-    exit 2
-  fi
+  openclaw_nas_validate_mount_name "$1" || exit $?
 }
 
 validate_share() {
-  local share="$1"
-  if [[ ! "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]; then
-    echo "error: invalid CIFS share path: $share" >&2
-    echo "hint: expected form is //NAS_HOST/SHARE_NAME" >&2
-    exit 2
-  fi
+  openclaw_nas_validate_share "$1" || exit $?
 }
 
 mount_name_from_share() {
-  local share="$1" rest name
-  rest="${share#//}"
-  rest="${rest#*/}"
-  name="${rest%%/*}"
-  validate_mount_name "$name"
-  printf '%s' "$name"
+  openclaw_nas_mount_name_from_share "$1"
 }
 
 if [[ "$mode" == "request_mount" || "$mode" == "request_share" ]] && [[ -z "$mount_name" ]]; then
@@ -140,7 +125,7 @@ fi
 
 if [[ -z "$mountpoint" ]]; then
   if [[ -n "$mount_name" ]]; then
-    mountpoint="$HOME/nas_docs/$mount_name"
+    mountpoint="$(openclaw_nas_mountpoint "$HOME" "$mount_name")"
   else
     mountpoint="$HOME/nas_docs"
   fi
@@ -148,7 +133,7 @@ fi
 
 if [[ -z "$credentials" ]]; then
   if [[ -n "$mount_name" ]]; then
-    credentials="$HOME/.openclaw-nas/credentials/$mount_name.cred"
+    credentials="$(openclaw_nas_credentials_path "$HOME" "$mount_name")"
   else
     credentials="$HOME/.nas-cifs.cred"
   fi
@@ -176,10 +161,9 @@ print_registered_child_mounts() {
   lines="$(awk -v root="$root/" '
     $0 !~ /^[[:space:]]*#/ && $2 ~ "^" root && $3 == "cifs" {
       count += 1
-      name = $2
-      sub("^" root, "", name)
-      sub("/.*$", "", name)
-      printf "%d\t%s\t%s\t%s\n", count, $2, $1, name
+    name = $2
+    sub("^" root, "", name)
+    printf "%d\t%s\t%s\t%s\n", count, $2, $1, name
     }
   ' /etc/fstab 2>/dev/null || true)"
   if [[ -z "$lines" ]]; then

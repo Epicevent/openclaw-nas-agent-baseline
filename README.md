@@ -87,9 +87,19 @@ recovery state는 설치 단계에서 건드리지 않는다.
 agent-nas-mount --request-share '//NAS_HOST/SHARE'
 ```
 
+기본 로컬 경로는 source에서 자동 파생된다. NAS host 부분은 항상 hash label로
+바뀐다.
+
+```text
+//nas01.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
+//nas02.example.local/OC1 -> ~/nas_docs/host-<hash>/OC1
+```
+
 운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 계정별 grant만 본다.
 범위 안이면 fstab managed entry를 자동 등록하고, 범위 밖이면 request를
 rejected로 이동한다. NAS username/password는 해당 Linux 계정에서 직접 입력한다.
+NAS가 두 대 이상이어도 slot 원장이나 코드가 아니라 `nas-policy.yaml`의
+계정별 grant에 허용 source를 여러 개 둔다.
 
 자동 처리는 `svcops` PM2 daemon이 수행한다.
 

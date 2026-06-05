@@ -3,6 +3,8 @@
 openclaw_safe_compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/internal/lib-slot-policy.bash
 source "$openclaw_safe_compose_dir/lib-slot-policy.bash"
+# shellcheck source=scripts/internal/lib-nas-path.bash
+source "$openclaw_safe_compose_dir/lib-nas-path.bash"
 
 openclaw_safe_fail() {
   echo "FAIL $1" >&2
