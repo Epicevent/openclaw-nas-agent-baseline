@@ -19,7 +19,7 @@ public image push
 -> image-release-verify
 -> image-release-promote
 -> image-rollout
--> check/drift
+-> check/health
 ```
 
 Use the exact public registry tag that was published for the release. The tag
@@ -89,10 +89,10 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
 ```bash
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-status-all 1 20
 
-sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh drift-check \
+sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh health-check \
   --registry /srv/openclaw-ops/slots.yaml \
   --images /srv/openclaw-ops/images.yaml \
-  --report /srv/openclaw-ops/reports/drift-latest.txt
+  --report /srv/openclaw-ops/reports/health-latest.txt
 
 sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
   check oc1 oc1.ji-tech.co.kr

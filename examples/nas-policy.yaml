@@ -1,0 +1,107 @@
+meta:
+  schema_version: 1
+
+defaults:
+  auto_approve: false
+
+accounts:
+  oc1:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc2:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc3:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc4:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc5:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc6:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc7:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc8:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc9:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc10:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc11:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc12:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc13:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc14:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc15:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc16:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc17:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc18:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc19:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited
+  oc20:
+    auto_approve: true
+    grants:
+      - allow: "//192.168.0.222/*"
+    max_mounts: unlimited

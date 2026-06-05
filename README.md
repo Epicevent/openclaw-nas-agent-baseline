@@ -1,479 +1,147 @@
 # OpenClaw NAS Agent Baseline
 
-`oc1`부터 `oc20`까지는 고객 슬롯이며 registry image digest로만 운영한다.
-소스 확인은 별도 dev 슬롯인 `dev-oc`, `dev-hermess`에서만 한다. 두 dev
-슬롯은 고객 계정처럼 sudo/docker 권한이 없지만, source mode를 켜서 실제
-컨테이너와 Apache subdomain 기준으로 커스텀 소스 빌드 결과를 확인할 수
-있다. 자세한 기준은 [Source Management](docs/SOURCE_MANAGEMENT.md)에 둔다.
+이 저장소는 OpenClaw/Hermes 제품 소스 저장소가 아니다.
 
-이 저장소는 고객사별 Linux 계정(`oc1`, `oc2`, ...)마다 독립된 OpenClaw
-컨테이너를 만들고, 각 계정 전용 NAS 경로를 컨테이너에 붙이기 위한 운영
-패키지다.
+역할은 다음 네 가지다.
 
-이 README는 **제한 운영계정 `svcops` 담당자**가 일상 운영 중에 따라가는
-문서다. full sudo/root 권한이 필요한 작업은 여기서 직접 풀지 않고
-[root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에 분리한다.
+```text
+host install
+svcops/root wrapper
+NAS mount 운영
+public registry image release / rollout / health check
+```
+
+OpenClaw와 Hermes 커스터마이즈 소스는 각각 별도 제품 소스 저장소에서 개발하고,
+이 저장소는 그 결과로 발행된 public registry image를 서버 slot에 적용한다.
 
 ## 실행 주체
 
 ```text
-[운영계정: svcops]
-  운영자가 평소 로그인하는 제한 계정.
-  sudo로 svcops-control.sh wrapper만 실행한다.
+root 관리자
+  서버 초기 준비, Linux 계정 생성, runtime secret 주입, Apache 반영, 설치본 갱신.
 
-[root 관리자]
-  서버 초기 설정, Linux 계정 생성, runtime secret 주입, Docker 이미지 설치,
-  Apache 운영 반영처럼 root 권한이 필요한 작업을 맡는다.
+svcops
+  제한 운영 계정. sudo로 svcops-control.sh wrapper만 실행한다.
 
-[고객 계정: ocN]
-  실제 고객이 SSH로 접속하는 계정.
-  자기 NAS credential을 직접 만들고 자기 nas_docs만 mount한다.
+ocN
+  고객 계정. sudo/docker 권한이 없고 자기 NAS credential만 직접 입력한다.
 
-[런타임 계정: ocN_rt]
-  사람이 로그인하지 않는 시스템 계정.
-  OpenClaw gateway 컨테이너의 실행 UID/GID로만 사용된다.
+dev-oc / dev-hermess
+  개발 확인용 slot. 고객 계정과 같은 권한 모델이지만 source mode만 허용된다.
+
+openclawdev
+  개발자/build 계정. 제품 소스 수정과 image build를 담당한다.
 ```
 
-## 운영 모델
+## 운영 상태 파일
 
 ```text
-고객은 자기 Linux 계정으로 접속한다.
-고객은 자기 NAS만 읽을 수 있다.
-고객은 Docker, API key, OpenClaw 원본 설정 파일을 볼 수 없다.
-OpenClaw는 계정별 컨테이너에서 실행한다.
-계정별 Web UI는 서로 다른 subdomain으로 분리한다.
+/srv/openclaw-ops/slots.yaml
+  slot -> lane만 기록한다.
+  예: oc1=openclaw, oc15=hermes, dev-oc=dev-openclaw
+
+/srv/openclaw-ops/images.yaml
+  public registry image catalog.
+  image ref, digest, source ref, channel 상태를 기록한다.
+
+/srv/openclaw-ops/nas-policy.yaml
+  계정별 NAS 자동승인 grant 정책.
+
+/srv/openclaw-ops/reports/actions.log
+  운영 조치 감사 로그.
 ```
 
-## 공식 설치/업데이트 기준
+`slots.yaml`에는 NAS password, API key, gateway token, 고객 문서, handoff 값,
+release gate 기록, 기대 NAS share를 저장하지 않는다.
 
-공개 GitHub 저장소가 도구와 절차의 기준이다. 서버의
-`/opt/openclaw-nas-agent-baseline`은 `git pull`로 관리하는 checkout이 아니라,
-공개 저장소의 특정 commit을 `install.sh`로 복사해 둔 설치본이다.
+## 설치 기준
 
-서버 반영은
-[root 관리자 작업 - 호스트 준비](docs/ROOT_ADMIN_TASKS.md#호스트-준비)에서 수행한다.
-해당 절차는 public repo의 설치 대상 commit을 계산해 설치하고, 설치 후 manifest와
-비교한다.
-
-`install.sh`는 설치 후 다음 manifest를 남긴다.
+서버 설치본 기준은 다음 파일의 `source_commit`이다.
 
 ```text
 /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
 ```
 
-이 manifest의 `source_commit`이 서버에 실제 설치된 공개 repo 기준이다.
-`/srv/openclaw-ops/slots.yaml`이 있으면 `install.sh`가 private 원장의
-`baseline_commit`도 같은 commit으로 갱신한다. drift checker는 원장의
-`baseline_commit`과 설치본 manifest의 `source_commit`이 다르면 fail 처리한다.
-`install.sh --check`는 문서 정합성 검사도 함께 실행한다.
+호스트 설치 절차는 [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에만 둔다.
+README에는 같은 shell 절차를 복사해 두지 않는다.
 
-정리하면 기준은 하나다.
+## NAS 자동승인
+
+고객은 자기 계정에서 NAS mount 요청을 만든다.
+
+```bash
+openclaw-nas-mount --request-share '//NAS_HOST/SHARE'
+```
+
+운영 자동승인은 `/srv/openclaw-ops/nas-policy.yaml`의 grant만 본다.
+범위 안이면 fstab managed entry를 자동 등록하고, 범위 밖이면 request를 rejected로
+이동한다. NAS username/password는 계속 고객 계정에서 직접 입력한다.
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh nas-request-check
+```
+
+상시 감시는 `svcops` PM2에서 실행한다.
 
 ```text
-public repo commit
-→ install.sh
-→ /opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest
-→ /srv/openclaw-ops/slots.yaml baseline_commit
-→ drift check
+process: openclaw-nas-requests
+command: ops-monitor.sh nas-request-watch
 ```
 
-## Production 보안 판정
+정책 형식은 [NAS Policy](docs/NAS_POLICY.md)에 둔다.
 
-현재 production 경로는 **Acceptable with conditions**로 본다. 이 말은 “아무렇게나
-운영해도 안전하다”가 아니라, 아래 조건을 지키는 전제에서 고객 운영에 올릴 수
-있다는 뜻이다.
+## Health Check
+
+`health-check`는 lane 원장, image catalog, live server 상태를 읽어서 현재 상태를
+확인한다. NAS 상태는 `slots.yaml`에 적힌 기대값과 비교하지 않고 실제
+fstab/mount/container visibility를 본다.
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/ops-monitor.sh health-check \
+  --report /srv/openclaw-ops/reports/health-latest.txt
+```
+
+관리 화면은 `health-latest.txt`, `images.yaml`, live wrapper 결과를 묶어서 보여준다.
+
+## Image Rollout
+
+고객 slot인 `oc1~oc20`은 image-only로 운영한다. source mount는 금지한다.
 
 ```text
-반드시 지킬 조건:
-  root/admin이 fresh install, turnover, secret 주입, subdomain 재적용을 할 때
-  고객 계정의 active session이 없어야 한다.
-
-  recovery snapshot restore는 trusted recovery 절차에서만 실행한다.
-  고객이 임의로 준 tarball을 그대로 restore하지 않는다.
-
-  장기 production에서는 baseline image의 base image와 외부 dependency를 pinning한다.
-
-  nas-unregister는 기본적으로 fstab rule을 제거한다. active CIFS unmount,
-  credential 삭제, 빈 mount 폴더 정리는 명시 옵션으로 같이 수행한다.
-
-  fresh install smoke check와 provider/API key 주입 후 final check를 구분한다.
+oc1~oc14   lane=openclaw
+oc15~oc20  lane=hermes
 ```
 
-이 조건을 지키지 않으면 다시 **Not acceptable**이다.
-
-고객에게 전달하는 URL은 계정별 subdomain을 사용한다.
+이미지는 public registry에서 pull하고 digest 기준으로 검증한다.
 
 ```text
-권장: https://oc13.ji-tech.co.kr/
-비권장: https://www.ji-tech.co.kr/oc13/
+image-release-add
+image-release-verify
+image-release-promote
+image-rollout
+image-rollback
 ```
 
-path 방식(`/oc13`)은 브라우저 저장소가 같은 origin에 묶여 여러 계정의 Gateway
-URL/token 설정이 섞일 수 있다. 고객 배포에서는 `oc13.ji-tech.co.kr`처럼
-브라우저 origin을 계정별로 분리한다.
+자세한 절차는 [Updates](docs/UPDATES.md)에 둔다.
 
-계정 하나는 아래처럼 나뉜다.
+## Dev Slot
+
+개발 확인은 고객 slot에서 하지 않는다.
 
 ```text
-고객 계정 ocN:
-  SSH 접속 가능
-  /home/ocN/nas_docs 아래의 CIFS 공유 폴더 읽기 가능
-  Docker 사용 불가
-  API key가 들어 있는 실행 환경 파일 읽기 불가
-  OpenClaw 원본 설정 파일 읽기 불가
-
-런타임 계정 ocN_rt:
-  OpenClaw gateway 컨테이너 실행용 시스템 계정
-  ocN_data 그룹을 통해 NAS 읽기 가능
-  사람이 직접 로그인하지 않음
-
-NAS 공유 그룹 ocN_data:
-  ocN과 ocN_rt가 같은 NAS mount를 읽기 위한 계정별 그룹
+dev-oc       OpenClaw source mode 확인
+dev-hermess  Hermes source mode 확인
 ```
 
-## 신규 계정 배포 흐름
+dev slot에서 확인한 뒤 source commit으로 image를 발행하고, 그 image만 고객 slot에
+rollout한다. source/image 경계는 [Source Management](docs/SOURCE_MANAGEMENT.md)에 둔다.
+
+## 보안 기준
 
 ```text
-1. [root 관리자] 호스트와 svcops 준비
-2. [root 관리자] 고객 Linux 계정 준비
-3. [운영계정: svcops] NAS user-mount fstab 규칙 등록
-4. [고객 계정: ocN] NAS credential 작성 및 mount
-5. [운영계정: svcops] NAS 상태 확인
-6. [root 관리자] baseline 이미지와 계정별 OpenClaw 설치
-7. [root 관리자] provider/API key 주입 또는 교체
-8. [운영계정: svcops] subdomain 설정 적용 및 배포 확인
-9. [root 관리자] 필요한 경우 Apache 운영 반영과 handoff credential 전달
-10. [고객 계정: ocN] 접속 smoke test
+고객 계정은 sudo/docker 권한이 없어야 한다.
+고객 slot은 registry image digest만 바라봐야 한다.
+dev slot 요청은 NAS 자동승인 대상이 아니다.
+root/admin 작업 중 고객 active session이 있으면 안 된다.
+secret 원문은 slots.yaml, images.yaml, actions.log에 저장하지 않는다.
 ```
-
-root가 해야 하는 1, 2, 6, 7, 9번의 실제 명령은
-[root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)에 있다.
-
-root 관리자가 6, 7, 8, 9번처럼 고객 홈 안의 OpenClaw 상태를 쓰거나 gateway를
-재생성하는 작업을 할 때는 먼저 고객 세션이 없는지 확인한다.
-
-다음 주 고객 테스트처럼 여러 slot을 넘기기 전에는
-[테스트 운영 절차](docs/TEST_OPERATIONS.md)에 따라 baseline commit, 공통 image
-tag, private slot 원장, release gate를 먼저 고정한다.
-
-테스트 대상자는 README나 public docs에 직접 적지 않는다.
-`/srv/openclaw-ops/slots.yaml`의 기존 oc1~oc20 entry 중 `ready` slot을 골라
-`assigned`로 바꾸고, release gate가 통과한 뒤에만 `active_test`로 올린다.
-
-## 1. 대상 계정 지정
-
-실행 주체: **[운영계정: svcops]**
-
-작업할 계정만 바꾼다.
-
-```bash
-TARGET_USER=oc1
-CONTROL_UI_HOST="$TARGET_USER.ji-tech.co.kr"
-BASE_DOMAIN=ji-tech.co.kr
-```
-
-root 관리자가 아직 호스트 준비나 고객 계정 준비를 하지 않았다면 먼저 이 문서를
-전달한다.
-
-- [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)
-- [svcops 운영계정](docs/SVCOPS.md)
-
-## 2. 현재 상태 확인
-
-실행 주체: **[운영계정: svcops]**
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TARGET_USER"
-```
-
-처음 준비하는 계정이라면 `credential_file=missing` 또는 `fstab_rule=missing`가
-나올 수 있다. 기존 운영 계정이라면 여기서 현재 NAS mount 상태를 먼저 확인한다.
-
-## 3. NAS mount 규칙 등록
-
-실행 주체: **[운영계정: svcops]**
-
-`NAS_SHARE`는 NAS 계정명이 아니라 SMB 공유 경로다. 설치 현장에서 확인한 공유
-경로를 넣는다.
-
-이 레포의 기본 운영 흐름에서 `nas_docs`는 고객에게 보이는 NAS 루트 폴더이고,
-실제 CIFS mountpoint는 SMB 공유 이름으로 만든 하위 폴더다.
-
-```text
-원격 NAS source/share: //NAS_HOST/SHARE_NAME
-호스트 mountpoint:     /home/ocN/nas_docs/SHARE_NAME
-OpenClaw 컨테이너:      /home/node/nas_docs/SHARE_NAME
-Hermes 컨테이너:        /workspace/nas_docs/SHARE_NAME
-```
-
-`nas-register`와 `--request-share`에서 말하는 `share`는 첫 줄의 원격 SMB 공유
-경로를 뜻한다. 붙는 폴더명은 이 공유 경로에서 자동으로 정한다.
-
-```bash
-NAS_SHARE='//NAS_HOST/SHARE_NAME'
-
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register \
-  "$TARGET_USER" \
-  "$NAS_SHARE"
-```
-
-이 단계는 고객의 NAS username/password를 받지 않는다. 실행 후 고객 계정에서
-입력할 명령까지 같이 출력한다. 고객 credential은 다음 단계에서 고객 계정 안에
-생성된다.
-
-여러 슬롯에 같은 공유 경로를 등록할 때:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-register-all \
-  1 \
-  20 \
-  "$NAS_SHARE"
-```
-
-NAS가 고객 계정에서 mount된 뒤 OpenClaw 컨테이너가 같은 NAS를 보고 있는지 실제로
-확인할 때:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-verify "$TARGET_USER"
-```
-
-호스트 mount는 정상인데 컨테이너가 아직 빈 디렉터리를 보고 있으면 이 명령이
-gateway만 재생성한 뒤 다시 확인한다.
-
-## 4. 고객 NAS credential 작성과 mount
-
-실행 주체: **[고객 계정: `$TARGET_USER`]**
-
-고객이 자기 계정으로 SSH 접속한 뒤 실행한다. 운영자가 `nas-register` 또는
-`nas-approve-share`를 실행하면 고객에게 줄 명령이 같이 출력된다.
-
-```bash
-openclaw-nas-mount --mount-name SHARE_NAME --reset-credential
-```
-
-예를 들어 `//192.168.0.222/hanpass`를 등록했다면:
-
-```bash
-openclaw-nas-mount --mount-name hanpass --reset-credential
-```
-
-현재 상태만 볼 때:
-
-```bash
-openclaw-nas-mount --mount-name SHARE_NAME --status
-```
-
-다른 NAS 공유 경로가 필요할 때 고객 계정에서 요청만 생성한다:
-
-```bash
-openclaw-nas-mount --request-share '//NAS_HOST/SHARE_NAME'
-```
-
-`--status`는 고객 Linux 계정 기준의 상태다. mount 대상 SMB 공유 경로, fstab
-등록 여부, 저장된 NAS username, 실제 mount 상태, 다음 행동을 같이 보여준다.
-OpenClaw 컨테이너가 같은 NAS를 보고 있는지는 운영계정의 `nas-verify`로 확인한다.
-mount 실행 시에도 credential 입력 전에 등록된 공유 경로를 먼저 출력한다.
-
-여러 NAS 공유가 필요하면 같은 방식으로 공유 이름별 폴더가 추가된다.
-
-```text
-//NAS_HOST/hanpass   -> /home/ocN/nas_docs/hanpass
-//NAS_HOST/project-a -> /home/ocN/nas_docs/project-a
-```
-
-공유 이름이 같은 두 NAS를 같은 계정에 동시에 붙이는 경우는 아직 자동 충돌 처리를
-하지 않는다. 그런 경우에는 운영자가 고객 요청을 다른 공유 이름으로 정리한 뒤 등록한다. 고객 요청으로 별도 mountpoint나 credential path를 받지 않는다.
-
-root는 Linux 보안 모델상 고객 credential 파일을 읽을 수 있다. 그래서 평소
-운영자는 full sudo가 아니라 `svcops` wrapper만 사용한다. root 접근자는
-break-glass 권한으로 관리한다.
-
-## 5. NAS 상태 재확인
-
-실행 주체: **[운영계정: svcops]**
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-status "$TARGET_USER"
-```
-
-고객이 share 변경 요청을 만든 경우:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-requests 1 20
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh nas-approve-share "$TARGET_USER"
-```
-
-`nas-requests`는 승인할 요청이 있으면 `approve_command`를 함께 출력한다.
-
-`nas-status`를 기본 경로로 보면 등록된 공유가 하위 mount로 보여야 한다.
-
-```text
-registered_child_mount_1=/home/ocN/nas_docs/SHARE_NAME
-registered_child_share_1=//NAS_HOST/SHARE_NAME
-```
-
-개별 mount의 credential과 mount 상태는 고객 계정에서
-`openclaw-nas-mount --mount-name SHARE_NAME --status`로 본다. 실제 CIFS 여부는
-`nas-verify`가 고객 계정과 OpenClaw 컨테이너 양쪽에서 확인한다.
-
-## 6. OpenClaw 설치 요청
-
-실행 주체: **[root 관리자]**
-
-root 관리자가 baseline 이미지와 계정별 OpenClaw 설치를 수행한다. 이 단계는
-provider/API key 없이 완료될 수 있어야 한다.
-
-필요한 명령은 [root 관리자 작업 - 계정별 OpenClaw 설치](docs/ROOT_ADMIN_TASKS.md#계정별-openclaw-설치)에 있다.
-
-## 7. runtime secret 주입 또는 교체
-
-실행 주체: **[root 관리자]**
-
-Gemini/API key 같은 runtime secret은 설치 이후 별도 절차로 주입하거나 교체한다.
-
-필요한 명령은 [root 관리자 작업 - runtime secret 주입 또는 교체](docs/ROOT_ADMIN_TASKS.md#runtime-secret-주입-또는-교체)에 있다.
-
-## 8. subdomain 설정 적용
-
-실행 주체: **[운영계정: svcops]**
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh subdomain \
-  "$TARGET_USER" \
-  "$CONTROL_UI_HOST"
-```
-
-이 명령은 계정별 OpenClaw 설정과 deploy용 Apache conf를 맞추고 gateway를 다시
-띄운다.
-
-Apache가 `/home/ocN/openclaw/deploy/apache-subdomain-ocN.conf`를 실제 운영
-VirtualHost로 읽도록 만드는 작업은 서버 Apache 구조에 따라 root 작업일 수 있다.
-그 경우 [root 관리자 작업 - Apache 운영 반영](docs/ROOT_ADMIN_TASKS.md#apache-운영-반영)을 따른다.
-
-## 9. 배포 확인
-
-실행 주체: **[운영계정: svcops]**
-
-단일 계정 확인:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check \
-  "$TARGET_USER" \
-  "$CONTROL_UI_HOST"
-```
-
-여러 계정 확인:
-
-```bash
-sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh check-all \
-  1 \
-  20 \
-  "$BASE_DOMAIN"
-```
-
-최종 완료 판정에는 아래 항목들이 포함되어야 한다.
-
-```text
-PASS customer_not_in_docker_group
-PASS cross_tenant_data_group_isolation
-PASS customer_nas_read_ok
-PASS customer_nas_mounted_cifs
-PASS runtime_env_exists
-PASS config_exists
-PASS customer_runtime_env_blocked
-PASS customer_config_blocked
-PASS config_has_no_literal_api_key
-PASS control_ui_device_auth_disabled
-PASS control_ui_basepath_ok
-PASS control_ui_allowed_origin_ok
-PASS customer_docker_blocked
-PASS customer_proc_env_gemini_blocked
-PASS container_env_gemini_present
-PASS container_nas_read_ok
-PASS container_nas_mounted_cifs
-PASS customer_isolation_ok
-PASS container_exists_for_document_baseline
-PASS container_locale_utf8
-PASS container_ko_locale_available
-PASS container_korean_fonts_available
-PASS container_cmd_hwp5txt_ok
-PASS container_cmd_hwp5proc_ok
-PASS apache_subdomain_basepath_ok
-PASS apache_expected_host_parse_ok
-PASS apache_syntax_ok
-PASS apache_vhost_registered_ok
-PASS apache_vhost_config_exists
-PASS apache_backend_port_ok
-PASS public_url_openclaw_page_ok
-```
-
-Apache 관련 PASS가 실패하면 OpenClaw 자체보다 Apache 운영 반영을 먼저 본다.
-브라우저가 회사 기본 홈페이지를 보여주는 경우도 이 범주다.
-
-## 10. 고객에게 전달할 정보
-
-실행 주체: **[root 관리자]**
-
-고객에게 전달할 URL 형식:
-
-```text
-https://ocN.ji-tech.co.kr/
-```
-
-예:
-
-```text
-https://oc13.ji-tech.co.kr/
-```
-
-handoff credential 출력과 device approval 예외 처리는
-[root 관리자 작업 - 고객 전달 정보](docs/ROOT_ADMIN_TASKS.md#고객-전달-정보)에 있다.
-
-## 11. 고객 계정 smoke test
-
-실행 주체: **[고객 계정: `$TARGET_USER`]**
-
-새 터미널에서 고객 계정으로 SSH 접속한다.
-
-```bash
-SSH_HOST=YOUR_CUSTOMER_SSH_HOST
-ssh "$TARGET_USER@$SSH_HOST"
-```
-
-고객 계정에서 확인한다.
-
-```bash
-id
-ls ~/nas_docs | head
-cat ~/openclaw/.env
-cat ~/.openclaw/openclaw.json
-docker ps
-```
-
-기대 결과:
-
-```text
-id
-  docker group 없음
-
-ls ~/nas_docs
-  읽기 가능
-
-cat ~/openclaw/.env
-  Permission denied
-
-cat ~/.openclaw/openclaw.json
-  Permission denied
-
-docker ps
-  permission denied
-```
-
-## 참고 문서
-
-- [root 관리자 작업](docs/ROOT_ADMIN_TASKS.md)
-- [svcops 운영계정](docs/SVCOPS.md)
-- [Slot turnover](docs/SLOT_TURNOVER.md)
-- [Updates](docs/UPDATES.md)
-- [이미지 업데이트](docs/UPDATES.md)
-- [Recovery](docs/OPENCLAW_RECOVERY.md)

@@ -4,7 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  install.sh [--prefix DIR] [--ops-registry PATH] [--no-ops-registry-sync] [--repair-user USER] [--repair-users LIST] [--force-defaults] [--check]
+  install.sh [--prefix DIR] [--repair-user USER] [--repair-users LIST] [--force-defaults] [--check]
 
 Installs this OpenClaw NAS agent baseline bundle into a host path.
 
@@ -20,8 +20,6 @@ USAGE
 }
 
 prefix="/opt/openclaw-nas-agent-baseline"
-ops_registry="${OPENCLAW_OPS_REGISTRY:-/srv/openclaw-ops/slots.yaml}"
-sync_ops_registry=1
 repair_users=()
 force_defaults=0
 run_check=0
@@ -31,14 +29,6 @@ while [[ $# -gt 0 ]]; do
     --prefix)
       prefix="${2:?missing prefix}"
       shift 2
-      ;;
-    --ops-registry)
-      ops_registry="${2:?missing ops registry path}"
-      shift 2
-      ;;
-    --no-ops-registry-sync)
-      sync_ops_registry=0
-      shift
       ;;
     --repair-user)
       repair_users+=("${2:?missing user}")
@@ -148,121 +138,6 @@ EOF
   rm -f "$tmp"
 }
 
-sync_ops_registry_baseline() {
-  local registry="$1"
-  if [[ "$sync_ops_registry" -ne 1 ]]; then
-    echo "ops_registry_sync=skipped disabled"
-    return 0
-  fi
-  if [[ -z "$registry" || ! -f "$registry" ]]; then
-    echo "ops_registry_sync=skipped missing"
-    return 0
-  fi
-  if [[ "$source_commit" == "unknown" ]]; then
-    echo "ops_registry_sync=skipped unknown_source_commit"
-    return 0
-  fi
-  if ! command -v python3 >/dev/null 2>&1; then
-    echo "ops_registry_sync=skipped python3_missing"
-    return 0
-  fi
-
-  python3 - "$registry" "$source_commit" <<'PY'
-from __future__ import annotations
-
-import os
-import re
-import stat
-import sys
-import tempfile
-from datetime import datetime, timezone
-from pathlib import Path
-
-path = Path(sys.argv[1])
-commit = sys.argv[2]
-updated_at = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-
-text = path.read_text(encoding="utf-8")
-lines = text.splitlines(keepends=True)
-out: list[str] = []
-in_meta = False
-seen_meta = False
-seen_baseline = False
-seen_updated_at = False
-changed = False
-
-def q(value: str) -> str:
-    return '"' + value.replace('"', '\\"') + '"'
-
-def current_value(line: str) -> str:
-    return line.split(":", 1)[1].strip().strip('"').strip("'")
-
-for line in lines:
-    stripped = line.strip()
-    if stripped == "meta:":
-        in_meta = True
-        seen_meta = True
-        out.append(line)
-        continue
-    if stripped == "slots:" and in_meta:
-        if not seen_baseline:
-            out.append(f"  baseline_commit: {q(commit)}\n")
-            changed = True
-        if not seen_updated_at:
-            out.append(f"  updated_at: {q(updated_at)}\n")
-            changed = True
-        in_meta = False
-        out.append(line)
-        continue
-    if in_meta and re.match(r"^\s{2}baseline_commit:", line):
-        seen_baseline = True
-        if current_value(line) != commit:
-            out.append(f"  baseline_commit: {q(commit)}\n")
-            changed = True
-        else:
-            out.append(line)
-        continue
-    if in_meta and re.match(r"^\s{2}updated_at:", line):
-        seen_updated_at = True
-        if current_value(line) != updated_at:
-            out.append(f"  updated_at: {q(updated_at)}\n")
-            changed = True
-        else:
-            out.append(line)
-        continue
-    out.append(line)
-
-if not seen_meta:
-    raise SystemExit("ops registry has no meta section")
-
-if not text.endswith("\n"):
-    out.append("\n")
-
-if not changed:
-    print(f"ops_registry_sync=unchanged path={path} baseline_commit={commit}")
-    raise SystemExit(0)
-
-st = path.stat()
-fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-try:
-    with os.fdopen(fd, "w", encoding="utf-8") as handle:
-        handle.writelines(out)
-    os.chmod(tmp_name, stat.S_IMODE(st.st_mode))
-    try:
-        os.chown(tmp_name, st.st_uid, st.st_gid)
-    except PermissionError:
-        pass
-    os.replace(tmp_name, path)
-finally:
-    try:
-        os.unlink(tmp_name)
-    except FileNotFoundError:
-        pass
-
-print(f"ops_registry_sync=updated path={path} baseline_commit={commit}")
-PY
-}
-
 case "$prefix" in
   /opt/*)
     if [[ "$(id -u)" -ne 0 ]]; then
@@ -323,11 +198,10 @@ if [[ "$(id -u)" -eq 0 ]]; then
 fi
 
 write_baseline_manifest
-sync_ops_registry_baseline "$ops_registry"
 
 echo "installed: $prefix"
 echo "baseline_manifest=$prefix/.openclaw-baseline-manifest"
-echo "baseline_commit=$source_commit"
+echo "installed_source_commit=$source_commit"
 
 for user in "${repair_users[@]}"; do
   [[ -n "$user" ]] || continue

@@ -24,6 +24,7 @@ DEFAULT_OPS_DIR = Path("/srv/openclaw-ops")
 DEFAULT_SLOTS = DEFAULT_OPS_DIR / "slots.yaml"
 DEFAULT_IMAGES = DEFAULT_OPS_DIR / "images.yaml"
 DEFAULT_ACTIONS_LOG = DEFAULT_OPS_DIR / "reports" / "actions.log"
+DEFAULT_IMAGE_HISTORY = DEFAULT_OPS_DIR / "reports" / "image-history"
 DEFAULT_CONTROL = Path("/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh")
 
 IMAGE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -502,15 +503,60 @@ def parse_slots(path: Path) -> tuple[dict[str, str], list[dict[str, str]]]:
     return meta, slots
 
 
+def slot_number_from_name(name: str) -> int | None:
+    match = re.match(r"^oc([0-9]+)$", name or "")
+    return int(match.group(1)) if match else None
+
+
+def slot_lane(slot: dict[str, str]) -> str:
+    name = slot.get("slot", "")
+    lane = slot.get("lane", "")
+    if lane:
+        return lane
+    if name == "dev-oc":
+        return "dev-openclaw"
+    if name == "dev-hermess":
+        return "dev-hermes"
+    legacy_channel = slot.get("image_channel", "")
+    if legacy_channel in {"openclaw", "hermes", "hold"}:
+        return legacy_channel
+    legacy_name = slot.get("image_name", "") or slot.get("image_tag", "")
+    if legacy_name.startswith("hermes-"):
+        return "hermes"
+    number = slot_number_from_name(name)
+    if number is not None and number >= 15:
+        return "hermes"
+    return "openclaw"
+
+
+def slot_record(slots: list[dict[str, str]], name: str) -> dict[str, str]:
+    return next((slot for slot in slots if slot.get("slot") == name), {"slot": name})
+
+
+def slot_is_customer_rollout_target(slot: dict[str, str]) -> bool:
+    name = slot.get("slot", "")
+    lane = slot_lane(slot)
+    return bool(SLOT_RE.match(name)) and lane != "hold" and not lane.startswith("dev-")
+
+
 def slot_numbers_for_channel(channel: str, slots: list[dict[str, str]]) -> list[str]:
-    explicit = [slot["slot"] for slot in slots if slot.get("image_channel") == channel]
+    explicit = [
+        slot["slot"]
+        for slot in slots
+        if slot_lane(slot) == channel and slot_is_customer_rollout_target(slot)
+    ]
     if explicit:
         return explicit
     names = {slot.get("slot", "") for slot in slots}
     if channel == "staging":
-        return ["oc1"] if "oc1" in names else []
+        slot = slot_record(slots, "oc1")
+        return ["oc1"] if "oc1" in names and slot_is_customer_rollout_target(slot) else []
     if channel == "oc15-20-test":
-        return [f"oc{i}" for i in range(15, 21) if f"oc{i}" in names]
+        return [
+            f"oc{i}"
+            for i in range(15, 21)
+            if f"oc{i}" in names and slot_is_customer_rollout_target(slot_record(slots, f"oc{i}"))
+        ]
     return []
 
 
@@ -522,79 +568,11 @@ def slot_numbers_for_range(start: str, end: str, slots: list[dict[str, str]]) ->
     if end_number - start_number + 1 > 100:
         raise SystemExit("error: rollout range is too large")
     names = {slot.get("slot", "") for slot in slots}
-    return [f"oc{i}" for i in range(start_number, end_number + 1) if f"oc{i}" in names]
-
-
-def update_slot_assignment(slots_path: Path, slot_name: str, image: dict[str, str], channel: str) -> None:
-    if not slots_path.exists():
-        return
-    text = slots_path.read_text(encoding="utf-8")
-    lines = text.splitlines(keepends=True)
-    _, slots = parse_slots(slots_path)
-    current = next((item for item in slots if item.get("slot") == slot_name), {})
-    previous_name = current.get("image_name") or current.get("image_tag", "")
-    previous_ref = current.get("image_tag", "")
-
-    out: list[str] = []
-    in_target = False
-    inserted = False
-    seen = {"image_channel": False, "image_name": False, "image_tag": False, "previous_image_name": False, "previous_image_ref": False, "image_updated_at": False}
-    for line in lines:
-        stripped = line.strip()
-        if line.startswith("  - slot:"):
-            if in_target and not inserted:
-                out.extend(slot_image_lines(image, channel, previous_name, previous_ref))
-                inserted = True
-            in_target = unquote(line.split(":", 1)[1]) == slot_name
-            inserted = False
-            seen = {key: False for key in seen}
-            out.append(line)
-            continue
-        if in_target and line.startswith("  - slot:"):
-            in_target = False
-        if in_target and line.startswith("    ") and not line.startswith("      ") and ":" in stripped:
-            key = stripped.split(":", 1)[0]
-            if key in seen:
-                seen[key] = True
-                if key == "image_channel":
-                    out.append(f"    image_channel: {q(channel)}\n")
-                elif key == "image_name":
-                    out.append(f"    image_name: {q(image['name'])}\n")
-                elif key == "image_tag":
-                    out.append(f"    image_tag: {q(image.get('runtime_ref') or image.get('registry_ref') or image['name'])}\n")
-                elif key == "previous_image_name":
-                    out.append(f"    previous_image_name: {q(previous_name)}\n")
-                elif key == "previous_image_ref":
-                    out.append(f"    previous_image_ref: {q(previous_ref)}\n")
-                elif key == "image_updated_at":
-                    out.append(f"    image_updated_at: {q(now_iso())}\n")
-                continue
-        if in_target and not inserted and line.startswith("    last_gate:"):
-            out.extend(slot_image_lines(image, channel, previous_name, previous_ref, seen))
-            inserted = True
-        out.append(line)
-    if in_target and not inserted:
-        out.extend(slot_image_lines(image, channel, previous_name, previous_ref, seen))
-    atomic_write(slots_path, "".join(out), default_mode=0o640)
-
-
-def slot_image_lines(
-    image: dict[str, str],
-    channel: str,
-    previous_name: str,
-    previous_ref: str,
-    seen: dict[str, bool] | None = None,
-) -> list[str]:
-    seen = seen or {}
-    rows = {
-        "image_channel": channel,
-        "image_name": image["name"],
-        "image_tag": image.get("runtime_ref") or image.get("registry_ref") or image["name"],
-        "previous_image_name": previous_name,
-        "previous_image_ref": previous_ref,
-        "image_updated_at": now_iso(),
-    }
-    return [f"    {key}: {q(value)}\n" for key, value in rows.items() if not seen.get(key)]
+    return [
+        f"oc{i}"
+        for i in range(start_number, end_number + 1)
+        if f"oc{i}" in names and slot_is_customer_rollout_target(slot_record(slots, f"oc{i}"))
+    ]
 
 
 def update_env_image(target_user: str, image_ref: str) -> None:
@@ -613,6 +591,56 @@ def update_env_image(target_user: str, image_ref: str) -> None:
     if not changed:
         out.append(f"OPENCLAW_IMAGE='{image_ref}'\n")
     atomic_write(env_path, "".join(out), default_mode=0o600)
+
+
+def current_env_image_ref(target_user: str) -> str:
+    env_path = Path(f"/home/{target_user}/openclaw/.env")
+    if not env_path.exists():
+        return ""
+    for line in env_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("OPENCLAW_IMAGE="):
+            return unquote(line.split("=", 1)[1])
+    return ""
+
+
+def sanitize_history_name(value: str) -> str:
+    value = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-")
+    return value[:127] or "previous-image"
+
+
+def write_image_history(
+    history_dir: Path,
+    target_user: str,
+    previous_ref: str,
+    previous_family: str,
+    image: dict[str, str],
+    image_ref: str,
+    channel: str,
+) -> None:
+    path = history_dir / f"{target_user}.env"
+    text = (
+        f"PREVIOUS_IMAGE_REF={q(previous_ref)}\n"
+        f"PREVIOUS_RUNTIME_FAMILY={q(previous_family)}\n"
+        f"CURRENT_IMAGE_NAME={q(image.get('name', ''))}\n"
+        f"CURRENT_IMAGE_REF={q(image_ref)}\n"
+        f"CURRENT_RUNTIME_FAMILY={q(image.get('family', '') or 'openclaw')}\n"
+        f"CHANNEL={q(channel)}\n"
+        f"UPDATED_AT={q(now_iso())}\n"
+    )
+    atomic_write(path, text, default_mode=0o640)
+
+
+def read_image_history(history_dir: Path, target_user: str) -> dict[str, str]:
+    path = history_dir / f"{target_user}.env"
+    if not path.exists():
+        return {}
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        result[key] = unquote(value)
+    return result
 
 
 def refresh_gateway(control: Path, target_user: str) -> tuple[int, str]:
@@ -804,6 +832,7 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
     image_ref = image.get("runtime_ref") or image.get("registry_ref") or image["name"]
     docker_pull(image_ref)
     family = image.get("family", "")
+    previous_ref = current_env_image_ref(target_user)
     previous_family = current_runtime_family(target_user)
     if family == "hermes":
         rc, out = install_hermes_slot(args.control, args.slots, target_user, image_ref)
@@ -813,7 +842,7 @@ def apply_image_to_slot(args: argparse.Namespace, slot: str, image: dict[str, st
         update_env_image(target_user, image_ref)
         rc, out = refresh_gateway(args.control, target_user)
     if rc == 0:
-        update_slot_assignment(args.slots, target_user, image, channel)
+        write_image_history(args.image_history_dir, target_user, previous_ref, previous_family, image, image_ref, channel)
     output = (
         f"target_user={target_user}\n"
         f"image_name={image['name']}\n"
@@ -836,6 +865,10 @@ def cmd_rollout_slot(args: argparse.Namespace) -> int:
         raise SystemExit(f"error: image not found: {args.image}")
     if image.get("status") not in ROLLABLE_STATUSES:
         raise SystemExit(f"error: image status does not allow rollout: {image.get('status')}")
+    _, slots = parse_slots(args.slots)
+    slot = slot_record(slots, args.user)
+    if not slot_is_customer_rollout_target(slot):
+        raise SystemExit(f"error: image rollout is allowed only for customer image slots: {args.user}")
     channel = args.channel or "manual"
     rc, output = apply_image_to_slot(args, args.user, image, channel)
     print(output, end="" if output.endswith("\n") else "\n")
@@ -898,14 +931,22 @@ def cmd_rollback(args: argparse.Namespace) -> int:
     slot = next((item for item in slots if item.get("slot") == args.user), None)
     if not slot:
         raise SystemExit(f"error: slot not found: {args.user}")
-    previous = slot.get("previous_image_name") or slot.get("previous_image_ref")
+    if not slot_is_customer_rollout_target(slot):
+        raise SystemExit(f"error: image rollback is allowed only for customer image slots: {args.user}")
+    history = read_image_history(args.image_history_dir, args.user)
+    previous = history.get("PREVIOUS_IMAGE_REF") or slot.get("previous_image_name") or slot.get("previous_image_ref")
     if not previous:
         raise SystemExit(f"error: no previous image recorded for {args.user}")
     state = parse_images(args.images)
     image = find_image(state, previous)
     if not image:
-        raise SystemExit(f"error: previous image is not in image cache: {previous}")
-    rc, output = apply_image_to_slot(args, args.user, image, slot.get("image_channel") or "rollback")
+        image = {
+            "name": sanitize_history_name(previous.rsplit("/", 1)[-1]),
+            "runtime_ref": previous,
+            "registry_ref": previous,
+            "family": history.get("PREVIOUS_RUNTIME_FAMILY", ""),
+        }
+    rc, output = apply_image_to_slot(args, args.user, image, "rollback")
     print(output, end="" if output.endswith("\n") else "\n")
     return rc
 
@@ -929,6 +970,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--slots", type=Path, default=DEFAULT_SLOTS)
     parser.add_argument("--images", type=Path, default=DEFAULT_IMAGES)
     parser.add_argument("--actions-log", type=Path, default=DEFAULT_ACTIONS_LOG)
+    parser.add_argument("--image-history-dir", type=Path, default=DEFAULT_IMAGE_HISTORY)
     parser.add_argument("--control", type=Path, default=DEFAULT_CONTROL)
     sub = parser.add_subparsers(dest="command", required=True)
 

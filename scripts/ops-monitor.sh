@@ -6,8 +6,10 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 usage() {
   cat <<'USAGE'
 Usage:
-  ops-monitor.sh drift-check [args...]
-  ops-monitor.sh drift-watch [args...]
+  ops-monitor.sh health-check [args...]
+  ops-monitor.sh health-watch [args...]
+  ops-monitor.sh nas-request-check [args...]
+  ops-monitor.sh nas-request-watch [args...]
   ops-monitor.sh usage [usage args...]
 USAGE
 }
@@ -16,11 +18,23 @@ command_name="${1:-}"
 shift || true
 
 case "$command_name" in
+  health-check)
+    exec bash "$script_dir/internal/openclaw-ops-health-check.bash" "$@"
+    ;;
+  health-watch)
+    exec bash "$script_dir/internal/openclaw-ops-health-watch.bash" "$@"
+    ;;
   drift-check)
-    exec bash "$script_dir/internal/openclaw-ops-drift-check.bash" "$@"
+    exec bash "$script_dir/internal/openclaw-ops-health-check.bash" "$@"
     ;;
   drift-watch)
-    exec bash "$script_dir/internal/openclaw-ops-drift-watch.bash" "$@"
+    exec bash "$script_dir/internal/openclaw-ops-health-watch.bash" "$@"
+    ;;
+  nas-request-check)
+    exec bash "$script_dir/internal/openclaw-nas-request-monitor.bash" check "$@"
+    ;;
+  nas-request-watch)
+    exec bash "$script_dir/internal/openclaw-nas-request-monitor.bash" watch "$@"
     ;;
   usage)
     exec bash "$script_dir/internal/openclaw-usage-report.bash" "$@"

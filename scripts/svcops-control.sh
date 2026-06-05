@@ -8,8 +8,10 @@ Usage:
   svcops-control.sh check-all START END BASE_DOMAIN
   svcops-control.sh nas-status USER
   svcops-control.sh nas-status-all START END
+  svcops-control.sh nas-request USER
   svcops-control.sh nas-requests START END
   svcops-control.sh nas-approve-share USER
+  svcops-control.sh nas-reject-share USER REASON
   svcops-control.sh nas-verify USER
   svcops-control.sh nas-verify-all START END
   svcops-control.sh nas-tree USER
@@ -140,6 +142,14 @@ validate_mount_name() {
   local name="$1"
   if [[ "$name" == "." || "$name" == ".." || ! "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
     echo "error: invalid mount name: $name" >&2
+    exit 2
+  fi
+}
+
+validate_reject_reason() {
+  local reason="$1"
+  if [[ ! "$reason" =~ ^[A-Za-z0-9_.:-]{1,80}$ ]]; then
+    echo "error: invalid reject reason: $reason" >&2
     exit 2
   fi
 }
@@ -391,8 +401,15 @@ print_share_request() {
   requested_mountpoint="$(request_value MOUNTPOINT "$request_file")"
   requested_credentials="$(request_value CREDENTIALS_PATH "$request_file")"
   mount_name="$(request_value MOUNT_NAME "$request_file")"
-  [[ "$mount_name" == "primary" || -z "$mount_name" ]] && mount_name="$(mount_name_from_share "$requested_share")"
-  validate_mount_name "$mount_name"
+  if [[ "$mount_name" == "primary" || -z "$mount_name" ]]; then
+    if cifs_share_is_valid "$requested_share"; then
+      mount_name="$(mount_name_from_share "$requested_share")"
+    else
+      mount_name="invalid"
+    fi
+  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+    mount_name="invalid"
+  fi
   echo "share_request=present"
   echo "requested_by=${requested_by:-unknown}"
   echo "requested_at=${requested_at:-unknown}"
@@ -400,6 +417,13 @@ print_share_request() {
   echo "derived_mountpoint=$(named_nas_mountpoint "$target_home" "$mount_name")"
   echo "derived_credentials_file=$(named_nas_credentials_path "$target_home" "$mount_name")"
   if [[ -n "$requested_mountpoint" || -n "$requested_credentials" ]]; then
+    if [[ -n "$requested_mountpoint" && "$requested_mountpoint" != "$(named_nas_mountpoint "$target_home" "$mount_name")" ]]; then
+      echo "request_path_override=yes"
+    elif [[ -n "$requested_credentials" && "$requested_credentials" != "$(named_nas_credentials_path "$target_home" "$mount_name")" ]]; then
+      echo "request_path_override=yes"
+    else
+      echo "request_path_override=no"
+    fi
     echo "request_path_fields=ignored; paths are derived from mount_name"
   fi
   echo "current_registered_share=${current_share:-unknown}"
@@ -464,6 +488,57 @@ approve_share_request() {
   print_nas_status "$target_user" "$target_home" "$requested_mountpoint" "$requested_credentials" "${mount_name:-primary}"
   echo
   print_customer_nas_next_steps "$target_user" "$mount_name"
+}
+
+reject_share_request() {
+  local target_user="$1" reason="$2" target_home target_group request_file requested_share requested_at requested_by mount_name rejected_dir rejected_file stamp
+  target_home="$(customer_home "$target_user")"
+  target_group="$(id -gn "$target_user")"
+  request_file="$(share_request_file "$target_home")"
+  [[ -f "$request_file" ]] || { echo "FAIL share_request_missing"; return 1; }
+  if ! assert_share_request_path_safe "$target_user" "$target_home" "$request_file" >/dev/null; then
+    echo "FAIL share_request_path_safety"
+    return 1
+  fi
+
+  requested_share="$(request_value REQUESTED_SHARE "$request_file")"
+  requested_at="$(request_value REQUESTED_AT "$request_file")"
+  requested_by="$(request_value REQUESTED_BY "$request_file")"
+  mount_name="$(request_value MOUNT_NAME "$request_file")"
+  if [[ "$mount_name" == "primary" || -z "$mount_name" ]]; then
+    if cifs_share_is_valid "$requested_share"; then
+      mount_name="$(mount_name_from_share "$requested_share")"
+    else
+      mount_name="invalid"
+    fi
+  elif [[ "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
+    mount_name="invalid"
+  fi
+
+  echo "rejecting_share_request_for=$target_user"
+  echo "mount_name=$mount_name"
+  echo "requested_share=${requested_share:-missing}"
+  echo "reject_reason=$reason"
+
+  stamp="$(date +%Y%m%d%H%M%S)"
+  rejected_dir="$target_home/.openclaw-nas/rejected"
+  rejected_file="$rejected_dir/share-request.$stamp.env"
+  mkdir -p "$rejected_dir"
+  {
+    printf 'REQUEST_KIND=nas_mount\n'
+    printf 'REQUESTED_BY=%s\n' "${requested_by:-unknown}"
+    printf 'REQUESTED_AT=%s\n' "${requested_at:-unknown}"
+    printf 'MOUNT_NAME=%s\n' "$mount_name"
+    printf 'REQUESTED_SHARE=%s\n' "${requested_share:-missing}"
+    printf 'REJECTED_AT=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'REJECTED_BY=svcops\n'
+    printf 'REJECT_REASON=%s\n' "$reason"
+  } > "$rejected_file"
+  chown "$target_user:$target_group" "$target_home/.openclaw-nas" "$rejected_dir" "$rejected_file"
+  chmod 0700 "$target_home/.openclaw-nas" "$rejected_dir"
+  chmod 0600 "$rejected_file"
+  rm -f "$request_file"
+  echo "share_request=rejected"
 }
 
 fix_nas_runtime_root() {
@@ -1097,11 +1172,29 @@ case "$command_name" in
     exit "$failed"
     ;;
 
+  nas-request)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_user "$target_user"
+    target_home="$(customer_home "$target_user")"
+    echo "== $target_user =="
+    print_share_request "$target_user" "$target_home"
+    ;;
+
   nas-approve-share)
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
     validate_user "$target_user"
     approve_share_request "$target_user"
+    ;;
+
+  nas-reject-share)
+    [[ $# -eq 2 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    reason="$2"
+    validate_user "$target_user"
+    validate_reject_reason "$reason"
+    reject_share_request "$target_user" "$reason"
     ;;
 
   nas-verify)

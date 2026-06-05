@@ -44,7 +44,6 @@ pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
 명령이 먼저 계산하고, 그 commit을 checkout한 임시 repo에서 설치한다.
 
 기본 설치 대상은 public repo `main`의 현재 commit이다. 테스트 freeze 이후에는
-서버 설치본의 manifest와 private 원장의 `baseline_commit`이 같은 값이어야 한다.
 
 ```bash
 REPO_URL="https://github.com/Epicevent/openclaw-nas-agent-baseline.git"
@@ -70,10 +69,9 @@ echo "installed_source_commit=$source_commit"
 ```
 
 `/srv/openclaw-ops/slots.yaml`이 있으면 `install.sh`가 private 원장의
-`baseline_commit`을 `installed_source_commit`과 같은 값으로 갱신한다.
 
 `--set-password`는 `svcops` 로그인용 비밀번호를 설정한다. `--nopasswd-sudo`는
-`svcops-control.sh` wrapper만 비밀번호 없이 실행하게 열어 둔다. PM2 drift monitor는
+`svcops-control.sh` wrapper만 비밀번호 없이 실행하게 열어 둔다. PM2 health monitor는
 `sudo -n`으로 wrapper를 호출하므로 이 옵션이 필요하다. 이 설정은 `sudo bash`,
 `sudo docker`, 임의 root shell을 허용하지 않는다.
 

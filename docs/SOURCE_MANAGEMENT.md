@@ -21,7 +21,7 @@ Epicevent/openclaw-nas-agent-baseline
   host operations package
   image publishing recipes
   NAS/document tooling
-  slot rollout and drift checks
+  slot rollout and health checks
 ```
 
 OpenClaw and Hermes images are separate release lanes. They share the same

@@ -1,0 +1,48 @@
+meta:
+  schema_version: 2
+
+slots:
+  - slot: oc1
+    lane: openclaw
+  - slot: oc2
+    lane: openclaw
+  - slot: oc3
+    lane: openclaw
+  - slot: oc4
+    lane: openclaw
+  - slot: oc5
+    lane: openclaw
+  - slot: oc6
+    lane: openclaw
+  - slot: oc7
+    lane: openclaw
+  - slot: oc8
+    lane: openclaw
+  - slot: oc9
+    lane: openclaw
+  - slot: oc10
+    lane: openclaw
+  - slot: oc11
+    lane: openclaw
+  - slot: oc12
+    lane: openclaw
+  - slot: oc13
+    lane: openclaw
+  - slot: oc14
+    lane: openclaw
+  - slot: oc15
+    lane: hermes
+  - slot: oc16
+    lane: hermes
+  - slot: oc17
+    lane: hermes
+  - slot: oc18
+    lane: hermes
+  - slot: oc19
+    lane: hermes
+  - slot: oc20
+    lane: hermes
+  - slot: dev-oc
+    lane: dev-openclaw
+  - slot: dev-hermess
+    lane: dev-hermes

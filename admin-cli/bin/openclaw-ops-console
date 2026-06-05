@@ -20,7 +20,8 @@ from urllib.parse import parse_qs, urlparse
 DEFAULT_REGISTRY = "/srv/openclaw-ops/slots.yaml"
 DEFAULT_IMAGES = "/srv/openclaw-ops/images.yaml"
 DEFAULT_MANIFEST = "/opt/openclaw-nas-agent-baseline/.openclaw-baseline-manifest"
-DEFAULT_DRIFT_REPORT = "/srv/openclaw-ops/reports/drift-latest.txt"
+DEFAULT_HEALTH_REPORT = "/srv/openclaw-ops/reports/health-latest.txt"
+DEFAULT_DRIFT_REPORT = DEFAULT_HEALTH_REPORT
 DEFAULT_ACTIONS_LOG = "/srv/openclaw-ops/reports/actions.log"
 DEFAULT_CONTROL = "/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh"
 DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024
@@ -83,6 +84,10 @@ def parse_key_values(text: str) -> dict[str, str]:
         key = key.lstrip("\ufeff")
         result[key] = value
     return result
+
+
+def count_pending_nas_requests(text: str) -> int:
+    return sum(1 for line in text.splitlines() if line.strip() == "share_request=present")
 
 
 def parse_key_value_file(path: Path) -> dict[str, str]:
@@ -203,20 +208,42 @@ def slot_number(slot: str) -> int:
     return int(match.group(1)) if match else 10_000
 
 
+def infer_lane(slot: dict[str, str]) -> str:
+    name = slot.get("slot", "")
+    lane = slot.get("lane", "")
+    if lane:
+        return lane
+    if name == "dev-oc":
+        return "dev-openclaw"
+    if name == "dev-hermess":
+        return "dev-hermes"
+    legacy_channel = slot.get("image_channel", "")
+    if legacy_channel in {"openclaw", "hermes", "hold"}:
+        return legacy_channel
+    legacy_name = slot.get("image_name", "") or slot.get("image_tag", "")
+    if legacy_name.startswith("hermes-"):
+        return "hermes"
+    match = re.match(r"^oc([0-9]+)$", name)
+    if match and int(match.group(1)) >= 15:
+        return "hermes"
+    return "openclaw"
+
+
 def parse_drift_report(path: Path) -> dict[str, Any]:
     text = read_text(path)
     top: dict[str, str] = {}
     slots: dict[str, dict[str, Any]] = {}
     current = ""
     top_level_keys = {
+        "health_check_started",
         "drift_check_started",
         "registry",
         "image_registry",
         "manifest",
         "slot_count",
-        "registry_baseline_commit",
         "installed_baseline_commit",
         "baseline_manifest",
+        "health_check_finished",
         "drift_check_finished",
         "summary",
         "failures",
@@ -252,8 +279,8 @@ def parse_drift_report(path: Path) -> dict[str, Any]:
         "summary": top.get("summary", "missing"),
         "failures": int(top.get("failures", "0") or 0) if top.get("failures", "0").isdigit() else None,
         "warnings": int(top.get("warnings", "0") or 0) if top.get("warnings", "0").isdigit() else None,
-        "started": top.get("drift_check_started", ""),
-        "finished": top.get("drift_check_finished", ""),
+        "started": top.get("health_check_started", top.get("drift_check_started", "")),
+        "finished": top.get("health_check_finished", top.get("drift_check_finished", "")),
         "top": top,
         "slots": slots,
     }
@@ -463,7 +490,7 @@ class OpsConsole:
         self.registry = Path(args.registry)
         self.images = Path(args.images)
         self.manifest = Path(args.manifest)
-        self.drift_report = Path(args.drift_report)
+        self.drift_report = Path(args.health_report or args.drift_report)
         self.actions_log = Path(args.actions_log)
         self.base_domain = args.base_domain
         self.csrf = secrets.token_urlsafe(32)
@@ -478,25 +505,31 @@ class OpsConsole:
         manifest = parse_key_value_file(self.manifest)
         drift = parse_drift_report(self.drift_report)
         installed_commit = manifest.get("source_commit", "")
-        registry_commit = meta.get("baseline_commit", "")
-        baseline_match = bool(installed_commit and registry_commit and installed_commit == registry_commit)
+        registry_commit = ""
+        baseline_match = bool(installed_commit)
         drift_slots = drift.get("slots", {})
 
         merged_slots: list[dict[str, Any]] = []
         for slot in slots:
             name = slot.get("slot", "")
             drift_slot = drift_slots.get(name, {})
+            lane = infer_lane(slot)
             slot_type = "dev" if name in {"dev-oc", "dev-hermess"} else "customer"
+            customer_nas_live = drift_slot.get("customer_nas_live", "")
+            container_nas_live = drift_slot.get("container_nas_live", "")
             merged_slots.append(
                 {
                     "slot": name,
+                    "lane": lane,
                     "slot_type": slot.get("slot_type", slot_type),
                     "slot_mode": slot.get("slot_mode", "source" if slot_type == "dev" else "image"),
                     "status": slot.get("status", ""),
                     "assignee": slot.get("assignee", ""),
                     "subdomain": slot.get("subdomain", ""),
-                    "nas_share": slot.get("nas_share", ""),
-                    "mount_name": slot.get("mount_name", ""),
+                    "nas_share": customer_nas_live,
+                    "mount_name": container_nas_live,
+                    "customer_nas_live": customer_nas_live,
+                    "container_nas_live": container_nas_live,
                     "dashboard_name": slot.get("dashboard_name", ""),
                     "image_tag": slot.get("image_tag", ""),
                     "image_channel": slot.get("image_channel", ""),
@@ -522,6 +555,7 @@ class OpsConsole:
 
         ollama = self.runner.run(["shared-ollama-status"], timeout=30)
         usage = self.runner.run(["usage-all", "1", "20", "24h"], timeout=90)
+        nas_requests = self.runner.run(["nas-requests", "1", "20"], timeout=90)
 
         return {
             "generated_at": now_iso(),
@@ -544,6 +578,8 @@ class OpsConsole:
             "failed_slots": len([slot for slot in merged_slots if slot.get("drift_result") == "FAIL"]),
             "ollama_status": ollama,
             "usage_summary": usage,
+            "nas_requests": nas_requests,
+            "nas_pending_requests": count_pending_nas_requests(nas_requests.get("output", "")),
             "recent_actions": read_recent_actions(self.actions_log),
             "external_integrations": {
                 "groupware_mail": "pending_external_access",
@@ -736,326 +772,111 @@ class OpsConsole:
 
 def html_page(csrf: str) -> str:
     token = json.dumps(csrf)
-    return f"""<!doctype html>
+    return """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OpenClaw 운영 콘솔</title>
+  <title>OpenClaw Ops Console</title>
   <style>
-    :root {{
+    :root {
       color-scheme: light;
-      --bg: #f4f6f8;
+      --bg: #f5f7fa;
       --panel: #ffffff;
-      --ink: #16202a;
+      --ink: #17212b;
       --muted: #66717d;
-      --line: #d9e1e7;
-      --line-strong: #bdc9d4;
-      --ok: #0f7b4f;
-      --ok-bg: #ecf8f2;
+      --line: #d8e0e7;
+      --ok: #087443;
       --warn: #9a6200;
-      --warn-bg: #fff8e6;
       --bad: #b3261e;
-      --bad-bg: #fff1ef;
-      --blue: #195db5;
-      --blue-bg: #eef5ff;
-      --shadow: 0 12px 32px rgba(15, 31, 46, 0.08);
-    }}
-    * {{ box-sizing: border-box; }}
-    body {{
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: var(--bg);
-      color: var(--ink);
-    }}
-    header {{
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-      padding: 16px 24px;
-      border-bottom: 1px solid var(--line);
-      background: var(--panel);
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }}
-    h1 {{ font-size: 21px; margin: 0; letter-spacing: 0; }}
-    h2 {{ font-size: 16px; margin: 0 0 10px; }}
-    h3 {{ font-size: 13px; margin: 0 0 8px; color: var(--muted); font-weight: 800; }}
-    button, input, select {{
-      font: inherit;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-      color: var(--ink);
-    }}
-    button {{
-      cursor: pointer;
-      padding: 8px 10px;
-      font-weight: 600;
-      min-height: 38px;
-    }}
-    button:disabled {{
-      cursor: wait;
-      opacity: 0.56;
-    }}
-    button.primary {{ background: var(--blue); border-color: var(--blue); color: #fff; }}
-    button.danger {{ border-color: #e3aaa5; color: var(--bad); background: var(--bad-bg); }}
-    button.warn {{ border-color: #e3ca8d; color: var(--warn); background: var(--warn-bg); }}
-    button.ghost {{ background: #f7fafc; }}
-    input, select {{ padding: 8px 9px; min-width: 0; }}
-    main {{
-      display: grid;
-      grid-template-columns: minmax(520px, 1fr) minmax(360px, 520px);
-      gap: 16px;
-      padding: 16px;
-      max-width: 1600px;
-      margin: 0 auto;
-    }}
-    section {{
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px;
-      box-shadow: var(--shadow);
-    }}
-    .banner {{
-      grid-column: 1 / -1;
-      display: grid;
-      grid-template-columns: 1fr auto;
-      gap: 12px;
-      align-items: center;
-      border-left: 5px solid var(--line-strong);
-    }}
-    .banner.ok {{ border-left-color: var(--ok); background: linear-gradient(90deg, #f3fbf7, #fff); }}
-    .banner.warn {{ border-left-color: var(--warn); background: linear-gradient(90deg, #fff9eb, #fff); }}
-    .banner.bad {{ border-left-color: var(--bad); background: linear-gradient(90deg, #fff3f1, #fff); }}
-    .banner-title {{ font-size: 18px; font-weight: 850; }}
-    .banner-line {{ color: var(--muted); margin-top: 4px; }}
-    .summary {{
-      grid-column: 1 / -1;
-      display: grid;
-      grid-template-columns: repeat(6, minmax(0, 1fr));
-      gap: 10px;
-    }}
-    .metric {{
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 10px;
-      min-height: 92px;
-      background: #fff;
-    }}
-    .label {{ color: var(--muted); font-size: 12px; }}
-    .value {{ font-size: 18px; font-weight: 700; margin-top: 6px; overflow-wrap: anywhere; }}
-    .metric .hint {{ color: var(--muted); font-size: 12px; margin-top: 7px; line-height: 1.35; }}
-    .ok {{ color: var(--ok); }}
-    .warn {{ color: var(--warn); }}
-    .bad {{ color: var(--bad); }}
-    .muted {{ color: var(--muted); }}
-    .toolbar {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }}
-    .toolbar.between {{ justify-content: space-between; }}
-    .filters {{ display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0 12px; }}
-    .filters input {{ flex: 1; min-width: 180px; }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }}
-    th, td {{
-      text-align: left;
-      border-bottom: 1px solid var(--line);
-      padding: 8px;
-      vertical-align: top;
-    }}
-    th {{ color: #46525f; font-size: 12px; white-space: nowrap; }}
-    tr[data-selected="true"] {{ background: var(--blue-bg); }}
-    tr[data-attention="true"] {{ background: var(--warn-bg); box-shadow: inset 4px 0 0 var(--warn); }}
-    tr[data-failed="true"] {{ background: var(--bad-bg); box-shadow: inset 4px 0 0 var(--bad); }}
-    tr[data-selected="true"][data-attention="true"] {{ background: #fff1cf; }}
-    tr[data-selected="true"][data-failed="true"] {{ background: #ffe4e0; }}
-    tr:hover {{ background: #f8fbff; }}
-    .pill {{
-      display: inline-block;
-      border: 1px solid var(--line);
-      border-radius: 999px;
-      padding: 2px 7px;
-      font-size: 12px;
-      font-weight: 700;
-      white-space: nowrap;
-    }}
-    .pill.ok {{ border-color: #abd8c4; background: #ecf8f2; }}
-    .pill.bad {{ border-color: #e8b5b0; background: #fff1ef; }}
-    .pill.warn {{ border-color: #e3ca8d; background: #fff8e6; }}
-    .slot-name {{ font-size: 14px; font-weight: 850; }}
-    .subline {{ color: var(--muted); font-size: 12px; margin-top: 3px; }}
-    .slot-cards {{
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 8px;
-      margin: 12px 0;
-    }}
-    .slot-card {{
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      padding: 9px;
-      background: #fbfdff;
-      min-height: 66px;
-    }}
-    .nas-tree-panel {{
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px;
-      background: #fbfdff;
-      margin: 10px 0;
-    }}
-    .nas-tree {{
-      display: grid;
-      gap: 4px;
-      max-height: 340px;
-      overflow: auto;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: #fff;
-      padding: 8px;
-      font-size: 12px;
-    }}
-    .tree-row {{
-      display: grid;
-      grid-template-columns: 72px minmax(220px, 1fr) minmax(190px, auto);
-      gap: 8px;
-      align-items: center;
-      border-bottom: 1px solid #edf2f6;
-      padding: 4px 2px;
-    }}
-    .tree-row:last-child {{ border-bottom: 0; }}
-    .tree-path {{ overflow-wrap: anywhere; }}
-    .tree-meta {{ color: var(--muted); }}
-    .tree-file {{ color: #2d4f76; }}
-    .tree-dir {{ color: #174a2f; font-weight: 750; }}
-    .tree-status {{ text-align: right; }}
-    .detail-grid {{
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 10px;
-    }}
-    .action-group {{
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 10px;
-      background: #fbfdff;
-    }}
-    .action-group.risky {{
-      border-color: #e7c0bb;
-      background: #fff8f7;
-    }}
-    .output-panel {{
-      border: 1px solid var(--line-strong);
-      border-radius: 8px;
-      padding: 10px;
-      background: #fbfdff;
-      position: sticky;
-      top: 84px;
-      z-index: 4;
-    }}
-    .busy-text {{
-      display: none;
-      color: var(--warn);
-      font-weight: 750;
-    }}
-    body.is-busy .busy-text {{ display: inline; }}
-    .nas-lock {{
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin: 8px 0;
-      color: var(--bad);
-      font-size: 13px;
-      font-weight: 700;
-    }}
-    .nas-lock input {{ min-width: auto; }}
-    .actions {{
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-    }}
-    .form-row {{ display: grid; grid-template-columns: 90px 1fr; gap: 8px; align-items: center; margin: 6px 0; }}
-    pre {{
-      background: #101820;
-      color: #d9e8f6;
-      border-radius: 6px;
-      padding: 10px;
-      max-height: 420px;
-      overflow: auto;
-      font-size: 12px;
-      line-height: 1.45;
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-    }}
-    .output-title {{
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      margin-top: 10px;
-    }}
-    @media (max-width: 1100px) {{
-      main {{ grid-template-columns: 1fr; }}
-      .summary {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-    }}
+      --blue: #185fb8;
+      --blue-soft: #eef5ff;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 20px; background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 10; }
+    h1 { margin: 0; font-size: 21px; }
+    h2 { margin: 0 0 10px; font-size: 16px; }
+    h3 { margin: 14px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .02em; }
+    main { max-width: 1580px; margin: 0 auto; padding: 16px; display: grid; grid-template-columns: minmax(560px, 1fr) minmax(380px, 540px); gap: 16px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 14px; }
+    button, input, select { font: inherit; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); }
+    button { min-height: 38px; padding: 8px 10px; font-weight: 650; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+    button.warn { color: var(--warn); background: #fff8e6; border-color: #e6c982; }
+    button.danger { color: var(--bad); background: #fff1ef; border-color: #e5b4ae; }
+    input, select { padding: 8px; min-width: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: #46525f; font-size: 12px; }
+    tr:hover { background: #f8fbff; }
+    tr[data-selected="true"] { background: var(--blue-soft); }
+    .span-all { grid-column: 1 / -1; }
+    .toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .between { justify-content: space-between; }
+    .summary { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; }
+    .metric { border: 1px solid var(--line); border-radius: 8px; padding: 10px; min-height: 84px; background: #fff; }
+    .label { color: var(--muted); font-size: 12px; }
+    .value { font-size: 18px; font-weight: 800; margin-top: 6px; overflow-wrap: anywhere; }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 5px; overflow-wrap: anywhere; }
+    .ok { color: var(--ok); }
+    .warn-text { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .muted { color: var(--muted); }
+    .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; font-size: 12px; font-weight: 750; background: #fff; }
+    .pill.ok { color: var(--ok); border-color: #a8d7bf; background: #ecf8f2; }
+    .pill.warn { color: var(--warn); border-color: #e6c982; background: #fff8e6; }
+    .pill.bad { color: var(--bad); border-color: #e5b4ae; background: #fff1ef; }
+    .filters { display: flex; gap: 8px; margin: 8px 0 12px; }
+    .filters input { flex: 1; }
+    .subline { color: var(--muted); font-size: 12px; margin-top: 3px; }
+    .cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 10px 0; }
+    .card { border: 1px solid var(--line); border-radius: 8px; padding: 9px; background: #fbfdff; min-height: 64px; }
+    .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .form-row { display: grid; grid-template-columns: 92px 1fr; gap: 8px; align-items: center; margin: 6px 0; }
+    .danger-box { border: 1px solid #e5b4ae; border-radius: 8px; padding: 10px; background: #fff8f7; }
+    pre { margin: 0; background: #101820; color: #d9e8f6; border-radius: 8px; padding: 10px; max-height: 440px; overflow: auto; font-size: 12px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .tree { display: grid; gap: 4px; max-height: 340px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: #fff; padding: 8px; font-size: 12px; }
+    .tree-row { display: grid; grid-template-columns: 64px minmax(180px, 1fr) minmax(160px, auto); gap: 8px; border-bottom: 1px solid #edf2f6; padding: 4px 2px; }
+    .tree-row:last-child { border-bottom: 0; }
+    .busy { display: none; color: var(--warn); font-weight: 800; }
+    body.is-busy .busy { display: inline; }
+    @media (max-width: 1100px) { main { grid-template-columns: 1fr; } .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   </style>
 </head>
 <body>
   <header>
     <div>
-      <h1>OpenClaw 운영 콘솔</h1>
-      <div class="label">svcops 전용 localhost 관리 화면</div>
+      <h1>OpenClaw Ops Console</h1>
+      <div class="label">Localhost console for svcops wrapper operations</div>
     </div>
     <div class="toolbar">
       <span class="label" id="refreshedAt">-</span>
-      <button class="primary" onclick="refreshSummary()">새로고침</button>
+      <button class="primary" onclick="refreshSummary()">Refresh</button>
     </div>
   </header>
   <main>
-    <section class="banner" id="opsBanner">
-      <div>
-        <div class="banner-title">상태를 불러오는 중입니다.</div>
-        <div class="banner-line">기준 버전, drift, slot 상태를 확인합니다.</div>
-      </div>
-      <div class="toolbar">
-        <button class="ghost" onclick="runGlobalAction('nas-requests')">NAS 요청 보기</button>
-      </div>
-    </section>
-
-    <section class="summary" id="summary"></section>
+    <section class="span-all summary" id="summary"></section>
 
     <section>
       <div class="toolbar between">
-        <h2>슬롯 목록</h2>
+        <h2>Slots</h2>
         <span class="label" id="slotCountLabel"></span>
       </div>
       <div class="filters">
-        <input id="slotSearch" placeholder="slot, subdomain, NAS 검색" oninput="renderSlots()">
+        <input id="slotSearch" placeholder="Search slot, lane, host, NAS" oninput="renderSlots()">
         <select id="slotFilter" onchange="renderSlots()">
-          <option value="all">전체</option>
-          <option value="attention">확인 필요</option>
-          <option value="assigned">배정됨</option>
-          <option value="ready">ready</option>
-          <option value="active_test">active_test</option>
+          <option value="all">All</option>
+          <option value="attention">Needs attention</option>
+          <option value="ready">Ready</option>
+          <option value="active_test">Active test</option>
         </select>
+        <button onclick="runGlobalAction('nas-requests')">NAS requests</button>
       </div>
-      <div style="overflow:auto;">
+      <div style="overflow:auto">
         <table>
-          <thead>
-            <tr>
-              <th>슬롯</th>
-              <th>운영 상태</th>
-              <th>접속 주소</th>
-              <th>NAS</th>
-              <th>전달/검증</th>
-              <th>Drift</th>
-            </tr>
-          </thead>
+          <thead><tr><th>Slot</th><th>Lane</th><th>Host</th><th>NAS</th><th>Gate</th><th>Health</th></tr></thead>
           <tbody id="slots"></tbody>
         </table>
       </div>
@@ -1063,369 +884,234 @@ def html_page(csrf: str) -> str:
 
     <section>
       <div class="toolbar between">
-        <h2 id="detailTitle">슬롯 상세</h2>
-        <button onclick="loadSlotDetail()">상태 한번에 불러오기</button>
+        <h2 id="detailTitle">Slot detail</h2>
+        <button onclick="loadSlotDetail()">Load status</button>
       </div>
-      <div id="slotMeta" class="muted">왼쪽에서 슬롯을 선택하세요.</div>
-      <div class="slot-cards" id="slotCards"></div>
-      <div class="nas-tree-panel">
-        <div class="toolbar between">
-          <h2>NAS 구조</h2>
-          <div class="toolbar">
-            <input id="searchQuery" placeholder="검색 smoke test 입력">
-            <button onclick="loadNasTree()">구조 불러오기</button>
-            <button onclick="runSlotAction('nas-search-smoke')">검색 확인</button>
-          </div>
-        </div>
-        <div id="nasTreeMeta" class="muted">선택한 슬롯의 컨테이너 NAS 기준 경로를 불러옵니다.</div>
-        <div id="nasTree" class="nas-tree"></div>
+      <div id="slotMeta" class="muted">Select a slot.</div>
+      <div class="cards" id="slotCards"></div>
+
+      <h3>Container NAS tree</h3>
+      <div class="toolbar" style="margin-bottom:8px">
+        <input id="searchQuery" placeholder="search smoke query">
+        <button onclick="loadNasTree()">Load NAS tree</button>
+        <button onclick="runSlotAction('nas-search-smoke')">Search smoke</button>
       </div>
-      <div class="detail-grid">
-        <div class="output-panel">
-          <div class="output-title">
-            <h2>실행 결과</h2>
-            <span class="label"><span class="busy-text">실행 중...</span> <span id="lastRun"></span></span>
-          </div>
-          <pre id="output">아직 실행한 명령이 없습니다.</pre>
-        </div>
-        <div class="action-group">
-          <h3>점검</h3>
-          <div class="actions">
-            <button onclick="runSlotAction('check')">전체 점검</button>
-            <button onclick="runSlotAction('nas-status')">NAS 상태</button>
-            <button onclick="runSlotAction('nas-verify')">NAS 검증</button>
-            <button onclick="loadNasTree()">NAS 구조</button>
-            <button onclick="runSlotAction('usage')">사용량</button>
-            <button onclick="runSlotAction('heartbeat-status')">하트비트</button>
-            <button onclick="runSlotAction('image-status')">이미지</button>
-            <button onclick="runSlotAction('dev-slot-status')">dev-slot</button>
-            <button onclick="runSlotAction('source-mode-status')">source-status</button>
-            <button onclick="runGlobalAction('shared-ollama-status')">공용 Ollama</button>
-            <button onclick="runSlotAction('shared-ollama-smoke')">Ollama 테스트</button>
-          </div>
-        </div>
-        <div class="action-group">
-          <h3>일상 조치</h3>
-          <div class="form-row"><label>모델</label><input id="model" value="qwen2.5-coder:7b"></div>
-          <div class="form-row"><label>Base URL</label><input id="baseUrl" value="http://openclaw-shared-ollama:11434/v1"></div>
-          <div class="actions">
-            <button onclick="runSlotAction('gateway-refresh')">게이트웨이 재시작</button>
-            <button onclick="runSlotAction('heartbeat-disable')">하트비트 끄기</button>
-            <button onclick="runSlotAction('heartbeat-ollama')">하트비트 Ollama</button>
-            <button onclick="runSlotAction('ollama-provider')">Ollama 추가</button>
-            <button onclick="runSlotAction('ollama-default')">기본 모델 Ollama</button>
-            <button class="warn" onclick="runSlotAction('source-mode-enable')">source-enable</button>
-            <button class="warn" onclick="runSlotAction('source-mode-disable')">source-disable</button>
-          </div>
-        </div>
-        <div class="action-group">
-          <h3>Public image releases</h3>
-          <div class="label">공개 registry 이미지를 digest 기준으로 등록, 검증, 채널 배포합니다.</div>
-          <div class="form-row"><label>Image ref</label><input id="imageRef" placeholder="ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-20260603-r16"></div>
-          <div class="form-row"><label>Image</label><input id="imageName" placeholder="hermes-workspace-20260603-r16"></div>
-          <div class="form-row"><label>Channel</label><input id="imageChannel" placeholder="staging or oc15-20-test"></div>
-          <div class="form-row"><label>Range</label><input id="imageStart" value="1"><input id="imageEnd" value="20"></div>
-          <div class="form-row"><label>Confirm</label><input id="imageConfirm" placeholder="1-20"></div>
-          <div class="actions">
-            <button onclick="runGlobalAction('image-list')">image-list</button>
-            <button onclick="runGlobalAction('image-status-all')">image-status-all</button>
-            <button onclick="runGlobalAction('image-release-add')">release-add</button>
-            <button onclick="runGlobalAction('image-release-verify')">release-verify</button>
-            <button onclick="runGlobalAction('image-release-promote')">promote-channel</button>
-            <button class="warn" onclick="runGlobalAction('image-rollout')">rollout-channel</button>
-            <button class="danger" onclick="runGlobalAction('image-rollout-range')">rollout-range</button>
-            <button class="warn" onclick="runSlotAction('image-rollout-slot')">rollout-slot</button>
-            <button class="danger" onclick="runSlotAction('image-rollback')">rollback-slot</button>
-          </div>
-        </div>
-        <div class="action-group risky">
-          <h3>NAS 변경</h3>
-          <div class="label">데이터 접근 범위가 바뀌는 작업입니다. 확인값을 다시 입력해야 실행됩니다.</div>
-          <label class="nas-lock"><input type="checkbox" id="nasUnlock" onchange="updateNasActionState()"> NAS 변경 버튼 활성화</label>
-          <div class="form-row"><label>Share</label><input id="share" placeholder="//HOST/SHARE"></div>
-          <div class="form-row"><label>Mount</label><input id="mountName" placeholder="optional folder name"></div>
-          <label class="nas-lock"><input type="checkbox" id="nasUnmount"> unmount active CIFS</label>
-          <label class="nas-lock"><input type="checkbox" id="deleteCredential"> delete credential file</label>
-          <label class="nas-lock"><input type="checkbox" id="deleteEmptyDir"> delete empty mount dir</label>
-          <div class="form-row"><label>확인</label><input id="confirm" placeholder="slot 또는 share를 다시 입력"></div>
-          <div class="actions">
-            <button class="warn nas-action" onclick="runSlotAction('nas-approve-share')">요청 승인</button>
-            <button class="warn nas-action" onclick="runSlotAction('nas-register')">NAS 등록</button>
-            <button class="danger nas-action" onclick="runSlotAction('nas-unregister')">NAS 해제</button>
-          </div>
+      <div id="nasTreeMeta" class="muted">No NAS tree loaded.</div>
+      <div id="nasTree" class="tree"></div>
+
+      <h3>Low-risk checks</h3>
+      <div class="actions">
+        <button onclick="runSlotAction('check')">check</button>
+        <button onclick="runSlotAction('nas-status')">nas-status</button>
+        <button onclick="runSlotAction('nas-verify')">nas-verify</button>
+        <button onclick="runSlotAction('usage')">usage</button>
+        <button onclick="runSlotAction('heartbeat-status')">heartbeat-status</button>
+        <button onclick="runSlotAction('image-status')">image-status</button>
+        <button onclick="runGlobalAction('shared-ollama-status')">shared-ollama-status</button>
+        <button onclick="runSlotAction('shared-ollama-smoke')">shared-ollama-smoke</button>
+      </div>
+
+      <h3>Daily actions</h3>
+      <div class="form-row"><label>Model</label><input id="model" value="qwen2.5-coder:7b"></div>
+      <div class="form-row"><label>Base URL</label><input id="baseUrl" value="http://openclaw-shared-ollama:11434/v1"></div>
+      <div class="actions">
+        <button onclick="runSlotAction('gateway-refresh')">gateway-refresh</button>
+        <button onclick="runSlotAction('heartbeat-disable')">heartbeat-disable</button>
+        <button onclick="runSlotAction('heartbeat-ollama')">heartbeat-ollama</button>
+        <button onclick="runSlotAction('ollama-provider')">ollama-provider</button>
+        <button onclick="runSlotAction('ollama-default')">ollama-default</button>
+      </div>
+
+      <h3>Image release</h3>
+      <div class="form-row"><label>Image ref</label><input id="imageRef" placeholder="ghcr.io/epicevent/openclaw-nas-agent:tag"></div>
+      <div class="form-row"><label>Image</label><input id="imageName" placeholder="image name or alias"></div>
+      <div class="form-row"><label>Channel</label><input id="imageChannel" placeholder="openclaw, hermes, staging"></div>
+      <div class="form-row"><label>Range</label><input id="imageStart" value="1"><input id="imageEnd" value="20"></div>
+      <div class="form-row"><label>Confirm</label><input id="imageConfirm" placeholder="15-20"></div>
+      <div class="actions">
+        <button onclick="runGlobalAction('image-list')">image-list</button>
+        <button onclick="runGlobalAction('image-status-all')">image-status-all</button>
+        <button onclick="runGlobalAction('image-release-add')">release-add</button>
+        <button onclick="runGlobalAction('image-release-verify')">release-verify</button>
+        <button onclick="runGlobalAction('image-release-promote')">promote</button>
+        <button class="warn" onclick="runGlobalAction('image-rollout')">rollout-channel</button>
+        <button class="danger" onclick="runGlobalAction('image-rollout-range')">rollout-range</button>
+        <button class="warn" onclick="runSlotAction('image-rollout-slot')">rollout-slot</button>
+        <button class="danger" onclick="runSlotAction('image-rollback')">rollback-slot</button>
+      </div>
+
+      <h3>NAS changes</h3>
+      <div class="danger-box">
+        <div class="label">NAS changes affect data access. Confirm the slot or share before running.</div>
+        <label><input type="checkbox" id="nasUnlock" onchange="updateNasActionState()"> Enable NAS change buttons</label>
+        <div class="form-row"><label>Share</label><input id="share" placeholder="//HOST/SHARE"></div>
+        <div class="form-row"><label>Mount</label><input id="mountName" placeholder="optional mount name"></div>
+        <label><input type="checkbox" id="nasUnmount"> unmount active CIFS</label><br>
+        <label><input type="checkbox" id="deleteCredential"> delete credential</label><br>
+        <label><input type="checkbox" id="deleteEmptyDir"> delete empty mount dir</label>
+        <div class="form-row"><label>Confirm</label><input id="confirm" placeholder="slot or share"></div>
+        <div class="actions">
+          <button class="warn nas-action" onclick="runSlotAction('nas-approve-share')">approve request</button>
+          <button class="warn nas-action" onclick="runSlotAction('nas-register')">register</button>
+          <button class="danger nas-action" onclick="runSlotAction('nas-unregister')">unregister</button>
         </div>
       </div>
+    </section>
+
+    <section class="span-all">
+      <div class="toolbar between"><h2>Command output</h2><span><span class="busy">running...</span> <span id="lastRun" class="label"></span></span></div>
+      <pre id="output">No command has run yet.</pre>
     </section>
   </main>
 
   <script>
-    const CSRF = {token};
+    const CSRF = __CSRF__;
     let state = null;
     let selectedSlot = "";
 
-    function escapeHtml(value) {{
-      return String(value ?? "").replace(/[&<>"']/g, ch => ({{
-        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-      }}[ch]));
-    }}
-
-    function stateClass(value) {{
+    function esc(value) {
+      return String(value ?? "").replace(/[&<>"']/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]));
+    }
+    function cls(value) {
       const text = String(value || "").toLowerCase();
       if (["pass", "ready", "ok", "match", "active_test"].includes(text)) return "ok";
       if (["fail", "failed", "mismatch"].includes(text)) return "bad";
       if (["warn", "warning", "missing", "assigned", "paused", "turnover_needed"].includes(text)) return "warn";
       return "";
-    }}
-
-    function displayValue(value, fallback = "missing") {{
-      const text = String(value || fallback);
-      const map = {{
-        "PASS": "정상",
-        "pass": "정상",
-        "FAIL": "실패",
-        "fail": "실패",
-        "WARN": "주의",
-        "missing": "없음",
-        "ready": "준비됨",
-        "assigned": "배정됨",
-        "active_test": "테스트중",
-        "paused": "일시중지",
-        "revoked": "회수됨",
-        "turnover_needed": "초기화 필요",
-        "match": "일치",
-        "mismatch": "불일치"
-      }};
-      return map[text] || text;
-    }}
-
-    function pill(value) {{
+    }
+    function pill(value) {
       const text = String(value || "missing");
-      return `<span class="pill ${{stateClass(text)}}">${{escapeHtml(displayValue(text))}}</span>`;
-    }}
-
-    function metric(label, value, cls = "", hint = "") {{
-      return `<div class="metric"><div class="label">${{escapeHtml(label)}}</div><div class="value ${{cls}}">${{escapeHtml(value)}}</div><div class="hint">${{escapeHtml(hint)}}</div></div>`;
-    }}
-
-    function isAttention(slot) {{
-      return slot.drift_result === "FAIL"
-        || slot.drift_result === "missing"
-        || slot.gate_status === "fail"
-        || slot.status === "turnover_needed"
-        || slot.status === "paused"
-        || slot.status === "revoked";
-    }}
-
-    function updateBanner() {{
-      const drift = state.drift || {{}};
-      const baselineOk = !!(state.baseline || {{}}).match;
-      const driftOk = drift.summary === "PASS";
-      const failed = Number(state.failed_slots || 0);
-      const banner = document.getElementById("opsBanner");
-      let cls = "ok";
-      let title = "현재 운영 상태는 정상입니다.";
-      let line = "기준 버전과 drift 결과가 맞고, 실패 slot이 없습니다.";
-      if (!baselineOk || !driftOk || failed > 0) {{
-        cls = "bad";
-        title = "확인이 필요한 운영 상태가 있습니다.";
-        line = `baseline=${{baselineOk ? "일치" : "불일치"}}, drift=${{displayValue(drift.summary)}}, failed_slots=${{failed}}`;
-      }} else if ((state.ollama_status || {{}}).exit_code !== 0 || (state.usage_summary || {{}}).exit_code !== 0) {{
-        cls = "warn";
-        title = "핵심 상태는 정상이나 보조 점검이 필요합니다.";
-        line = "Ollama 또는 사용량 확인 명령을 다시 확인하세요.";
-      }}
-      banner.className = `banner ${{cls}}`;
-      banner.querySelector(".banner-title").textContent = title;
-      banner.querySelector(".banner-line").textContent = line;
-    }}
-
-    async function fetchJson(url, options = {{}}) {{
+      const kind = cls(text);
+      return `<span class="pill ${kind}">${esc(text)}</span>`;
+    }
+    function metric(label, value, kind = "", hint = "") {
+      return `<div class="metric"><div class="label">${esc(label)}</div><div class="value ${kind}">${esc(value)}</div><div class="hint">${esc(hint)}</div></div>`;
+    }
+    function needsAttention(slot) {
+      return ["FAIL", "missing"].includes(slot.drift_result) || slot.gate_status === "fail" || ["paused", "revoked", "turnover_needed"].includes(slot.status);
+    }
+    async function fetchJson(url, options = {}) {
       const response = await fetch(url, options);
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || response.statusText);
       return data;
-    }}
-
-    async function refreshSummary() {{
-      document.getElementById("summary").innerHTML = metric("불러오는 중", "...", "", "서버 상태를 읽고 있습니다.");
+    }
+    async function refreshSummary() {
+      document.getElementById("summary").innerHTML = metric("Loading", "...", "", "Reading server state");
       state = await fetchJson("/api/summary");
       renderSummary();
       renderSlots();
       if (!selectedSlot && state.slots.length) selectSlot(state.slots[0].slot);
-    }}
-
-    function renderSummary() {{
-      const baseline = state.baseline || {{}};
-      const drift = state.drift || {{}};
-      const ollama = state.ollama_status || {{}};
-      const usage = state.usage_summary || {{}};
-      const imageCatalog = state.image_catalog || {{}};
-      const imageCount = (imageCatalog.images || []).length;
-      const channelCount = Object.keys(imageCatalog.channels || {{}}).length;
-      const baselineValue = baseline.match ? "일치" : "불일치";
-      const failed = Number(state.failed_slots || 0);
-      const attention = state.slots.filter(isAttention).length;
-      const summary = [
-        metric("기준 버전", baselineValue, baseline.match ? "ok" : "bad", baseline.installed_commit ? baseline.installed_commit.slice(0, 12) : "설치 manifest 확인"),
-        metric("Drift", displayValue(drift.summary), drift.summary === "PASS" ? "ok" : "bad", drift.finished || "최근 리포트 없음"),
-        metric("확인 필요 슬롯", attention, attention ? "warn" : "ok", `실패 ${{failed}}개 / 전체 ${{state.slot_count || 0}}개`),
-        metric("Ollama", ollama.exit_code === 0 ? "정상" : "확인 필요", ollama.exit_code === 0 ? "ok" : "warn", "공용 로컬 모델 상태"),
-        metric("사용량 점검", usage.exit_code === 0 ? "정상" : "확인 필요", usage.exit_code === 0 ? "ok" : "warn", "최근 호출량 확인"),
-        metric("공식 이미지", imageCount ? `${{imageCount}}개` : "없음", imageCount ? "ok" : "warn", `channels=${{channelCount}}`),
-        metric("외부 연동", "대기", "muted", "그룹웨어/카카오워크 접근권 필요")
-      ];
-      document.getElementById("summary").innerHTML = summary.join("");
-      document.getElementById("refreshedAt").textContent = `갱신 ${{state.generated_at || ""}}`;
-      updateBanner();
-    }}
-
-    function renderSlots() {{
+    }
+    function renderSummary() {
+      const health = state.drift || {};
+      const baseline = state.baseline || {};
+      const ollama = state.ollama_status || {};
+      const usage = state.usage_summary || {};
+      const catalog = state.image_catalog || {};
+      const imageCount = (catalog.images || []).length;
+      const channelCount = Object.keys(catalog.channels || {}).length;
+      const attention = state.slots.filter(needsAttention).length;
+      document.getElementById("summary").innerHTML = [
+        metric("Baseline", baseline.match ? "match" : "mismatch", baseline.match ? "ok" : "bad", (baseline.installed_commit || "").slice(0, 12)),
+        metric("Health", health.summary || "missing", health.summary === "PASS" ? "ok" : "bad", health.finished || "no report"),
+        metric("Attention slots", attention, attention ? "warn-text" : "ok", `failed=${state.failed_slots || 0} / total=${state.slot_count || 0}`),
+        metric("NAS pending", state.nas_pending_requests || 0, state.nas_pending_requests ? "warn-text" : "ok", "grant policy requests"),
+        metric("Ollama", ollama.exit_code === 0 ? "ok" : "check", ollama.exit_code === 0 ? "ok" : "warn-text", "shared local model"),
+        metric("Images", imageCount || "none", imageCount ? "ok" : "warn-text", `channels=${channelCount}`),
+      ].join("");
+      document.getElementById("refreshedAt").textContent = `Updated ${state.generated_at || ""}`;
+    }
+    function renderSlots() {
       const tbody = document.getElementById("slots");
       const query = document.getElementById("slotSearch").value.trim().toLowerCase();
       const filter = document.getElementById("slotFilter").value;
-      const rows = state.slots.filter(slot => {{
-        const haystack = [slot.slot, slot.status, slot.subdomain, slot.nas_share, slot.mount_name, slot.assignee].join(" ").toLowerCase();
+      const rows = state.slots.filter(slot => {
+        const haystack = [slot.slot, slot.lane, slot.status, slot.subdomain, slot.customer_nas_live, slot.container_nas_live].join(" ").toLowerCase();
         if (query && !haystack.includes(query)) return false;
-        if (filter === "attention") return isAttention(slot);
-        if (filter === "assigned") return !!slot.assignee || slot.status === "assigned";
+        if (filter === "attention") return needsAttention(slot);
         if (filter === "ready") return slot.status === "ready";
         if (filter === "active_test") return slot.status === "active_test";
         return true;
-      }});
-      document.getElementById("slotCountLabel").textContent = `${{rows.length}} / ${{state.slots.length}} 표시`;
+      });
+      document.getElementById("slotCountLabel").textContent = `${rows.length} / ${state.slots.length}`;
       tbody.innerHTML = rows.map(slot => `
-        <tr onclick="selectSlot('${{escapeHtml(slot.slot)}}')" data-slot="${{escapeHtml(slot.slot)}}" data-selected="${{slot.slot === selectedSlot}}">
-          <td><div class="slot-name">${{escapeHtml(slot.slot)}}</div><div class="subline">${{escapeHtml(slot.assignee || "미배정")}}</div></td>
-          <td>${{pill(slot.status)}}<div class="subline">SSH ${{escapeHtml(slot.handoff_ssh || "-")}} / Token ${{escapeHtml(slot.handoff_token || "-")}}</div></td>
-          <td>${{escapeHtml(slot.subdomain)}}<div class="subline">${{escapeHtml(slot.handoff_url || "")}}</div></td>
-          <td>${{escapeHtml(slot.mount_name || "")}}<br><span class="muted">${{escapeHtml(slot.nas_share || "")}}</span></td>
-          <td>${{pill(slot.gate_status || "unknown")}}<br><span class="muted">${{escapeHtml(slot.gate_checked_at || "")}}</span></td>
-          <td>${{pill(slot.drift_result)}}</td>
-        </tr>
-      `).join("");
-      for (const row of tbody.querySelectorAll("tr")) {{
-        const slot = state.slots.find(item => item.slot === row.dataset.slot) || {{}};
-        row.dataset.attention = String(isAttention(slot));
-        row.dataset.failed = String(slot.drift_result === "FAIL" || slot.gate_status === "fail");
-      }}
-    }}
-
-    function selectSlot(slot) {{
+        <tr onclick="selectSlot('${esc(slot.slot)}')" data-selected="${slot.slot === selectedSlot}" data-attention="${needsAttention(slot)}">
+          <td><strong>${esc(slot.slot)}</strong><div class="subline">${esc(slot.slot_type || "")}</div></td>
+          <td>${esc(slot.lane || "")}<div class="subline">${esc(slot.status || "")}</div></td>
+          <td>${esc(slot.subdomain || "")}<div class="subline">${esc(slot.handoff_url || "")}</div></td>
+          <td>${esc(slot.container_nas_live || "missing")}<div class="subline">${esc(slot.customer_nas_live || "")}</div></td>
+          <td>${pill(slot.gate_status || "unknown")}<div class="subline">${esc(slot.gate_checked_at || "")}</div></td>
+          <td>${pill(slot.drift_result)}</td>
+        </tr>`).join("");
+    }
+    function selectSlot(slot) {
       selectedSlot = slot;
       renderSlots();
-      const item = state.slots.find(row => row.slot === slot) || {{}};
+      const item = state.slots.find(row => row.slot === slot) || {};
       const sourceRef = item.expected_image_source_ref ? item.expected_image_source_ref.slice(0, 12) : "-";
-      const imageFamily = item.expected_image_family || (item.image_name || "").split("-")[0] || "-";
-      document.getElementById("detailTitle").textContent = `${{slot}} 상세`;
-      document.getElementById("slotMeta").innerHTML =
-        `${{escapeHtml(item.subdomain || "")}} · ${{escapeHtml(item.nas_share || "")}} · expected ${{escapeHtml(item.expected_image_name || item.image_name || item.image_tag || "")}}`;
-      document.getElementById("slotCards").innerHTML = `
-        <div class="slot-card"><div class="label">Slot type</div><div class="value">${{escapeHtml(item.slot_type || "-")}}</div><div class="subline">${{escapeHtml(item.slot_mode || "-")}}</div></div>
-        <div class="slot-card"><div class="label">운영 상태</div><div class="value">${{pill(item.status)}}</div></div>
-        <div class="slot-card"><div class="label">Release gate</div><div class="value">${{pill(item.gate_status || "missing")}}</div><div class="subline">${{escapeHtml(item.gate_checked_at || "")}}</div></div>
-        <div class="slot-card"><div class="label">Drift</div><div class="value">${{pill(item.drift_result)}}</div><div class="subline">${{isAttention(item) ? "확인 필요" : "정상 범위"}}</div></div>
-        <div class="slot-card"><div class="label">Expected image</div><div class="value">${{escapeHtml(item.expected_image_name || item.image_name || "-")}}</div><div class="subline">${{escapeHtml(imageFamily)}} · ${{escapeHtml(item.expected_image_status || item.image_channel || "")}}</div></div>
-        <div class="slot-card"><div class="label">Source ref</div><div class="value">${{escapeHtml(sourceRef)}}</div><div class="subline">${{escapeHtml(item.expected_image_source_repo || item.expected_image_base || "")}}</div></div>
-        <div class="slot-card"><div class="label">Image check</div><div class="value">${{escapeHtml(item.actual_image_line || "-")}}</div><div class="subline">${{escapeHtml(item.expected_image_ref || item.image_tag || "")}}</div></div>
-      `;
-      document.getElementById("nasTreeMeta").textContent = "선택한 슬롯의 컨테이너 NAS 기준 경로를 불러옵니다.";
+      document.getElementById("detailTitle").textContent = `${slot} Detail`;
+      document.getElementById("slotMeta").textContent = `${item.subdomain || ""} ? lane ${item.lane || ""} ? NAS ${item.container_nas_live || item.customer_nas_live || "missing"}`;
+      document.getElementById("slotCards").innerHTML = [
+        card("Mode", item.slot_mode || "-", item.slot_type || "-"),
+        card("Status", pill(item.status), item.gate_checked_at || ""),
+        card("Health", pill(item.drift_result), needsAttention(item) ? "needs attention" : "normal"),
+        card("Expected image", item.expected_image_name || item.image_name || "-", item.expected_image_status || item.image_channel || ""),
+        card("Source ref", sourceRef, item.expected_image_source_repo || item.expected_image_base || ""),
+        card("Running image", item.actual_image_line || "-", item.expected_image_ref || item.image_tag || ""),
+      ].join("");
+      document.getElementById("nasTreeMeta").textContent = "No NAS tree loaded.";
       document.getElementById("nasTree").innerHTML = "";
-    }}
-
-    function parseKeyValueLines(output) {{
-      const meta = {{}};
-      for (const line of (output || "").split("\\n")) {{
-        const match = line.match(/^([A-Za-z0-9_]+)=(.*)$/);
-        if (match) meta[match[1]] = match[2];
-      }}
+    }
+    function card(label, value, hint = "") {
+      return `<div class="card"><div class="label">${esc(label)}</div><div class="value">${String(value).startsWith("<") ? value : esc(value)}</div><div class="hint">${esc(hint)}</div></div>`;
+    }
+    function parseKv(output) {
+      const meta = {};
+      for (const line of (output || "").split("\n")) {
+        const m = line.match(/^([A-Za-z0-9_]+)=(.*)$/);
+        if (m) meta[m[1]] = m[2];
+      }
       return meta;
-    }}
-
-    function renderNasTreeFromOutput(output) {{
-      const meta = parseKeyValueLines(output || "");
+    }
+    function renderNasTree(output) {
+      const meta = parseKv(output || "");
       const rows = [];
-      for (const line of (output || "").split("\\n")) {{
+      for (const line of (output || "").split("\n")) {
         if (!line.startsWith("TREE ")) continue;
-        try {{
-          rows.push(JSON.parse(line.slice(5)));
-        }} catch (error) {{
-          // Ignore malformed rows; raw command output remains visible in the output panel.
-        }}
-      }}
-
-      const metaEl = document.getElementById("nasTreeMeta");
-      const treeEl = document.getElementById("nasTree");
+        try { rows.push(JSON.parse(line.slice(5))); } catch (_) {}
+      }
       const status = meta.tree_status || meta.root_state || "unknown";
       const root = meta.container_root || "runtime NAS root";
-      const reported = meta.tree_entries_reported || String(rows.length);
-      const omitted = meta.tree_entries_omitted && meta.tree_entries_omitted !== "0"
-        ? ` · omitted ${{escapeHtml(meta.tree_entries_omitted)}}`
-        : "";
-      metaEl.innerHTML = `${{escapeHtml(root)}} · 상태 ${{pill(status)}} · 항목 ${{escapeHtml(reported)}}${{omitted}}`;
-
-      if (rows.length === 0) {{
-        treeEl.innerHTML = `
-          <div class="tree-row">
-            <span class="tree-status">${{escapeHtml(status)}}</span>
-            <span class="tree-meta">${{escapeHtml(meta.container_status || meta.root_state || "구조 정보 없음")}}</span>
-          </div>
-        `;
-        return;
-      }}
-
-      treeEl.innerHTML = rows.map(row => {{
+      document.getElementById("nasTreeMeta").innerHTML = `${esc(root)} ? ${pill(status)} ? entries ${esc(meta.tree_entries_reported || rows.length)}`;
+      document.getElementById("nasTree").innerHTML = rows.length ? rows.map(row => {
         const depth = Math.max(0, Math.min(Number(row.depth || 0), 8));
         const kind = row.kind || "unknown";
-        const isDir = kind === "dir" || kind === "root";
-        const parts = [];
-        if (row.view) parts.push(row.view);
-        if (row.state) parts.push(row.state);
-        if (row.mount_state) parts.push(row.mount_state);
-        if (row.fstype) parts.push(row.fstype);
-        if (row.dir_count !== undefined) parts.push(`folders ${{row.dir_count}}`);
-        if (row.file_count !== undefined) parts.push(`files ${{row.file_count}}`);
-        if (row.entry_count !== undefined) parts.push(`entries ${{row.entry_count}}`);
-        if (row.omitted) parts.push(`omitted ${{row.omitted}}`);
-        if (row.size !== undefined) parts.push(`${{row.size}} bytes`);
-        return `
-          <div class="tree-row" style="padding-left:${{depth * 18}}px">
-            <span class="${{isDir ? "tree-dir" : "tree-file"}}">${{isDir ? "[dir]" : "[file]"}}</span>
-            <span class="tree-path">${{escapeHtml(row.path || "")}}</span>
-            <span class="tree-meta">${{escapeHtml(parts.join(" | "))}}</span>
-          </div>
-        `;
-      }}).join("");
-    }}
-
-    async function loadSlotDetail() {{
+        const details = [];
+        for (const key of ["state", "view", "mount_state", "fstype", "dir_count", "file_count", "entry_count", "omitted", "size"]) {
+          if (row[key] !== undefined) details.push(`${key}=${row[key]}`);
+        }
+        return `<div class="tree-row" style="padding-left:${depth * 18}px"><span>${kind === "dir" || kind === "root" ? "[dir]" : "[file]"}</span><span>${esc(row.path || "")}</span><span class="muted">${esc(details.join(" | "))}</span></div>`;
+      }).join("") : `<div class="tree-row"><span>${esc(status)}</span><span>${esc(meta.container_status || meta.root_state || "no tree rows")}</span><span></span></div>`;
+    }
+    async function loadSlotDetail() {
       if (!selectedSlot) return;
-      setOutput("슬롯 상태를 불러오는 중입니다...");
-      const data = await fetchJson(`/api/slot?slot=${{encodeURIComponent(selectedSlot)}}`);
-      if (data.commands && data.commands["nas-tree"]) {{
-        renderNasTreeFromOutput(data.commands["nas-tree"].output);
-      }}
-      const text = Object.entries(data.commands).map(([name, result]) =>
-        `## ${{name}}\\nexit=${{result.exit_code}} duration_ms=${{result.duration_ms}}\\n${{result.output}}`
-      ).join("\\n\\n");
-      setOutput(text, "slot status");
-    }}
-
-    async function loadNasTree() {{
-      if (!selectedSlot) return;
-      await runAction(actionParams("nas-tree"));
-    }}
-
-    function actionParams(action) {{
-      return {{
-        action,
-        slot: selectedSlot,
+      setOutput("Loading slot status...");
+      const data = await fetchJson(`/api/slot?slot=${encodeURIComponent(selectedSlot)}`);
+      if (data.commands && data.commands["nas-tree"]) renderNasTree(data.commands["nas-tree"].output);
+      setOutput(Object.entries(data.commands).map(([name, result]) => `## ${name}\nexit=${result.exit_code} duration_ms=${result.duration_ms}\n${result.output}`).join("\n\n"), "slot status");
+    }
+    async function loadNasTree() { if (selectedSlot) await runAction(params("nas-tree")); }
+    function params(action) {
+      return {
+        action, slot: selectedSlot,
         model: document.getElementById("model").value,
         base_url: document.getElementById("baseUrl").value,
         share: document.getElementById("share").value,
-        mount_name: document.getElementById("mountName")?.value || "",
-        nas_unmount: !!document.getElementById("nasUnmount")?.checked,
-        delete_credential: !!document.getElementById("deleteCredential")?.checked,
-        delete_empty_dir: !!document.getElementById("deleteEmptyDir")?.checked,
+        mount_name: document.getElementById("mountName").value,
+        nas_unmount: document.getElementById("nasUnmount").checked,
+        delete_credential: document.getElementById("deleteCredential").checked,
+        delete_empty_dir: document.getElementById("deleteEmptyDir").checked,
         confirm: document.getElementById("confirm").value,
         query: document.getElementById("searchQuery").value,
         image_ref: document.getElementById("imageRef").value,
@@ -1434,88 +1120,61 @@ def html_page(csrf: str) -> str:
         image_start: document.getElementById("imageStart").value,
         image_end: document.getElementById("imageEnd").value,
         since: "24h"
-      }};
-    }}
-
-    function isNasMutation(action) {{
-      return ["nas-approve-share", "nas-register", "nas-unregister"].includes(action);
-    }}
-
-    function updateNasActionState() {{
-      const unlocked = !!document.getElementById("nasUnlock")?.checked;
-      for (const button of document.querySelectorAll(".nas-action")) {{
-        button.disabled = !unlocked || document.body.classList.contains("is-busy");
-      }}
-    }}
-
-    function setBusy(isBusy) {{
+      };
+    }
+    function updateNasActionState() {
+      const unlocked = document.getElementById("nasUnlock").checked;
+      for (const button of document.querySelectorAll(".nas-action")) button.disabled = !unlocked || document.body.classList.contains("is-busy");
+    }
+    function setBusy(isBusy) {
       document.body.classList.toggle("is-busy", isBusy);
-      for (const button of document.querySelectorAll("button")) {{
-        if (button.classList.contains("nas-action")) {{
-          continue;
-        }}
-        button.disabled = isBusy;
-      }}
+      for (const button of document.querySelectorAll("button:not(.nas-action)")) button.disabled = isBusy;
       updateNasActionState();
-    }}
-
-    async function runSlotAction(action) {{
+    }
+    async function runSlotAction(action) {
       if (!selectedSlot) return;
-      if (isNasMutation(action) && !document.getElementById("nasUnlock").checked) {{
-        setOutput("NAS 변경은 먼저 'NAS 변경 버튼 활성화'를 체크해야 실행됩니다.", action);
+      if (["nas-approve-share", "nas-register", "nas-unregister"].includes(action) && !document.getElementById("nasUnlock").checked) {
+        setOutput("Enable NAS change buttons first.", action);
         return;
-      }}
-      await runAction(actionParams(action));
-    }}
-
-    async function runGlobalAction(action) {{
-      await runAction({{
+      }
+      await runAction(params(action));
+    }
+    async function runGlobalAction(action) {
+      await runAction({
         action,
-        image_ref: document.getElementById("imageRef")?.value || "",
-        image: document.getElementById("imageName")?.value || "",
-        channel: document.getElementById("imageChannel")?.value || "",
-        image_start: document.getElementById("imageStart")?.value || "1",
-        image_end: document.getElementById("imageEnd")?.value || "20",
-        confirm: document.getElementById("imageConfirm")?.value || ""
-      }});
-    }}
-
-    async function runAction(params) {{
-      setOutput("실행 중입니다...");
+        image_ref: document.getElementById("imageRef").value,
+        image: document.getElementById("imageName").value,
+        channel: document.getElementById("imageChannel").value,
+        image_start: document.getElementById("imageStart").value || "1",
+        image_end: document.getElementById("imageEnd").value || "20",
+        confirm: document.getElementById("imageConfirm").value || ""
+      });
+    }
+    async function runAction(payload) {
+      setOutput("Running...");
       setBusy(true);
-      try {{
-        const data = await fetchJson("/api/action", {{
-          method: "POST",
-          headers: {{ "Content-Type": "application/json", "X-CSRF-Token": CSRF }},
-          body: JSON.stringify(params)
-        }});
+      try {
+        const data = await fetchJson("/api/action", {method: "POST", headers: {"Content-Type": "application/json", "X-CSRF-Token": CSRF}, body: JSON.stringify(payload)});
         const result = data.result;
-        setOutput(`exit=${{result.exit_code}} duration_ms=${{result.duration_ms}}\\n${{result.output}}`, params.action);
-        if (params.action === "nas-tree") {{
-          renderNasTreeFromOutput(result.output);
-        }}
-        if (["check", "nas-verify", "gateway-refresh", "heartbeat-disable", "heartbeat-ollama", "ollama-provider", "ollama-default", "nas-approve-share", "nas-register", "nas-unregister", "image-release-add", "image-release-verify", "image-release-promote", "image-rollout", "image-rollout-range", "image-rollout-slot", "image-rollback", "dev-slot-status", "source-mode-status", "source-mode-enable", "source-mode-disable"].includes(params.action)) {{
-          await refreshSummary();
-          if (selectedSlot) selectSlot(selectedSlot);
-        }}
-      }} catch (error) {{
-        setOutput(`ERROR: ${{error.message}}`, params.action);
-      }} finally {{
+        setOutput(`exit=${result.exit_code} duration_ms=${result.duration_ms}\n${result.output}`, payload.action);
+        if (payload.action === "nas-tree") renderNasTree(result.output);
+        if (result.exit_code === 0) await refreshSummary();
+      } catch (error) {
+        setOutput(`ERROR: ${error.message}`, payload.action);
+      } finally {
         setBusy(false);
-      }}
-    }}
-
-    function setOutput(text, label = "") {{
+      }
+    }
+    function setOutput(text, label = "") {
       document.getElementById("output").textContent = text;
       document.getElementById("lastRun").textContent = label;
-    }}
-
+    }
     updateNasActionState();
-    refreshSummary().catch(error => setOutput(`ERROR: ${{error.message}}`, "summary"));
+    refreshSummary().catch(error => setOutput(`ERROR: ${error.message}`, "summary"));
   </script>
 </body>
 </html>
-"""
+""".replace("__CSRF__", token)
 
 
 class RequestHandler(BaseHTTPRequestHandler):
@@ -1607,6 +1266,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--registry", default=DEFAULT_REGISTRY)
     parser.add_argument("--images", default=DEFAULT_IMAGES)
     parser.add_argument("--manifest", default=DEFAULT_MANIFEST)
+    parser.add_argument("--health-report", default=DEFAULT_HEALTH_REPORT)
     parser.add_argument("--drift-report", default=DEFAULT_DRIFT_REPORT)
     parser.add_argument("--actions-log", default=DEFAULT_ACTIONS_LOG)
     parser.add_argument("--control", default=DEFAULT_CONTROL)

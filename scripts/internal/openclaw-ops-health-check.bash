@@ -4,9 +4,9 @@ set -euo pipefail
 usage() {
   cat <<'USAGE'
 Usage:
-  ops-monitor.sh drift-check [--registry PATH] [--images PATH] [--control PATH] [--manifest PATH] [--report PATH]
+  ops-monitor.sh health-check [--registry PATH] [--images PATH] [--control PATH] [--manifest PATH] [--report PATH]
 
-Compares /srv/openclaw-ops/slots.yaml with live slot state.
+Reads the lane registry and live server state.
 
 Read-only:
   - does not print secrets
@@ -76,6 +76,8 @@ report = sys.argv[5]
 def unquote(value: str) -> str:
     value = value.strip()
     if value.startswith('"') and value.endswith('"'):
+        return value[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    if value.startswith("'") and value.endswith("'"):
         return value[1:-1]
     return value
 
@@ -83,34 +85,41 @@ def unquote(value: str) -> str:
 def parse_registry(path: Path):
     meta: dict[str, str] = {}
     slots: list[dict[str, str]] = []
+    if not path.exists():
+        return meta, slots
     section = "meta"
     current: dict[str, str] | None = None
-
     for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.rstrip()
+        line = raw.rstrip().lstrip("\ufeff")
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
+        indent = len(line) - len(line.lstrip(" "))
+        if stripped == "meta:":
+            section = "meta"
+            current = None
+            continue
         if stripped == "slots:":
             section = "slots"
+            current = None
             continue
-        if section == "meta" and line.startswith("  ") and ":" in stripped:
+        if section == "meta" and indent == 2 and ":" in stripped:
             key, value = stripped.split(":", 1)
             meta[key] = unquote(value)
             continue
-        if section == "slots":
-            if line.startswith("  - slot:"):
-                if current:
-                    slots.append(current)
-                current = {"slot": unquote(line.split(":", 1)[1])}
-                continue
-            if current is not None and line.startswith("    ") and not line.startswith("      ") and ":" in stripped:
-                key, value = stripped.split(":", 1)
-                current[key] = unquote(value)
-                continue
+        if section != "slots":
+            continue
+        if indent == 2 and stripped.startswith("- slot:"):
+            if current:
+                slots.append(current)
+            current = {"slot": unquote(stripped.split(":", 1)[1])}
+            continue
+        if current is not None and indent == 4 and ":" in stripped:
+            key, value = stripped.split(":", 1)
+            current[key] = unquote(value)
     if current:
         slots.append(current)
-    return meta, slots
+    return meta, sorted(slots, key=lambda item: slot_order(item.get("slot", "")))
 
 
 def parse_image_catalog(path: Path):
@@ -165,6 +174,38 @@ def parse_image_catalog(path: Path):
     return state
 
 
+def slot_order(slot: str) -> int:
+    match = re.search(r"(\d+)$", slot or "")
+    if match:
+        return int(match.group(1))
+    if slot == "dev-oc":
+        return 10_001
+    if slot == "dev-hermess":
+        return 10_002
+    return 10_999
+
+
+def infer_lane(slot: dict[str, str]) -> str:
+    name = slot.get("slot", "")
+    lane = slot.get("lane", "")
+    if lane:
+        return lane
+    if name == "dev-oc":
+        return "dev-openclaw"
+    if name == "dev-hermess":
+        return "dev-hermes"
+    legacy_channel = slot.get("image_channel", "")
+    if legacy_channel in {"openclaw", "hermes", "hold"}:
+        return legacy_channel
+    legacy_name = slot.get("image_name", "") or slot.get("image_tag", "")
+    if legacy_name.startswith("hermes-"):
+        return "hermes"
+    match = re.match(r"^oc([0-9]+)$", name)
+    if match and int(match.group(1)) >= 15:
+        return "hermes"
+    return "openclaw"
+
+
 def image_aliases(image):
     aliases = {image.get("name", ""), image.get("registry_ref", ""), image.get("runtime_ref", "")}
     aliases.update(item for item in image.get("aliases", "").split(",") if item)
@@ -181,57 +222,6 @@ def find_catalog_image(catalog, key):
     if channel_target:
         return find_catalog_image(catalog, channel_target)
     return None
-
-
-def resolve_expected_image(slot, meta, catalog):
-    if catalog.get("images"):
-        for key_name in ("image_name", "image_channel", "image_tag"):
-            value = slot.get(key_name, "")
-            image = find_catalog_image(catalog, value)
-            if image:
-                return {
-                    "source": key_name,
-                    "name": image.get("name", ""),
-                    "ref": image.get("runtime_ref") or image.get("registry_ref", ""),
-                    "digest": image.get("digest", ""),
-                    "image_id": image.get("image_id", ""),
-                    "status": image.get("status", ""),
-                    "family": image.get("family", ""),
-                    "source_repo": image.get("source_repo", ""),
-                    "source_ref": image.get("source_ref", ""),
-                    "base_image": image.get("base_image", ""),
-                    "workspace_image": image.get("workspace_image", ""),
-                    "unresolved": "",
-                }
-            if value and key_name in {"image_name", "image_channel"}:
-                return {
-                    "source": key_name,
-                    "name": value,
-                    "ref": "",
-                    "digest": "",
-                    "image_id": "",
-                    "status": "",
-                    "family": "",
-                    "source_repo": "",
-                    "source_ref": "",
-                    "base_image": "",
-                    "workspace_image": "",
-                    "unresolved": value,
-                }
-    return {
-        "source": "meta",
-        "name": meta.get("image_tag", ""),
-        "ref": meta.get("image_tag", ""),
-        "digest": "",
-        "image_id": meta.get("image_id", ""),
-        "status": "",
-        "family": "",
-        "source_repo": "",
-        "source_ref": "",
-        "base_image": "",
-        "workspace_image": "",
-        "unresolved": "",
-    }
 
 
 def run_command(args: list[str], timeout: int = 240):
@@ -266,7 +256,7 @@ def extract_mount_sources(text: str):
             match = re.match(r"(?P<key>[^=]+)=(?P<path>\S+)\s+source=(?P<source>\S+)", rest)
             if not match:
                 continue
-            entry = (match.group("path"), match.group("source"))
+            entry = f"{match.group('path')}->{match.group('source')}"
             if match.group("key") == "customer_nas_mount":
                 customer.append(entry)
             else:
@@ -281,9 +271,14 @@ def path_exists_if_readable(path: Path) -> bool | None:
         return None
 
 
+def expected_image_for_lane(catalog, lane: str):
+    if lane.startswith("dev-") or lane == "hold":
+        return None
+    return find_catalog_image(catalog, lane)
+
+
 meta, slots = parse_registry(registry)
 image_catalog = parse_image_catalog(images_path)
-expected_baseline_commit = meta.get("baseline_commit", "")
 installed_manifest = parse_key_value_file(manifest)
 installed_baseline_commit = installed_manifest.get("source_commit", "")
 started = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
@@ -291,33 +286,25 @@ lines: list[str] = []
 failures = 0
 warnings = 0
 
-lines.append(f"drift_check_started={started}")
+lines.append(f"health_check_started={started}")
 lines.append(f"registry={registry}")
 lines.append(f"image_registry={images_path}")
 lines.append(f"manifest={manifest}")
 lines.append(f"slot_count={len(slots)}")
-lines.append(f"registry_baseline_commit={expected_baseline_commit or 'missing'}")
 lines.append(f"installed_baseline_commit={installed_baseline_commit or 'missing'}")
 if not installed_baseline_commit:
     failures += 1
     lines.append("baseline_manifest=fail missing_or_unreadable")
-elif expected_baseline_commit and installed_baseline_commit != expected_baseline_commit:
-    failures += 1
-    lines.append("baseline_manifest=fail commit_mismatch")
 else:
     lines.append("baseline_manifest=pass")
 lines.append("")
 
 for slot in slots:
     name = slot.get("slot", "")
-    slot_type = slot.get("slot_type") or ("dev" if name in {"dev-oc", "dev-hermess"} else "customer")
-    slot_mode = slot.get("slot_mode") or ("source" if slot_type == "dev" else "image")
-    status = slot.get("status", "")
+    lane = infer_lane(slot)
+    slot_type = "dev" if lane.startswith("dev-") else "customer"
     subdomain = slot.get("subdomain", f"{name}.ji-tech.co.kr")
-    nas_share = slot.get("nas_share", meta.get("default_nas_share", ""))
-    mount_name = slot.get("mount_name", meta.get("default_mount_name", ""))
-    expected_host_path = f"/home/{name}/nas_docs/{mount_name}"
-    expected_image = resolve_expected_image(slot, meta, image_catalog)
+    expected_image = expected_image_for_lane(image_catalog, lane)
     source_override = Path(f"/home/{name}/openclaw/docker-compose.source.yml")
 
     slot_failed = False
@@ -343,46 +330,36 @@ for slot in slots:
             detail.append(f"source_mode={'enabled' if source_override_exists else 'disabled'}")
 
     customer_mounts, container_mounts = extract_mount_sources(check_out)
-    root_match = re.search(r"^INFO container_nas_root=(?P<root>\S+)", check_out, re.MULTILINE)
-    expected_container_root = root_match.group("root") if root_match else "/home/node/nas_docs"
-    expected_container_path = f"{expected_container_root}/{mount_name}"
-    if (expected_host_path, nas_share) not in customer_mounts:
-        slot_failed = True
-        actual = ",".join(f"{p}->{s}" for p, s in customer_mounts) or "missing"
-        detail.append(f"customer_nas=fail expected={expected_host_path}->{nas_share} actual={actual}")
-    else:
-        detail.append("customer_nas=pass")
-
-    if (expected_container_path, nas_share) not in container_mounts:
-        slot_failed = True
-        actual = ",".join(f"{p}->{s}" for p, s in container_mounts) or "missing"
-        detail.append(f"container_nas=fail expected={expected_container_path}->{nas_share} actual={actual}")
-    else:
-        detail.append("container_nas=pass")
+    detail.append(f"customer_nas_live={','.join(customer_mounts) or 'missing'}")
+    detail.append(f"container_nas_live={','.join(container_mounts) or 'missing'}")
 
     image_rc, image_out = run_command(["sudo", "-n", control, "image-status", name], timeout=60)
     image = parse_key_values(image_out)
     actual_image_id = image.get("container_image_id", "")
     actual_image_ref = image.get("container_image_ref", "")
-    expected_image_id = expected_image.get("image_id", "")
-    expected_digest = expected_image.get("digest", "")
     if image_rc != 0 or not actual_image_id:
         slot_failed = True
         detail.append(f"image=fail rc={image_rc}")
-    elif expected_image.get("unresolved"):
-        slot_failed = True
-        detail.append(f"image=fail unresolved_expected={expected_image.get('unresolved')} source={expected_image.get('source')}")
-    elif expected_image_id and actual_image_id != expected_image_id:
-        if expected_digest and expected_digest in actual_image_ref:
-            detail.append(f"image=pass expected_digest={expected_digest} actual_ref={actual_image_ref}")
-        else:
+    elif expected_image:
+        expected_image_id = expected_image.get("image_id", "")
+        expected_digest = expected_image.get("digest", "")
+        if expected_image_id and actual_image_id != expected_image_id:
+            if expected_digest and expected_digest in actual_image_ref:
+                detail.append(f"image=pass expected_digest={expected_digest} actual_ref={actual_image_ref}")
+            else:
+                slot_failed = True
+                detail.append(f"image=fail expected_id={expected_image_id} actual_id={actual_image_id} actual_ref={actual_image_ref}")
+        elif expected_digest and actual_image_ref and "@" in actual_image_ref and expected_digest not in actual_image_ref:
             slot_failed = True
-            detail.append(f"image=fail expected_id={expected_image_id} actual_id={actual_image_id} actual_ref={actual_image_ref}")
-    elif expected_digest and actual_image_ref and "@" in actual_image_ref and expected_digest not in actual_image_ref:
-        slot_failed = True
-        detail.append(f"image=fail expected_digest={expected_digest} actual_ref={actual_image_ref} actual_id={actual_image_id}")
+            detail.append(f"image=fail expected_digest={expected_digest} actual_ref={actual_image_ref} actual_id={actual_image_id}")
+        else:
+            detail.append(f"image=pass actual_ref={actual_image_ref}")
     else:
-        detail.append(f"image=pass actual_ref={actual_image_ref}")
+        if lane in {"openclaw", "hermes"}:
+            slot_warn = True
+            detail.append(f"image=warn no_channel_for_lane={lane} actual_ref={actual_image_ref}")
+        else:
+            detail.append(f"image=info lane={lane} actual_ref={actual_image_ref}")
 
     result = "FAIL" if slot_failed else "WARN" if slot_warn else "PASS"
     if slot_failed:
@@ -391,30 +368,17 @@ for slot in slots:
         warnings += 1
 
     lines.append(f"== {name} ==")
-    lines.append(f"registry_status={status}")
+    lines.append(f"slot_lane={lane}")
     lines.append(f"slot_type={slot_type}")
-    lines.append(f"slot_mode={slot_mode}")
-    lines.append(f"expected_subdomain={subdomain}")
-    lines.append(f"expected_nas={expected_host_path}->{nas_share}")
-    lines.append(f"expected_container_nas={expected_container_path}->{nas_share}")
-    lines.append(f"expected_image_source={expected_image.get('source', '')}")
-    lines.append(f"expected_image_name={expected_image.get('name', '') or 'missing'}")
-    if expected_image.get("family"):
-        lines.append(f"expected_image_family={expected_image.get('family')}")
-    if expected_image.get("source_repo"):
-        lines.append(f"expected_image_source_repo={expected_image.get('source_repo')}")
-    if expected_image.get("source_ref"):
-        lines.append(f"expected_image_source_ref={expected_image.get('source_ref')}")
-    if expected_image.get("base_image"):
-        lines.append(f"expected_image_base={expected_image.get('base_image')}")
-    if expected_image.get("workspace_image"):
-        lines.append(f"expected_image_workspace={expected_image.get('workspace_image')}")
-    lines.append(f"expected_image_ref={expected_image.get('ref', '') or 'missing'}")
-    lines.append(f"expected_image_id={expected_image.get('image_id', '') or 'missing'}")
-    if expected_image.get("digest"):
-        lines.append(f"expected_image_digest={expected_image.get('digest')}")
-    if expected_image.get("status"):
-        lines.append(f"expected_image_status={expected_image.get('status')}")
+    lines.append(f"host={subdomain}")
+    if expected_image:
+        lines.append(f"expected_image_name={expected_image.get('name', '')}")
+        lines.append(f"expected_image_ref={expected_image.get('runtime_ref') or expected_image.get('registry_ref', '')}")
+        lines.append(f"expected_image_id={expected_image.get('image_id', '')}")
+        if expected_image.get("digest"):
+            lines.append(f"expected_image_digest={expected_image.get('digest')}")
+    else:
+        lines.append("expected_image_name=none")
     lines.append(f"result={result}")
     for item in detail:
         lines.append(item)
@@ -422,7 +386,7 @@ for slot in slots:
 
 finished = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 summary = "FAIL" if failures else "WARN" if warnings else "PASS"
-lines.append(f"drift_check_finished={finished}")
+lines.append(f"health_check_finished={finished}")
 lines.append(f"summary={summary}")
 lines.append(f"failures={failures}")
 lines.append(f"warnings={warnings}")
