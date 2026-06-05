@@ -30,11 +30,13 @@ family, source ref, base image, and digest.
 
 ## Development Flow
 
-Developers edit the custom source repository directly.
+Developers edit the custom source repository directly. Customer slots are not
+development workspaces.
 
 ```text
 change OpenClaw source
 -> run the OpenClaw dev/build checks in that source checkout
+-> check it through the dev slot subdomain
 -> commit the source change
 -> publish a NAS Agent image from that exact source commit
 -> roll out the image to selected slots
@@ -43,6 +45,40 @@ change OpenClaw source
 
 Do not edit minified `dist/control-ui/assets/index-*.js` output as the normal
 customization path.
+
+## Dev Slots
+
+`oc1` through `oc20` are customer slots. They must run registry images only.
+They must not receive source bind mounts.
+
+Development confirmation uses separate managed slots:
+
+```text
+dev-oc
+  OpenClaw source confirmation slot
+  public host: dev-oc.ji-tech.co.kr
+  source path: /home/openclawdev/src/openclaw-jitech
+
+dev-hermess
+  Hermes source confirmation slot
+  public host: dev-hermess.ji-tech.co.kr
+  source path: /home/openclawdev/src/hermes-jitech
+```
+
+`dev-oc` and `dev-hermess` are not sudo/docker accounts. They are managed like
+customer accounts, with separate runtime users and data groups. The developer
+account `openclawdev` owns and builds source; the dev slots only expose the
+result through their containers and Apache subdomains.
+
+Source mode is only valid for dev slots:
+
+```bash
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh dev-slot-status dev-oc
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh source-mode-enable dev-oc
+sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh source-mode-disable dev-oc
+```
+
+Running source mode against an `ocN` customer slot is a configuration error.
 
 ## Image Publishing Inputs
 

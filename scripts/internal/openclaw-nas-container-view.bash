@@ -16,6 +16,9 @@ USAGE
 
 mode="${1:-}"
 shift || true
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-slot-policy.bash
+source "$script_dir/lib-slot-policy.bash"
 
 target_user=""
 query=""
@@ -57,10 +60,7 @@ if [[ "$mode" != "tree" && "$mode" != "search-smoke" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid customer user: $target_user" >&2
-  exit 2
-fi
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 if [[ ! "$max_depth" =~ ^[0-9]+$ || "$max_depth" -lt 1 || "$max_depth" -gt 5 ]]; then
   echo "error: invalid depth: $max_depth" >&2

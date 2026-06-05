@@ -80,10 +80,7 @@ if [[ -z "$share" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 if [[ ! "$share" =~ ^//[^[:space:]/,]+/[^[:space:]/,]+$ ]]; then
   echo "error: invalid CIFS share path: $share" >&2

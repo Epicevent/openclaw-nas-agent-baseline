@@ -38,11 +38,6 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user: $target_user" >&2
-  exit 2
-fi
-
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
   exit 1
@@ -50,6 +45,9 @@ fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 scripts_root="$(cd "$script_dir/.." && pwd)"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" || "$target_home" != "/home/$target_user" ]]; then
   echo "error: unexpected home for $target_user: ${target_home:-missing}" >&2

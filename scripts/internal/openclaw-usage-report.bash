@@ -21,6 +21,9 @@ target_user=""
 range_start=""
 range_end=""
 since_window="24h"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-slot-policy.bash
+source "$script_dir/lib-slot-policy.bash"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -51,10 +54,7 @@ done
 
 validate_user_name() {
   local user="$1"
-  [[ "$user" =~ ^oc[1-9][0-9]*$ ]] || {
-    echo "error: invalid customer user: $user" >&2
-    exit 2
-  }
+  openclaw_assert_managed_slot_name "$user" || exit $?
 }
 
 validate_since_window() {

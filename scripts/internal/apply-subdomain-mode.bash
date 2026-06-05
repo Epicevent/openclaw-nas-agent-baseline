@@ -95,10 +95,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/internal/lib-safe-compose.bash
 source "$script_dir/lib-safe-compose.bash"
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
   echo "error: invalid host: $host" >&2
@@ -230,6 +227,7 @@ if [[ "$recreate" -eq 1 ]]; then
   openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
   cd "$compose_dir"
   compose_args=(-f docker-compose.yml)
+  [[ -f docker-compose.source.yml ]] && compose_args+=(-f docker-compose.source.yml)
   [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
   [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
   [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)

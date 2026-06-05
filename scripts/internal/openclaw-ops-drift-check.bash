@@ -303,12 +303,15 @@ lines.append("")
 
 for slot in slots:
     name = slot.get("slot", "")
+    slot_type = slot.get("slot_type") or ("dev" if name in {"dev-oc", "dev-hermess"} else "customer")
+    slot_mode = slot.get("slot_mode") or ("source" if slot_type == "dev" else "image")
     status = slot.get("status", "")
     subdomain = slot.get("subdomain", f"{name}.ji-tech.co.kr")
     nas_share = slot.get("nas_share", meta.get("default_nas_share", ""))
     mount_name = slot.get("mount_name", meta.get("default_mount_name", ""))
     expected_host_path = f"/home/{name}/nas_docs/{mount_name}"
     expected_image = resolve_expected_image(slot, meta, image_catalog)
+    source_override = Path(f"/home/{name}/openclaw/docker-compose.source.yml")
 
     slot_failed = False
     slot_warn = False
@@ -321,6 +324,12 @@ for slot in slots:
         detail.append(f"release_gate=fail rc={check_rc} fails={','.join(fail_lines[:8])}")
     else:
         detail.append("release_gate=pass")
+
+    if slot_type == "customer" and source_override.exists():
+        slot_failed = True
+        detail.append(f"source_mode=fail forbidden_customer_source_override={source_override}")
+    elif slot_type == "dev":
+        detail.append(f"source_mode={'enabled' if source_override.exists() else 'disabled'}")
 
     customer_mounts, container_mounts = extract_mount_sources(check_out)
     root_match = re.search(r"^INFO container_nas_root=(?P<root>\S+)", check_out, re.MULTILINE)
@@ -372,6 +381,8 @@ for slot in slots:
 
     lines.append(f"== {name} ==")
     lines.append(f"registry_status={status}")
+    lines.append(f"slot_type={slot_type}")
+    lines.append(f"slot_mode={slot_mode}")
     lines.append(f"expected_subdomain={subdomain}")
     lines.append(f"expected_nas={expected_host_path}->{nas_share}")
     lines.append(f"expected_container_nas={expected_container_path}->{nas_share}")

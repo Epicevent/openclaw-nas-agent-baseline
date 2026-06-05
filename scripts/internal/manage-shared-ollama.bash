@@ -70,7 +70,7 @@ validate_since_window() {
 }
 
 validate_user() {
-  [[ "$1" =~ ^oc[1-9][0-9]*$ ]] || die "invalid user: $1"
+  openclaw_assert_managed_slot_name "$1" >/dev/null || die "invalid user: $1"
 }
 
 docker_since_window() {
@@ -154,7 +154,7 @@ print_usage() {
   docker logs --timestamps --since "$docker_since" "$container_name" >"$tmp_logs" 2>&1 || true
 
   while IFS= read -r container; do
-    [[ "$container" =~ ^openclaw-(oc[0-9]+)-openclaw-gateway-1$ ]] || continue
+    [[ "$container" =~ ^openclaw-(oc[0-9]+|dev-oc|dev-hermess)-openclaw-gateway-1$ ]] || continue
     user="${BASH_REMATCH[1]}"
     if [[ -n "$target_user" && "$user" != "$target_user" ]]; then
       continue

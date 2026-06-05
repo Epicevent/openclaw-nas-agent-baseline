@@ -81,14 +81,12 @@ if [[ ! -d "$openclaw_dir" ]]; then
 fi
 
 if [[ "$user_arg" -eq 1 ]]; then
-  if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-    echo "error: invalid user name: $target_user" >&2
-    exit 2
-  fi
+  openclaw_assert_managed_slot_name "$target_user" || exit $?
   openclaw_assert_safe_compose_dir "$target_user" "$openclaw_dir"
 fi
 
 compose_args=(-f docker-compose.yml)
+[[ -f "$openclaw_dir/docker-compose.source.yml" ]] && compose_args+=(-f docker-compose.source.yml)
 [[ -f "$openclaw_dir/docker-compose.extra.yml" ]] && compose_args+=(-f docker-compose.extra.yml)
 [[ -f "$openclaw_dir/docker-compose.host-user.yml" ]] && compose_args+=(-f docker-compose.host-user.yml)
 [[ -f "$openclaw_dir/docker-compose.shared-ollama.yml" ]] && compose_args+=(-f docker-compose.shared-ollama.yml)

@@ -38,6 +38,11 @@ Usage:
   svcops-control.sh image-rollout-slot USER IMAGE
   svcops-control.sh image-rollback USER
   svcops-control.sh hermes-install USER IMAGE
+  svcops-control.sh dev-slot-install USER openclaw|hermes [IMAGE]
+  svcops-control.sh dev-slot-status USER
+  svcops-control.sh source-mode-enable USER
+  svcops-control.sh source-mode-disable USER
+  svcops-control.sh source-mode-status USER
   svcops-control.sh usage USER [SINCE]
   svcops-control.sh usage-all START END [SINCE]
   svcops-control.sh shared-ollama-status
@@ -82,14 +87,32 @@ container_findmnt_exact_line() {
 
 validate_user() {
   local user="$1"
-  if [[ ! "$user" =~ ^oc[1-9][0-9]*$ ]]; then
-    echo "error: invalid customer user: $user" >&2
+  if ! openclaw_is_managed_slot "$user"; then
+    echo "error: invalid managed slot: $user" >&2
     exit 2
   fi
   if ! id "$user" >/dev/null 2>&1; then
     echo "error: user not found: $user" >&2
     exit 1
   fi
+}
+
+validate_customer_slot() {
+  local user="$1"
+  if ! openclaw_is_customer_slot "$user"; then
+    echo "error: command requires customer slot ocN, got: $user" >&2
+    exit 2
+  fi
+  validate_user "$user"
+}
+
+validate_dev_slot() {
+  local user="$1"
+  if ! openclaw_is_dev_slot "$user"; then
+    echo "error: command requires dev slot dev-oc or dev-hermess, got: $user" >&2
+    exit 2
+  fi
+  validate_user "$user"
 }
 
 validate_host() {
@@ -676,6 +699,7 @@ compose_files() {
     runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$compose_dir/.env" 2>/dev/null || true)"
   fi
   printf '%s\n' -f docker-compose.yml
+  [[ -f "$compose_dir/docker-compose.source.yml" ]] && printf '%s\n' -f docker-compose.source.yml
   if [[ "$runtime_family" == "hermes" ]]; then
     return 0
   fi
@@ -812,6 +836,159 @@ verify_nas_and_refresh_if_needed() {
   if printf '%s\n' "$output" | grep -q '^FAIL '; then
     return 1
   fi
+}
+
+ensure_dev_slot_accounts() {
+  local target_user="$1" runtime_user data_group target_home
+  openclaw_assert_dev_slot_name "$target_user" || return $?
+  runtime_user="${target_user}_rt"
+  data_group="${target_user}_data"
+
+  if ! id "$target_user" >/dev/null 2>&1; then
+    useradd -m -s /bin/bash "$target_user"
+  fi
+  target_home="$(customer_home "$target_user")"
+  [[ "$target_home" == "/home/$target_user" ]] || {
+    echo "error: unexpected home for $target_user: ${target_home:-missing}" >&2
+    return 1
+  }
+
+  if ! getent group "$data_group" >/dev/null; then
+    groupadd "$data_group"
+  fi
+  if ! id "$runtime_user" >/dev/null 2>&1; then
+    useradd --system --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin "$runtime_user"
+  fi
+  usermod -aG "$data_group" "$runtime_user"
+  gpasswd -d "$target_user" docker >/dev/null 2>&1 || true
+  gpasswd -d "$target_user" sudo >/dev/null 2>&1 || true
+  chown "$target_user:$target_user" "$target_home"
+  chmod 0750 "$target_home"
+
+  echo "target_user=$target_user"
+  echo "slot_kind=dev"
+  echo "target_home=$target_home"
+  echo "runtime_user=$runtime_user"
+  echo "data_group=$data_group"
+  echo "sudo_group=absent"
+  echo "docker_group=absent"
+}
+
+dev_slot_install() {
+  local target_user="$1" family="$2" image="${3:-}" host gateway_port bridge_port expected_family
+  openclaw_assert_dev_slot_name "$target_user" || return $?
+  ensure_dev_slot_accounts "$target_user"
+  case "$family" in
+    openclaw|hermes) ;;
+    *) echo "error: family must be openclaw or hermes" >&2; return 2 ;;
+  esac
+  expected_family="$(openclaw_slot_default_family "$target_user")"
+  if [[ "$family" != "$expected_family" ]]; then
+    echo "error: $target_user is reserved for family=$expected_family, got=$family" >&2
+    return 2
+  fi
+  host="$target_user.ji-tech.co.kr"
+  gateway_port="$(openclaw_slot_default_gateway_port "$target_user")"
+  bridge_port="$(openclaw_slot_default_bridge_port "$target_user")"
+  if [[ "$family" == "hermes" ]]; then
+    image="${image:-${OPENCLAW_DEV_HERMES_IMAGE:-}}"
+    [[ -n "$image" ]] || { echo "error: Hermes dev image is required as arg3 or OPENCLAW_DEV_HERMES_IMAGE" >&2; return 2; }
+    bash "$script_dir/internal/install-hermes-slot-from-image.bash" \
+      --user "$target_user" \
+      --host "$host" \
+      --image "$image" \
+      --gateway-port "$gateway_port" \
+      --force
+  else
+    image="${image:-${OPENCLAW_DEV_OPENCLAW_IMAGE:-openclaw-nas-agent:baseline}}"
+    bash "$script_dir/internal/install-customer-slot-from-image.bash" \
+      --user "$target_user" \
+      --host "$host" \
+      --image "$image" \
+      --gateway-port "$gateway_port" \
+      --bridge-port "$bridge_port" \
+      --force \
+      --check
+  fi
+}
+
+source_mode_status() {
+  local target_user="$1" target_home compose_dir source_path artifact_path container_path override_path runtime_family
+  validate_dev_slot "$target_user"
+  target_home="$(customer_home "$target_user")"
+  compose_dir="$target_home/openclaw"
+  override_path="$compose_dir/docker-compose.source.yml"
+  runtime_family="$(slot_runtime_family "$target_user")"
+  source_path="$(openclaw_dev_source_path "$target_user")"
+  artifact_path="$(openclaw_dev_source_artifact_path "$target_user")"
+  container_path="$(openclaw_dev_source_container_path "$target_user")"
+  echo "target_user=$target_user"
+  echo "slot_kind=dev"
+  echo "runtime_family=$runtime_family"
+  echo "source_path=$source_path"
+  echo "source_path_state=$([[ -d "$source_path" ]] && echo present || echo missing)"
+  echo "artifact_path=$artifact_path"
+  echo "artifact_path_state=$([[ -e "$artifact_path" ]] && echo present || echo missing)"
+  echo "container_path=$container_path"
+  echo "source_override=$override_path"
+  echo "source_mode=$([[ -f "$override_path" ]] && echo enabled || echo disabled)"
+}
+
+source_mode_enable() {
+  local target_user="$1" target_home compose_dir source_path artifact_path container_path override_path runtime_family
+  validate_dev_slot "$target_user"
+  target_home="$(customer_home "$target_user")"
+  compose_dir="$target_home/openclaw"
+  source_path="$(openclaw_dev_source_path "$target_user")"
+  artifact_path="$(openclaw_dev_source_artifact_path "$target_user")"
+  container_path="$(openclaw_dev_source_container_path "$target_user")"
+  override_path="$compose_dir/docker-compose.source.yml"
+  runtime_family="$(slot_runtime_family "$target_user")"
+
+  [[ -d "$compose_dir" ]] || { echo "FAIL compose_dir_missing=$compose_dir"; return 1; }
+  [[ -d "$source_path" ]] || { echo "FAIL source_path_missing=$source_path"; return 1; }
+  [[ -e "$artifact_path" ]] || { echo "FAIL source_artifact_missing=$artifact_path"; return 1; }
+  openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" || return 1
+
+  if [[ "$target_user" == "dev-oc" ]]; then
+    cat > "$override_path" <<EOF
+services:
+  openclaw-gateway:
+    volumes:
+      - $artifact_path:$container_path:ro
+  openclaw-cli:
+    volumes:
+      - $artifact_path:$container_path:ro
+EOF
+  else
+    cat > "$override_path" <<EOF
+services:
+  openclaw-gateway:
+    volumes:
+      - $source_path:$container_path:ro
+EOF
+  fi
+  chown root:root "$override_path"
+  chmod 0644 "$override_path"
+  echo "source_mode=enabled"
+  echo "target_user=$target_user"
+  echo "runtime_family=$runtime_family"
+  echo "source_path=$source_path"
+  echo "artifact_path=$artifact_path"
+  echo "container_path=$container_path"
+  refresh_gateway "$target_user"
+}
+
+source_mode_disable() {
+  local target_user="$1" target_home compose_dir override_path
+  validate_dev_slot "$target_user"
+  target_home="$(customer_home "$target_user")"
+  compose_dir="$target_home/openclaw"
+  override_path="$compose_dir/docker-compose.source.yml"
+  [[ -e "$override_path" ]] && rm -f "$override_path"
+  echo "source_mode=disabled"
+  echo "target_user=$target_user"
+  refresh_gateway "$target_user"
 }
 
 command_name="${1:-}"
@@ -1331,25 +1508,59 @@ container_image_workspace={{with .Config.Labels}}{{index . "org.opencontainers.i
   image-rollout-slot)
     [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
-    validate_user "$target_user"
+    validate_customer_slot "$target_user"
     python3 "$script_dir/openclaw-image-release-control.py" rollout-slot "$target_user" "$2"
     ;;
 
   image-rollback)
     [[ $# -eq 1 ]] || { usage >&2; exit 2; }
     target_user="$1"
-    validate_user "$target_user"
+    validate_customer_slot "$target_user"
     python3 "$script_dir/openclaw-image-release-control.py" rollback "$target_user"
     ;;
 
   hermes-install)
     [[ $# -eq 2 ]] || { usage >&2; exit 2; }
     target_user="$1"
-    validate_user "$target_user"
+    validate_customer_slot "$target_user"
     bash "$script_dir/internal/install-hermes-slot-from-image.bash" \
       --user "$target_user" \
       --image "$2" \
       --force
+    ;;
+
+  dev-slot-install)
+    [[ $# -ge 2 && $# -le 3 ]] || { usage >&2; exit 2; }
+    dev_slot_install "$1" "$2" "${3:-}"
+    ;;
+
+  dev-slot-status)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    target_user="$1"
+    validate_dev_slot "$target_user"
+    echo "target_user=$target_user"
+    echo "slot_kind=dev"
+    echo "default_family=$(openclaw_slot_default_family "$target_user")"
+    echo "target_home=$(customer_home "$target_user")"
+    echo "gateway_port=$(openclaw_slot_default_gateway_port "$target_user")"
+    echo "bridge_port=$(openclaw_slot_default_bridge_port "$target_user")"
+    id "$target_user"
+    source_mode_status "$target_user"
+    ;;
+
+  source-mode-enable)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    source_mode_enable "$1"
+    ;;
+
+  source-mode-disable)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    source_mode_disable "$1"
+    ;;
+
+  source-mode-status)
+    [[ $# -eq 1 ]] || { usage >&2; exit 2; }
+    source_mode_status "$1"
     ;;
 
   usage)
