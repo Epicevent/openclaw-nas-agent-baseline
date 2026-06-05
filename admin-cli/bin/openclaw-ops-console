@@ -27,7 +27,7 @@ DEFAULT_MAX_OUTPUT_BYTES = 32 * 1024
 DEFAULT_BASE_URL = "http://openclaw-shared-ollama:11434/v1"
 DEFAULT_OLLAMA_MODEL = "qwen2.5-coder:7b"
 
-SLOT_RE = re.compile(r"^oc[1-9][0-9]*$")
+SLOT_RE = re.compile(r"^(oc[1-9][0-9]*|dev-oc|dev-hermess)$")
 SHARE_RE = re.compile(r"^//[^\s/,]+/[^\s/,]+$")
 MOUNT_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:+/\-]{0,127}$")
@@ -232,7 +232,7 @@ def parse_drift_report(path: Path) -> dict[str, Any]:
             if key in top_level_keys:
                 top[key] = value
                 continue
-        match = re.match(r"^==\s+(oc[0-9]+)\s+==$", stripped)
+        match = re.match(r"^==\s+((?:oc[0-9]+)|dev-oc|dev-hermess)\s+==$", stripped)
         if match:
             current = match.group(1)
             slots[current] = {"lines": []}
@@ -447,7 +447,7 @@ def host_for_slot(slot: str, registry_slots: list[dict[str, str]], base_domain: 
 def extract_requested_share(text: str, slot: str) -> str:
     in_slot = False
     for line in text.splitlines():
-        match = re.match(r"^==\s+(oc[0-9]+)\s+==$", line.strip())
+        match = re.match(r"^==\s+((?:oc[0-9]+)|dev-oc|dev-hermess)\s+==$", line.strip())
         if match:
             in_slot = match.group(1) == slot
             continue
@@ -486,9 +486,12 @@ class OpsConsole:
         for slot in slots:
             name = slot.get("slot", "")
             drift_slot = drift_slots.get(name, {})
+            slot_type = "dev" if name in {"dev-oc", "dev-hermess"} else "customer"
             merged_slots.append(
                 {
                     "slot": name,
+                    "slot_type": slot.get("slot_type", slot_type),
+                    "slot_mode": slot.get("slot_mode", "source" if slot_type == "dev" else "image"),
                     "status": slot.get("status", ""),
                     "assignee": slot.get("assignee", ""),
                     "subdomain": slot.get("subdomain", ""),
@@ -597,6 +600,10 @@ class OpsConsole:
             "nas-unregister",
             "image-rollout-slot",
             "image-rollback",
+            "dev-slot-status",
+            "source-mode-status",
+            "source-mode-enable",
+            "source-mode-disable",
         }:
             slot = valid_slot(slot)
 
@@ -644,6 +651,14 @@ class OpsConsole:
             return ["image-rollout-slot", slot, valid_image(image)], 300
         if action == "image-rollback":
             return ["image-rollback", slot], 300
+        if action == "dev-slot-status":
+            return ["dev-slot-status", slot], 90
+        if action == "source-mode-status":
+            return ["source-mode-status", slot], 90
+        if action == "source-mode-enable":
+            return ["source-mode-enable", slot], 240
+        if action == "source-mode-disable":
+            return ["source-mode-disable", slot], 240
         if action == "shared-ollama-status":
             return ["shared-ollama-status"], 60
         if action == "shared-ollama-smoke":
@@ -1083,6 +1098,8 @@ def html_page(csrf: str) -> str:
             <button onclick="runSlotAction('usage')">사용량</button>
             <button onclick="runSlotAction('heartbeat-status')">하트비트</button>
             <button onclick="runSlotAction('image-status')">이미지</button>
+            <button onclick="runSlotAction('dev-slot-status')">dev-slot</button>
+            <button onclick="runSlotAction('source-mode-status')">source-status</button>
             <button onclick="runGlobalAction('shared-ollama-status')">공용 Ollama</button>
             <button onclick="runSlotAction('shared-ollama-smoke')">Ollama 테스트</button>
           </div>
@@ -1097,6 +1114,8 @@ def html_page(csrf: str) -> str:
             <button onclick="runSlotAction('heartbeat-ollama')">하트비트 Ollama</button>
             <button onclick="runSlotAction('ollama-provider')">Ollama 추가</button>
             <button onclick="runSlotAction('ollama-default')">기본 모델 Ollama</button>
+            <button class="warn" onclick="runSlotAction('source-mode-enable')">source-enable</button>
+            <button class="warn" onclick="runSlotAction('source-mode-disable')">source-disable</button>
           </div>
         </div>
         <div class="action-group">
@@ -1301,6 +1320,7 @@ def html_page(csrf: str) -> str:
       document.getElementById("slotMeta").innerHTML =
         `${{escapeHtml(item.subdomain || "")}} · ${{escapeHtml(item.nas_share || "")}} · expected ${{escapeHtml(item.expected_image_name || item.image_name || item.image_tag || "")}}`;
       document.getElementById("slotCards").innerHTML = `
+        <div class="slot-card"><div class="label">Slot type</div><div class="value">${{escapeHtml(item.slot_type || "-")}}</div><div class="subline">${{escapeHtml(item.slot_mode || "-")}}</div></div>
         <div class="slot-card"><div class="label">운영 상태</div><div class="value">${{pill(item.status)}}</div></div>
         <div class="slot-card"><div class="label">Release gate</div><div class="value">${{pill(item.gate_status || "missing")}}</div><div class="subline">${{escapeHtml(item.gate_checked_at || "")}}</div></div>
         <div class="slot-card"><div class="label">Drift</div><div class="value">${{pill(item.drift_result)}}</div><div class="subline">${{isAttention(item) ? "확인 필요" : "정상 범위"}}</div></div>
@@ -1474,7 +1494,7 @@ def html_page(csrf: str) -> str:
         if (params.action === "nas-tree") {{
           renderNasTreeFromOutput(result.output);
         }}
-        if (["check", "nas-verify", "gateway-refresh", "heartbeat-disable", "heartbeat-ollama", "ollama-provider", "ollama-default", "nas-approve-share", "nas-register", "nas-unregister", "image-release-add", "image-release-verify", "image-release-promote", "image-rollout", "image-rollout-range", "image-rollout-slot", "image-rollback"].includes(params.action)) {{
+        if (["check", "nas-verify", "gateway-refresh", "heartbeat-disable", "heartbeat-ollama", "ollama-provider", "ollama-default", "nas-approve-share", "nas-register", "nas-unregister", "image-release-add", "image-release-verify", "image-release-promote", "image-rollout", "image-rollout-range", "image-rollout-slot", "image-rollback", "dev-slot-status", "source-mode-status", "source-mode-enable", "source-mode-disable"].includes(params.action)) {{
           await refreshSummary();
           if (selectedSlot) selectSlot(selectedSlot);
         }}

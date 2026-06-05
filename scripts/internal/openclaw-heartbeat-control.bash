@@ -18,6 +18,8 @@ USAGE
 }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-slot-policy.bash
+source "$script_dir/lib-slot-policy.bash"
 source "$script_dir/lib-safe-compose.bash"
 
 command_name="${1:-}"
@@ -52,10 +54,7 @@ done
 
 validate_user_name() {
   local user="$1"
-  [[ "$user" =~ ^oc[1-9][0-9]*$ ]] || {
-    echo "error: invalid customer user: $user" >&2
-    exit 2
-  }
+  openclaw_assert_managed_slot_name "$user" || exit $?
 }
 
 customer_home() {

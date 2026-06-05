@@ -15,6 +15,7 @@ Options:
   --image IMAGE         Integrated Hermes image ref. Required.
   --host HOST           Public subdomain. Default: USER.BASE_DOMAIN.
   --base-domain NAME    Base domain. Default: ji-tech.co.kr.
+  --gateway-port PORT   Backend dashboard host port. Default: slot policy.
   --force               Replace existing containers.
   --local-only-dashboard
                         Do not expose Hermes Workspace through Apache.
@@ -28,6 +29,7 @@ target_user=""
 image=""
 host=""
 base_domain="${OPENCLAW_BASE_DOMAIN:-ji-tech.co.kr}"
+gateway_port=""
 force=0
 local_only_dashboard=0
 
@@ -47,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --base-domain)
       base_domain="${2:?missing --base-domain value}"
+      shift 2
+      ;;
+    --gateway-port)
+      gateway_port="${2:?missing --gateway-port value}"
       shift 2
       ;;
     --force)
@@ -75,11 +81,6 @@ if [[ -z "$target_user" || -z "$image" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
-
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
   exit 1
@@ -88,6 +89,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/internal/lib-safe-compose.bash
 source "$script_dir/lib-safe-compose.bash"
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" || "$target_home" != "/home/$target_user" ]]; then
@@ -102,8 +104,8 @@ data_group="${target_user}_data"
 compose_dir="$target_home/openclaw"
 hermes_home="$target_home/.hermes"
 nas_mount="$target_home/nas_docs"
-slot="${target_user#oc}"
-workspace_port=$((28789 + (slot - 1) * 100))
+workspace_port="${gateway_port:-$(openclaw_slot_default_gateway_port "$target_user")}"
+openclaw_validate_port "$workspace_port" gateway_port || exit $?
 container="openclaw-${target_user}-openclaw-gateway-1"
 legacy_workspace_container="openclaw-${target_user}-hermes-workspace-1"
 cli_container="openclaw-${target_user}-openclaw-cli-1"
@@ -448,7 +450,9 @@ fi
 
 (
   cd "$compose_dir"
-  docker compose -f docker-compose.yml up -d --force-recreate openclaw-gateway
+  compose_args=(-f docker-compose.yml)
+  [[ -f docker-compose.source.yml ]] && compose_args+=(-f docker-compose.source.yml)
+  docker compose "${compose_args[@]}" up -d --force-recreate openclaw-gateway
 )
 
 docker ps --filter "name=^/${container}$" --format 'container={{.Names}} status={{.Status}}'

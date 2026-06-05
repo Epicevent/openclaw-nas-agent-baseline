@@ -149,7 +149,7 @@ check_data_group_isolation() {
     id "$account" >/dev/null 2>&1 || continue
     while read -r group; do
       [[ -n "$group" ]] || continue
-      if [[ "$group" =~ ^oc[1-9][0-9]*_data$ && "$group" != "$own_group" ]]; then
+      if [[ "$group" =~ ^(oc[1-9][0-9]*|dev-(oc|hermess))_data$ && "$group" != "$own_group" ]]; then
         echo "INFO cross_tenant_group_leak account=$account group=$group"
         leaked=1
       fi

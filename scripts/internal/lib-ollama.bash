@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+openclaw_ollama_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-slot-policy.bash
+source "$openclaw_ollama_lib_dir/lib-slot-policy.bash"
+
 openclaw_ollama_container_name() {
   printf '%s' "${OPENCLAW_SHARED_OLLAMA_CONTAINER:-openclaw-shared-ollama}"
 }
@@ -78,10 +82,7 @@ openclaw_write_shared_ollama_compose_override() {
   local target_user="$1" compose_dir="$2"
   local network tmp out
 
-  [[ "$target_user" =~ ^oc[1-9][0-9]*$ ]] || {
-    echo "error: invalid user: $target_user" >&2
-    return 1
-  }
+  openclaw_assert_managed_slot_name "$target_user" || return $?
   [[ -d "$compose_dir" ]] || {
     echo "error: compose dir missing: $compose_dir" >&2
     return 1

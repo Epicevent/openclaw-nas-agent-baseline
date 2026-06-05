@@ -125,10 +125,7 @@ if [[ -z "$target_user" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 case "$mode" in
   subdomain|path) ;;
@@ -180,8 +177,8 @@ fi
 if [[ -z "$port" ]]; then
   container="openclaw-${target_user}-openclaw-gateway-1"
   port="$(docker port "$container" 18789/tcp 2>/dev/null | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p' | head -1 || true)"
-  if [[ -z "$port" && "$target_user" =~ ^oc([0-9]+)$ ]]; then
-    port=$((28789 + (${BASH_REMATCH[1]} - 1) * 100))
+  if [[ -z "$port" ]]; then
+    port="$(openclaw_slot_default_gateway_port "$target_user" 2>/dev/null || true)"
   fi
 fi
 

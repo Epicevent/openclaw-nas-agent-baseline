@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+openclaw_safe_compose_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-slot-policy.bash
+source "$openclaw_safe_compose_dir/lib-slot-policy.bash"
+
 openclaw_safe_fail() {
   echo "FAIL $1" >&2
   [[ $# -gt 1 ]] && shift && printf '%s\n' "$@" >&2
@@ -14,7 +18,7 @@ openclaw_assert_managed_slot_prewrite() {
   local target_user="$1"
   local target_home expected_home path resolved owner group runtime_user
 
-  [[ "$target_user" =~ ^oc[1-9][0-9]*$ ]] \
+  openclaw_assert_managed_slot_name "$target_user" >/dev/null \
     || openclaw_safe_fail "managed_slot_invalid_user=$target_user" || return 1
 
   target_home="$(openclaw_target_home "$target_user")"
@@ -247,8 +251,11 @@ openclaw_assert_safe_compose_dir() {
     openclaw_assert_root_owned_file "$compose_dir/$required" "compose_file" || return 1
   done
 
-  for optional in docker-compose.extra.yml docker-compose.shared-ollama.yml docker-compose.sandbox.yml; do
+  for optional in docker-compose.extra.yml docker-compose.shared-ollama.yml docker-compose.sandbox.yml docker-compose.source.yml; do
     if [[ -e "$compose_dir/$optional" ]]; then
+      if [[ "$optional" == "docker-compose.source.yml" ]] && ! openclaw_is_dev_slot "$target_user"; then
+        openclaw_safe_fail "compose_source_override_forbidden_for_customer=$compose_dir/$optional" || return 1
+      fi
       openclaw_assert_root_owned_file "$compose_dir/$optional" "compose_file" || return 1
     fi
   done

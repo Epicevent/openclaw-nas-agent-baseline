@@ -78,10 +78,10 @@ if [[ -z "$target_user" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/internal/lib-safe-compose.bash
+source "$script_dir/lib-safe-compose.bash"
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 if [[ -n "$mount_name" && ( "$mount_name" == "." || "$mount_name" == ".." || ! "$mount_name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ) ]]; then
   echo "error: invalid mount name: $mount_name" >&2

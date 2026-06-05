@@ -24,6 +24,8 @@ Options:
   --compose-dir DIR     Compose dir. Default: /home/USER/openclaw.
   --runtime-user USER   Runtime account. Default: USER_rt.
   --data-group GROUP    NAS shared group. Default: USER_data.
+  --gateway-port PORT   Backend gateway host port. Default: slot policy.
+  --bridge-port PORT    Backend bridge host port. Default: gateway port + 1.
   --skip-nas-check      Do not require a CIFS mount under /home/USER/nas_docs.
   --no-apache-conf      Do not write /home/USER/openclaw/deploy/apache-subdomain-USER.conf.
   --force               Replace existing compose files and target containers.
@@ -40,6 +42,8 @@ image="${OPENCLAW_IMAGE:-openclaw-nas-agent:baseline}"
 compose_dir=""
 runtime_user=""
 data_group=""
+gateway_port=""
+bridge_port=""
 skip_nas_check=0
 write_apache=1
 force=0
@@ -73,6 +77,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --data-group)
       data_group="${2:?missing --data-group value}"
+      shift 2
+      ;;
+    --gateway-port)
+      gateway_port="${2:?missing --gateway-port value}"
+      shift 2
+      ;;
+    --bridge-port)
+      bridge_port="${2:?missing --bridge-port value}"
       shift 2
       ;;
     --skip-nas-check)
@@ -109,11 +121,6 @@ if [[ -z "$target_user" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
-
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
   exit 1
@@ -122,6 +129,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/internal/lib-safe-compose.bash
 source "$script_dir/lib-safe-compose.bash"
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
   echo "error: user not found: $target_user" >&2
@@ -148,9 +156,11 @@ if [[ ! "$host" =~ ^[A-Za-z0-9][A-Za-z0-9.-]*[A-Za-z0-9]$ ]]; then
   exit 2
 fi
 
-slot="${target_user#oc}"
-gateway_port=$((28789 + (slot - 1) * 100))
-bridge_port=$((gateway_port + 1))
+slot="$(openclaw_slot_number "$target_user" 2>/dev/null || printf '%s' "$target_user")"
+gateway_port="${gateway_port:-$(openclaw_slot_default_gateway_port "$target_user")}"
+bridge_port="${bridge_port:-$(openclaw_slot_default_bridge_port "$target_user")}"
+openclaw_validate_port "$gateway_port" gateway_port || exit $?
+openclaw_validate_port "$bridge_port" bridge_port || exit $?
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   echo "error: image not found: $image" >&2
@@ -443,6 +453,7 @@ openclaw_assert_safe_compose_dir "$target_user" "$compose_dir"
   cd "$compose_dir"
   export COMPOSE_PROJECT_NAME="openclaw-$target_user"
   compose_args=(-f docker-compose.yml)
+  [[ -f docker-compose.source.yml ]] && compose_args+=(-f docker-compose.source.yml)
   [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
   [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
   [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)

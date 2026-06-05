@@ -81,11 +81,6 @@ if [[ -z "$target_user" || -z "$env_file" ]]; then
   exit 2
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
-
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "error: run with sudo/root" >&2
   exit 1
@@ -94,6 +89,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/internal/lib-safe-compose.bash
 source "$script_dir/lib-safe-compose.bash"
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 
 target_home="$(getent passwd "$target_user" | cut -d: -f6)"
 if [[ -z "$target_home" ]]; then
@@ -362,6 +358,7 @@ if [[ "$restart_gateway" -eq 1 ]]; then
     cd "$compose_dir"
     export COMPOSE_PROJECT_NAME="openclaw-$target_user"
     compose_args=(-f docker-compose.yml)
+    [[ -f docker-compose.source.yml ]] && compose_args+=(-f docker-compose.source.yml)
     if [[ "$runtime_family" != "hermes" ]]; then
       [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
       [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)

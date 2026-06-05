@@ -1,5 +1,11 @@
 # OpenClaw NAS Agent Baseline
 
+`oc1`부터 `oc20`까지는 고객 슬롯이며 registry image digest로만 운영한다.
+소스 확인은 별도 dev 슬롯인 `dev-oc`, `dev-hermess`에서만 한다. 두 dev
+슬롯은 고객 계정처럼 sudo/docker 권한이 없지만, source mode를 켜서 실제
+컨테이너와 Apache subdomain 기준으로 커스텀 소스 빌드 결과를 확인할 수
+있다. 자세한 기준은 [Source Management](docs/SOURCE_MANAGEMENT.md)에 둔다.
+
 이 저장소는 고객사별 Linux 계정(`oc1`, `oc2`, ...)마다 독립된 OpenClaw
 컨테이너를 만들고, 각 계정 전용 NAS 경로를 컨테이너에 붙이기 위한 운영
 패키지다.

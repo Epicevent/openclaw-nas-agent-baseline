@@ -84,11 +84,6 @@ if [[ "$(id -u)" -ne 0 ]]; then
   exit 1
 fi
 
-if [[ ! "$target_user" =~ ^oc[1-9][0-9]*$ ]]; then
-  echo "error: invalid user name: $target_user" >&2
-  exit 2
-fi
-
 if [[ ! "$provider_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ ]]; then
   echo "error: invalid provider id: $provider_id" >&2
   exit 2
@@ -122,6 +117,7 @@ esac
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/internal/lib-safe-compose.bash
 source "$script_dir/lib-safe-compose.bash"
+openclaw_assert_managed_slot_name "$target_user" || exit $?
 # shellcheck source=scripts/internal/lib-ollama.bash
 source "$script_dir/lib-ollama.bash"
 
@@ -358,6 +354,7 @@ if [[ "$restart_gateway" -eq 1 ]]; then
     cd "$compose_dir"
     export COMPOSE_PROJECT_NAME="openclaw-$target_user"
     compose_args=(-f docker-compose.yml)
+    [[ -f docker-compose.source.yml ]] && compose_args+=(-f docker-compose.source.yml)
     [[ -f docker-compose.extra.yml ]] && compose_args+=(-f docker-compose.extra.yml)
     [[ -f docker-compose.host-user.yml ]] && compose_args+=(-f docker-compose.host-user.yml)
     [[ -f docker-compose.shared-ollama.yml ]] && compose_args+=(-f docker-compose.shared-ollama.yml)
