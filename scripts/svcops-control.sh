@@ -523,23 +523,71 @@ reject_share_request() {
 }
 
 fix_nas_runtime_root() {
-  local target_user="$1" target_home data_group nas_root
+  local target_user="$1" target_home data_group nas_root compose_dir runtime_family container_root override_file
   validate_user "$target_user"
   target_home="$(customer_home "$target_user")"
   data_group="${target_user}_data"
   nas_root="$target_home/nas_docs"
+  compose_dir="$target_home/openclaw"
+  runtime_family="$(slot_runtime_family "$target_user")"
+  container_root="$(container_nas_root_for_runtime "$runtime_family")"
+  override_file="$compose_dir/docker-compose.nas.yml"
 
   openclaw_assert_managed_slot_prewrite "$target_user" || return 1
   [[ -d "$nas_root" ]] || { echo "FAIL nas_root_missing=$nas_root"; return 1; }
   [[ ! -L "$nas_root" ]] || { echo "FAIL nas_root_symlink=$nas_root"; return 1; }
+  [[ -d "$compose_dir" ]] || { echo "FAIL compose_dir_missing=$compose_dir"; return 1; }
   getent group "$data_group" >/dev/null || { echo "FAIL data_group_missing=$data_group"; return 1; }
+  openclaw_assert_safe_compose_dir "$target_user" "$compose_dir" || return 1
 
   chown "$target_user:$data_group" "$nas_root"
   chmod 0550 "$nas_root"
+  if [[ "$runtime_family" == "hermes" ]]; then
+    cat > "$override_file" <<EOF
+services:
+  openclaw-gateway:
+    volumes:
+      - type: bind
+        source: $nas_root
+        target: $container_root
+        read_only: true
+        bind:
+          propagation: rslave
+EOF
+  else
+    cat > "$override_file" <<EOF
+services:
+  openclaw-gateway:
+    volumes:
+      - type: bind
+        source: $nas_root
+        target: $container_root
+        read_only: true
+        bind:
+          propagation: rslave
+  openclaw-cli:
+    volumes:
+      - type: bind
+        source: $nas_root
+        target: $container_root
+        read_only: true
+        bind:
+          propagation: rslave
+EOF
+  fi
+  chown root:root "$override_file"
+  chmod 0644 "$override_file"
   echo "target_user=$target_user"
+  echo "runtime_family=$runtime_family"
   echo "nas_root=$nas_root"
   echo "nas_root_owner=$target_user:$data_group"
   echo "nas_root_mode=0550"
+  echo "container_nas_root=$container_root"
+  echo "compose_nas_override=$override_file"
+  echo "bind_propagation=rslave"
+  refresh_gateway "$target_user"
+  echo "== NAS visibility after runtime root fix =="
+  verify_nas_visibility "$target_user"
 }
 
 gateway_container() {
@@ -755,6 +803,7 @@ compose_files() {
     runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$compose_dir/.env" 2>/dev/null || true)"
   fi
   printf '%s\n' -f docker-compose.yml
+  [[ -f "$compose_dir/docker-compose.nas.yml" ]] && printf '%s\n' -f docker-compose.nas.yml
   [[ -f "$compose_dir/docker-compose.source.yml" ]] && printf '%s\n' -f docker-compose.source.yml
   if [[ "$runtime_family" == "hermes" ]]; then
     return 0

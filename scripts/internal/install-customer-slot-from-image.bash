@@ -309,7 +309,12 @@ services:
       - $target_home/.openclaw:/home/node/.openclaw
       - $target_home/.config/openclaw:/home/node/.config/openclaw
       - $target_home/.openclaw-auth-profile-secrets:/home/node/.openclaw-auth-profile-secrets
-      - $nas_mount:/home/node/nas_docs:ro
+      - type: bind
+        source: $nas_mount
+        target: /home/node/nas_docs
+        read_only: true
+        bind:
+          propagation: rslave
     working_dir: /home/node/.openclaw/workspace
 
   openclaw-cli:
@@ -334,7 +339,12 @@ services:
       - $target_home/.openclaw:/home/node/.openclaw
       - $target_home/.config/openclaw:/home/node/.config/openclaw
       - $target_home/.openclaw-auth-profile-secrets:/home/node/.openclaw-auth-profile-secrets
-      - $nas_mount:/home/node/nas_docs:ro
+      - type: bind
+        source: $nas_mount
+        target: /home/node/nas_docs
+        read_only: true
+        bind:
+          propagation: rslave
     working_dir: /home/node/.openclaw/workspace
 EOF
 

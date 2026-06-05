@@ -419,7 +419,12 @@ services:
     volumes:
       - $hermes_home:/opt/data
       - $hermes_home/workspace:/workspace
-      - $nas_mount:/workspace/nas_docs:ro
+      - type: bind
+        source: $nas_mount
+        target: /workspace/nas_docs
+        read_only: true
+        bind:
+          propagation: rslave
     working_dir: /opt/data/home
 EOF
 

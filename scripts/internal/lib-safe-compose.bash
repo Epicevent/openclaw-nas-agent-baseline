@@ -253,7 +253,7 @@ openclaw_assert_safe_compose_dir() {
     openclaw_assert_root_owned_file "$compose_dir/$required" "compose_file" || return 1
   done
 
-  for optional in docker-compose.extra.yml docker-compose.shared-ollama.yml docker-compose.sandbox.yml docker-compose.source.yml; do
+  for optional in docker-compose.nas.yml docker-compose.extra.yml docker-compose.shared-ollama.yml docker-compose.sandbox.yml docker-compose.source.yml; do
     if [[ -e "$compose_dir/$optional" ]]; then
       if [[ "$optional" == "docker-compose.source.yml" ]] && ! openclaw_is_dev_slot "$target_user"; then
         openclaw_safe_fail "compose_source_override_forbidden_for_customer=$compose_dir/$optional" || return 1
