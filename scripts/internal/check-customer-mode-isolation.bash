@@ -89,9 +89,14 @@ nas_mountpoint="$target_home/nas_docs"
 compose_dir="$target_home/openclaw"
 failed=0
 runtime_family="openclaw"
+runtime_user="${target_user}_rt"
+data_group="${target_user}_data"
 if [[ -f "$runtime_env_path" ]]; then
   runtime_family="$(awk -F= '$1 == "OPENCLAW_RUNTIME_FAMILY" { gsub(/'\''|"/, "", $2); print $2; exit }' "$runtime_env_path" 2>/dev/null || true)"
   runtime_family="${runtime_family:-openclaw}"
+fi
+if [[ "$runtime_family" == "hermes" ]]; then
+  config_path="$target_home/.hermes/config.yaml"
 fi
 
 pass() {
@@ -260,18 +265,48 @@ else
   echo "INFO missing_config=$config_path"
 fi
 
-config_safety_output="$(openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path" 2>&1)" \
-  && pass "config_file_safe" \
-  || {
+if [[ "$runtime_family" == "hermes" ]]; then
+  config_safety_output="$(
+    {
+      if [[ -L "$config_path" ]]; then
+        echo "FAIL hermes_config_symlink=$config_path"
+      elif [[ -e "$config_path" && ! -f "$config_path" ]]; then
+        echo "FAIL hermes_config_not_regular=$config_path"
+      elif [[ -f "$config_path" ]]; then
+        owner="$(stat -c '%U' "$config_path" 2>/dev/null || true)"
+        links="$(stat -c '%h' "$config_path" 2>/dev/null || true)"
+        if [[ "$owner" != "$runtime_user" && "$owner" != root ]]; then
+          echo "FAIL hermes_config_owner=$owner"
+        fi
+        if [[ "$links" != "1" ]]; then
+          echo "FAIL hermes_config_hardlink_count=$links"
+        fi
+        if find "$config_path" -maxdepth 0 -perm /077 2>/dev/null | grep -q .; then
+          echo "FAIL hermes_config_permissions=$(stat -c '%a' "$config_path" 2>/dev/null || echo unknown)"
+        fi
+      fi
+    } | sed '/^$/d'
+  )"
+  if [[ -z "$config_safety_output" ]]; then
+    pass "config_file_safe"
+  else
     fail "config_file_safe"
     printf '%s\n' "$config_safety_output" | sed -e 's/^FAIL /config_safety_detail=/' -e 's/^/INFO /'
-  }
+  fi
+else
+  config_safety_output="$(openclaw_assert_safe_openclaw_config_file "$target_user" "$config_path" 2>&1)" \
+    && pass "config_file_safe" \
+    || {
+      fail "config_file_safe"
+      printf '%s\n' "$config_safety_output" | sed -e 's/^FAIL /config_safety_detail=/' -e 's/^/INFO /'
+    }
+fi
 
 check "customer_runtime_env_blocked" sudo -u "$target_user" test ! -r "$runtime_env_path"
 check "customer_config_blocked" sudo -u "$target_user" test ! -r "$config_path"
 
 if [[ -f "$config_path" ]]; then
-  if grep -q '"apiKey"' "$config_path"; then
+  if grep -Eq '("apiKey"|GEMINI_API_KEY|GOOGLE_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY)' "$config_path"; then
     fail "config_has_no_literal_api_key"
   else
     pass "config_has_no_literal_api_key"
@@ -280,7 +315,10 @@ else
   fail "config_has_no_literal_api_key"
 fi
 
-if [[ -f "$config_path" ]] && sudo python3 - "$config_path" <<'PY'
+if [[ "$runtime_family" == "hermes" ]]; then
+  pass "heartbeat_cost_guard_ok"
+  echo "INFO heartbeat_cost_guard=not_applicable_for_hermes"
+elif [[ -f "$config_path" ]] && sudo python3 - "$config_path" <<'PY'
 import json
 import sys
 
@@ -328,7 +366,10 @@ else
   fail "heartbeat_cost_guard_ok"
 fi
 
-if [[ -f "$config_path" ]] && sudo python3 - "$config_path" <<'PY'
+if [[ "$runtime_family" == "hermes" ]]; then
+  pass "control_ui_device_auth_disabled"
+  echo "INFO control_ui_device_auth=not_applicable_for_hermes"
+elif [[ -f "$config_path" ]] && sudo python3 - "$config_path" <<'PY'
 import json
 import sys
 
@@ -343,7 +384,10 @@ else
 fi
 
 if [[ -n "$expected_basepath" ]]; then
-  if [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$expected_basepath" <<'PY'
+  if [[ "$runtime_family" == "hermes" ]]; then
+    pass "control_ui_basepath_ok"
+    echo "INFO control_ui_basepath=not_applicable_for_hermes"
+  elif [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$expected_basepath" <<'PY'
 import json
 import sys
 
@@ -362,7 +406,10 @@ PY
 fi
 
 if [[ -n "$expected_origin" ]]; then
-  if [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$expected_origin" <<'PY'
+  if [[ "$runtime_family" == "hermes" ]]; then
+    pass "control_ui_allowed_origin_ok"
+    echo "INFO control_ui_allowed_origin=not_applicable_for_hermes"
+  elif [[ -f "$config_path" ]] && sudo python3 - "$config_path" "$expected_origin" <<'PY'
 import json
 import sys
 

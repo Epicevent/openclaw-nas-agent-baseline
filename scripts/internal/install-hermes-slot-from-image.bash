@@ -87,6 +87,7 @@ if [[ "$(id -u)" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_script_dir="$(cd "$script_dir/.." && pwd)"
 # shellcheck source=scripts/internal/lib-safe-compose.bash
 source "$script_dir/lib-safe-compose.bash"
 openclaw_assert_managed_slot_name "$target_user" || exit $?
@@ -371,8 +372,8 @@ EOF
 cat "$provider_secret_env" >> "$hermes_home/.env"
 chown "$runtime_user:$data_group" "$hermes_home/.env"
 chmod 0600 "$hermes_home/.env"
-if python3 "$script_dir/hermes-runtime-config.py" has-gemini-key --env "$hermes_home/.env"; then
-  python3 "$script_dir/hermes-runtime-config.py" set-gemini --config "$hermes_home/config.yaml"
+if python3 "$repo_script_dir/hermes-runtime-config.py" has-gemini-key --env "$hermes_home/.env"; then
+  python3 "$repo_script_dir/hermes-runtime-config.py" set-gemini --config "$hermes_home/config.yaml"
   chown "$runtime_user:$data_group" "$hermes_home/config.yaml"
   chmod 0600 "$hermes_home/config.yaml"
 else
