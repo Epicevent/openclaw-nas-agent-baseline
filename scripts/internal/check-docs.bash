@@ -104,6 +104,17 @@ else
   pass "openclaw_dist_patch_path_absent"
 fi
 
+if grep -RInE 'git clone|SOURCE_REPO|SOURCE_REF|source_repo:|source_ref:|github.com/(openclaw|NousResearch|outsourc-e)|patch-hermes-workspace-gemini' \
+  "$repo_root/images" "$repo_root/.github" \
+  --include='Dockerfile' --include='*.sh' --include='*.py' --include='*.yml' --include='*.yaml' 2>/dev/null | grep -q .; then
+  grep -RInE 'git clone|SOURCE_REPO|SOURCE_REF|source_repo:|source_ref:|github.com/(openclaw|NousResearch|outsourc-e)|patch-hermes-workspace-gemini' \
+    "$repo_root/images" "$repo_root/.github" \
+    --include='Dockerfile' --include='*.sh' --include='*.py' --include='*.yml' --include='*.yaml' 2>/dev/null || true
+  fail "product_source_origin_reference_absent"
+else
+  pass "product_source_origin_reference_absent"
+fi
+
 if [[ -d "$repo_root/container" ]]; then
   fail "legacy_container_directory_present"
 else

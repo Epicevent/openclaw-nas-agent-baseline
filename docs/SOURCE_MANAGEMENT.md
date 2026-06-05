@@ -2,83 +2,78 @@
 
 ## Ownership
 
-OpenClaw UI and runtime customizations are source-code changes. They do not
-belong in this operations repository as generated patches or one-off asset
-rewrites.
+제품 소스는 이 운영 저장소에서 다루지 않는다. 이 저장소는 제품 source repo를
+checkout하거나, 제품 UI를 빌드하거나, generated asset을 패치하지 않는다.
 
-Use separate source repositories:
+제품 변경은 별도 source/image lane에서 끝나야 한다.
 
 ```text
 Epicevent/openclaw-jitech
-  OpenClaw custom source
-  dashboard UI, default provider/model UX, branding, workflow behavior
+  OpenClaw custom source and product image publishing
 
 Epicevent/hermes-jitech
-  Hermes Agent custom source
-  backend/runtime behavior, provider defaults, tool/runtime behavior
+  Hermes Agent custom source and product image publishing
 
 Epicevent/hermes-workspace-jitech
-  Hermes Workspace custom source
-  browser UI, Gemini model UX, NAS workspace display, provider settings UX
+  Hermes Workspace custom source and product image publishing
 
 Epicevent/openclaw-nas-agent-baseline
   host operations package
-  image publishing recipes
-  NAS/document tooling
+  NAS/document wrapper recipe
   slot rollout and health checks
 ```
 
-OpenClaw and Hermes images are separate release lanes. They share the same
-server rollout tools and private slot registry, but each image records its own
-family, source ref, base image, and digest.
+이 저장소가 허용하는 입력은 이미 빌드된 runtime image digest다.
+
+```text
+allowed:
+  ghcr.io/.../openclaw-product@sha256:<digest>
+  ghcr.io/.../hermes-product@sha256:<digest>
+
+not allowed:
+  product source repository URL
+  product source commit used as build input
+  minified dist patch input
+```
+
+이미지에 source labels가 이미 들어 있다면 운영 도구가 읽어 표시할 수 있다. 그것은
+감사용 메타데이터일 뿐이고, 이 저장소가 해당 source를 가져와 빌드한다는 뜻이
+아니다.
 
 ## Development Flow
 
-Developers edit the custom source repository directly. Customer slots are not
-development workspaces.
+제품 개발은 제품 source repo에서 한다.
 
 ```text
-change OpenClaw source
--> run the OpenClaw dev/build checks in that source checkout
--> check it through the dev slot subdomain
--> commit the source change
--> publish a NAS Agent image from that exact source commit
--> roll out the image to selected slots
--> verify with browser/render checks and slot deployment checks
+change product source
+-> product repo build/test
+-> product repo publishes product runtime image
+-> operations repo wraps that image with NAS/document tools if needed
+-> image-release-add / verify
+-> dev or staging rollout
+-> customer slot rollout
 ```
-
-Do not edit minified `dist/control-ui/assets/index-*.js` output as the normal
-customization path.
-
-## Dev Slots
 
 `oc1` through `oc20` are customer slots. They must run registry images only.
 They must not receive source bind mounts.
 
-Development confirmation uses separate managed slots:
+## Dev Slots
+
+개발 확인은 별도 managed dev slot에서만 한다.
 
 ```text
 dev-oc
-  OpenClaw source confirmation slot
+  OpenClaw-family dev confirmation slot
   public host: dev-oc.ji-tech.co.kr
-  source path: /home/openclawdev/src/openclaw-jitech
 
 dev-hermess
-  Hermes source confirmation slot
+  Hermes-family dev confirmation slot
   public host: dev-hermess.ji-tech.co.kr
-  workspace source path: /home/openclawdev/src/hermes-workspace-jitech
-  agent source path: /home/openclawdev/src/hermes-jitech
 ```
 
 `dev-oc` and `dev-hermess` are not sudo/docker accounts. They are managed like
 customer accounts, with separate runtime users and data groups. The developer
-account `openclawdev` owns and builds source; the dev slots only expose the
-result through their containers and Apache subdomains.
-
-Hermes has two source lanes. The visible web app is Hermes Workspace, so
-`source-mode-enable dev-hermess` mounts `/home/openclawdev/src/hermes-workspace-jitech`
-into `/opt/hermes-workspace`. The Hermes Agent runtime source remains separate
-and is used by image builds only when that runtime itself is customized.
+account `openclawdev` owns local source checkouts and build tools.
 
 Source mode is only valid for dev slots:
 
@@ -90,81 +85,35 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh source-mode-disa
 
 Running source mode against an `ocN` customer slot is a configuration error.
 
-## Image Publishing Inputs
+## Runtime Wrapper Inputs
 
-The OpenClaw image workflow requires both a frozen runtime base image and an
-exact custom OpenClaw source commit.
+OpenClaw-family wrapper input:
 
 ```text
 base_image:
-  ghcr.io/epicevent/openclaw-nas-agent@sha256:<runtime-base-digest>
-
-openclaw_source_repo:
-  https://github.com/Epicevent/openclaw-jitech.git
-
-openclaw_source_ref:
-  40-character commit SHA from the custom source repo
+  already-built OpenClaw-family runtime image digest
 ```
 
-The workflow rejects the upstream source repository:
+Hermes-family wrapper input:
 
 ```text
-https://github.com/openclaw/openclaw.git
+base_image:
+  already-built Hermes-family runtime image digest
 ```
 
-Upstream is used for merging and comparison, not as the direct production
-source for JiTech images.
-
-Hermes images use the same catalog fields, but they have two upstream inputs:
-the Hermes Agent runtime image and the Hermes Workspace UI source/image. A
-Workspace-only customization must not pretend to be a Hermes Agent runtime
-change.
-
-## Initial OpenClaw Seed
-
-The current JiTech OpenClaw customization seed comes from the server checkout:
-
-```text
-server: gx10-947d
-path: /home/oc1/openclaw
-upstream_commit: 989e53c20d395d3c8bf47efc21fdb9d56e7227b0
-```
-
-Only product source changes belong in the source repository:
-
-```text
-ui/index.html
-ui/src/ui/views/login-gate.ts
-ui/src/ui/app-render.ts
-ui/public/favicon.svg
-ui/public/favicon.ico
-ui/public/favicon-32.png
-ui/public/apple-touch-icon.png
-```
-
-Server runtime files and permissions do not belong in the source repository:
-
-```text
-.env
-docker-compose*.yml
-Apache deploy conf
-backup files
-credential files
-chmod-only changes
-```
+The wrapper image adds shared NAS/HWP document tools and slot glue only. It
+does not build OpenClaw, Hermes Agent, or Hermes Workspace source.
 
 ## Release Rule
 
 An image release is acceptable only when it can answer these questions:
 
 ```text
-Which custom OpenClaw source commit was used?
-Which frozen runtime base digest was used?
-For Hermes, which Agent source commit was represented by the base image?
-For Hermes, which Workspace source commit was built into the UI?
-Which image digest was published?
+Which product runtime image digest was wrapped?
+Which operations package commit created the wrapper?
+Which final wrapper image digest was published?
 Which slots were rolled out?
-Did the browser-render check and slot deployment check pass?
+Did browser/render checks and slot deployment checks pass?
 ```
 
 The image contains code and tools only. Secrets and customer state remain

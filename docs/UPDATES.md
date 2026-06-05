@@ -37,7 +37,9 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh \
 ```
 
 `image-release-add` stores the release metadata in `/srv/openclaw-ops/images.yaml`.
-For OpenClaw source-built images, the catalog includes:
+The operations repo registers and rolls out already-built runtime images by digest.
+If an image already has source labels, they are recorded only as audit metadata.
+They are not build inputs for this repo.
 
 ```text
 family
@@ -51,9 +53,8 @@ image_id
 status
 ```
 
-For Hermes images, the catalog records `family=hermes`, the Hermes Agent base
-image, the Hermes Agent source ref that matches that base, and the Hermes
-Workspace source ref that was built into the final image.
+For Hermes images, the catalog records `family=hermes` and the wrapped base
+image. Source metadata can be displayed if the product image provides labels.
 
 ```text
 agent_source_repo
@@ -112,20 +113,20 @@ sudo /opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh image-rollback o
 
 ## Image Recipes
 
-The host operations package does not build images during normal server
-operation. Public image publishing is handled by workflow-dispatched image
-recipes under `images/`.
+The host operations package does not build product source. Public image
+publishing here only wraps already-built runtime images with shared NAS/HWP
+document tools.
 
-OpenClaw customization source is not maintained as post-build asset patches in
-this repository. OpenClaw images are built from a managed custom source commit;
-see [Source Management](SOURCE_MANAGEMENT.md).
+OpenClaw/Hermes customization source is not maintained as post-build asset
+patches in this repository. Product source and product images are handled by
+their own repositories; see [Source Management](SOURCE_MANAGEMENT.md).
 
 Currently active recipes:
 
 ```text
-images/hermes-workspace/     Hermes Agent base + Workspace source integrated image
+images/hermes-workspace/     Hermes-family runtime wrapper
 images/shared/               document tooling shared by official images
-images/openclaw-nas-agent/   OpenClaw-family image recipe
+images/openclaw-nas-agent/   OpenClaw-family runtime wrapper
 ```
 
 Publishing workflows are separated by runtime family:

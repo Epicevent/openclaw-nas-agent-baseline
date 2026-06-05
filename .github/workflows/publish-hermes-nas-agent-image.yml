@@ -1,4 +1,4 @@
-name: Publish Hermes Family Runtime Image
+name: Publish Hermes Family Runtime Wrapper
 
 on:
   workflow_dispatch:
@@ -6,27 +6,10 @@ on:
       image_tag:
         description: Public GHCR tag to publish
         required: true
-        default: hermes-workspace-20260603-r16
-      hermes_base_image:
-        description: Hermes Agent runtime base image
+        default: hermes-wrapper-20260605-r1
+      base_image:
+        description: Already-built Hermes-family runtime image digest to wrap
         required: true
-        default: nousresearch/hermes-agent:v2026.5.29.2
-      hermes_agent_source_repo:
-        description: Hermes Agent source repository matching hermes_base_image
-        required: true
-        default: https://github.com/NousResearch/hermes-agent.git
-      hermes_agent_source_ref:
-        description: Hermes Agent source commit matching hermes_base_image
-        required: true
-        default: 77a1650c78a4cb1813d8a81fa1da40a15b6a3ec5
-      hermes_workspace_source_repo:
-        description: Hermes Workspace source repository
-        required: true
-        default: https://github.com/outsourc-e/hermes-workspace.git
-      hermes_workspace_source_ref:
-        description: Hermes Workspace source commit
-        required: true
-        default: 7f845bc9298ed80068f4b9e793fca34b73f3b569
 
 permissions:
   contents: read
@@ -37,10 +20,10 @@ env:
 
 jobs:
   publish:
-    name: Build and push ${{ inputs.image_tag }}
+    name: Wrap and push ${{ inputs.image_tag }}
     runs-on: ubuntu-24.04-arm
     steps:
-      - name: Checkout baseline repo
+      - name: Checkout operations repo
         uses: actions/checkout@v4
 
       - name: Validate inputs
@@ -48,11 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ "${{ inputs.image_tag }}" =~ ^hermes-[A-Za-z0-9._-]+$ ]]
-          [[ "${{ inputs.hermes_base_image }}" =~ ^[A-Za-z0-9._:@/-]+$ ]]
-          [[ "${{ inputs.hermes_agent_source_repo }}" =~ ^https://github.com/[-A-Za-z0-9_.]+/[-A-Za-z0-9_.]+[.]git$ ]]
-          [[ "${{ inputs.hermes_agent_source_ref }}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${{ inputs.hermes_workspace_source_repo }}" =~ ^https://github.com/[-A-Za-z0-9_.]+/[-A-Za-z0-9_.]+[.]git$ ]]
-          [[ "${{ inputs.hermes_workspace_source_ref }}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${{ inputs.base_image }}" =~ ^[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}$ ]]
 
       - name: Log in to GHCR
         shell: bash
@@ -60,30 +39,38 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build Hermes family runtime image
+      - name: Build Hermes family runtime wrapper
         shell: bash
         run: |
           set -euo pipefail
           image_ref="$IMAGE_REPOSITORY:${{ inputs.image_tag }}"
           docker build \
-            --build-arg BASE_IMAGE="${{ inputs.hermes_base_image }}" \
-            --build-arg HERMES_AGENT_SOURCE_REPO="${{ inputs.hermes_agent_source_repo }}" \
-            --build-arg HERMES_AGENT_SOURCE_REF="${{ inputs.hermes_agent_source_ref }}" \
-            --build-arg HERMES_WORKSPACE_SOURCE_REPO="${{ inputs.hermes_workspace_source_repo }}" \
-            --build-arg HERMES_WORKSPACE_SOURCE_REF="${{ inputs.hermes_workspace_source_ref }}" \
+            --build-arg BASE_IMAGE="${{ inputs.base_image }}" \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
             --label "org.opencontainers.image.family=hermes" \
-            --label "org.opencontainers.image.base.name=${{ inputs.hermes_base_image }}" \
-            --label "org.opencontainers.image.hermes.source=${{ inputs.hermes_agent_source_repo }}" \
-            --label "org.opencontainers.image.hermes.revision=${{ inputs.hermes_agent_source_ref }}" \
-            --label "org.opencontainers.image.hermes.agent.source=${{ inputs.hermes_agent_source_repo }}" \
-            --label "org.opencontainers.image.hermes.agent.revision=${{ inputs.hermes_agent_source_ref }}" \
-            --label "org.opencontainers.image.hermes.workspace.source=${{ inputs.hermes_workspace_source_repo }}" \
-            --label "org.opencontainers.image.hermes.workspace.revision=${{ inputs.hermes_workspace_source_ref }}" \
-            --label "org.opencontainers.image.title=JiTech Hermes-family runtime ${{ inputs.image_tag }}" \
+            --label "org.opencontainers.image.base.name=${{ inputs.base_image }}" \
+            --label "org.opencontainers.image.title=JiTech Hermes-family runtime wrapper ${{ inputs.image_tag }}" \
+            --label "org.opencontainers.image.description=Hermes-family runtime image wrapped with NAS document tools" \
             -t "$image_ref" \
             -f images/hermes-workspace/Dockerfile .
+
+      - name: Verify wrapped runtime
+        shell: bash
+        env:
+          BASE_IMAGE: ${{ inputs.base_image }}
+        run: |
+          set -euo pipefail
+          image_ref="$IMAGE_REPOSITORY:${{ inputs.image_tag }}"
+          cid="$(docker create "$image_ref")"
+          cleanup() { docker rm -f "$cid" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          tmp="$(mktemp -d)"
+          docker cp "$cid:/usr/local/share/agent-runtime-wrapper.manifest" "$tmp/wrapper.manifest"
+          grep -Fx "family=hermes" "$tmp/wrapper.manifest"
+          grep -Fx "base_image=$BASE_IMAGE" "$tmp/wrapper.manifest"
+          docker cp "$cid:/opt/hermes-workspace/server-entry.js" "$tmp/server-entry.js"
+          test -s "$tmp/server-entry.js"
 
       - name: Check final image for baked secrets
         shell: bash
@@ -91,7 +78,7 @@ jobs:
           set -euo pipefail
           image_ref="$IMAGE_REPOSITORY:${{ inputs.image_tag }}"
           docker image inspect "$image_ref" --format '{{range .Config.Env}}{{println .}}{{end}}' \
-            | grep -Eiv '^(PATH|NODE_|PNPM_|NPM_|LANG|LANGUAGE|LC_ALL|HOME|YARN_|COREPACK_|OPENCLAW_PREFER_PNPM|HERMES_|UV_|VIRTUAL_ENV|PYTHONPATH|PIP_|PLAYWRIGHT_)=' \
+            | grep -Eiv '^(PATH|NODE_|PNPM_|NPM_|LANG|LANGUAGE|LC_ALL|HOME|YARN_|COREPACK_|OPENCLAW_|HERMES_|UV_|VIRTUAL_ENV|PYTHONPATH|PIP_|PLAYWRIGHT_)=' \
             | grep -Ei '(api[_-]?key|token|password|passwd|credential|secret)' && {
               echo "Secret-looking env key found in final image" >&2
               exit 1

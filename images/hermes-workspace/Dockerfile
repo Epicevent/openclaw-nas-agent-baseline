@@ -1,69 +1,32 @@
-# Build a single-container Hermes runtime image for managed agent slots.
-#
-# Usage:
-#   docker build \
-#     --build-arg BASE_IMAGE=nousresearch/hermes-agent:latest \
-#     --build-arg HERMES_AGENT_SOURCE_REPO=https://github.com/NousResearch/hermes-agent.git \
-#     --build-arg HERMES_AGENT_SOURCE_REF=<40-char-sha> \
-#     --build-arg HERMES_WORKSPACE_SOURCE_REPO=https://github.com/outsourc-e/hermes-workspace.git \
-#     --build-arg HERMES_WORKSPACE_SOURCE_REF=<40-char-sha> \
-#     -t ghcr.io/epicevent/openclaw-nas-agent:hermes-workspace-YYYYMMDD-rN \
-#     -f images/hermes-workspace/Dockerfile .
-#
-# The final image contains:
-#   - Hermes Agent gateway/runtime from BASE_IMAGE
-#   - Hermes Workspace web UI built from HERMES_WORKSPACE_SOURCE_*
-#   - shared document-reading baseline packages
-ARG BASE_IMAGE=nousresearch/hermes-agent:latest
-ARG HERMES_AGENT_SOURCE_REPO=https://github.com/NousResearch/hermes-agent.git
-ARG HERMES_AGENT_SOURCE_REF=main
-ARG HERMES_WORKSPACE_SOURCE_REPO=https://github.com/outsourc-e/hermes-workspace.git
-ARG HERMES_WORKSPACE_SOURCE_REF=main
+# Wrap an already-built Hermes-family runtime image with shared NAS document
+# tools and slot entrypoint glue. Product source is built outside this
+# operations repository.
 
-FROM node:22-bookworm-slim AS hermes_workspace
-ARG HERMES_WORKSPACE_SOURCE_REPO
-ARG HERMES_WORKSPACE_SOURCE_REF
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates git \
-  && rm -rf /var/lib/apt/lists/*
-WORKDIR /src
-RUN git clone --filter=blob:none "$HERMES_WORKSPACE_SOURCE_REPO" . \
-  && git checkout "$HERMES_WORKSPACE_SOURCE_REF" \
-  && corepack enable \
-  && corepack pnpm install --frozen-lockfile \
-  && corepack pnpm build \
-  && rm -rf .git
+ARG BASE_IMAGE=ubuntu:24.04
 
 FROM ${BASE_IMAGE}
 ARG BASE_IMAGE
-ARG HERMES_AGENT_SOURCE_REPO
-ARG HERMES_AGENT_SOURCE_REF
-ARG HERMES_WORKSPACE_SOURCE_REPO
-ARG HERMES_WORKSPACE_SOURCE_REF
 
 USER root
 
-COPY --from=hermes_workspace /usr/local/bin/node /usr/local/bin/node
-COPY --from=hermes_workspace /usr/local/bin/npm /usr/local/bin/npm
-COPY --from=hermes_workspace /usr/local/bin/npx /usr/local/bin/npx
-COPY --from=hermes_workspace /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=hermes_workspace /src /opt/hermes-workspace
-COPY images/hermes-workspace/patch-hermes-workspace-gemini.py /usr/local/bin/patch-hermes-workspace-gemini
 COPY images/shared/openclaw-hwp-text.py /usr/local/bin/openclaw-hwp-text
 COPY images/shared/openclaw-document-tools /usr/local/bin/openclaw-document-tools
-
 COPY images/shared/install-document-baseline.sh /tmp/install-document-baseline.sh
-RUN chmod +x /tmp/install-document-baseline.sh \
+RUN test -f /opt/hermes/docker/main-wrapper.sh \
+  && test -f /opt/hermes-workspace/server-entry.js \
+  && chmod +x /tmp/install-document-baseline.sh \
   && /tmp/install-document-baseline.sh \
   && rm -f /tmp/install-document-baseline.sh \
   && apt-get update \
   && apt-get install -y --no-install-recommends tini procps gosu passwd python3 \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/* \
-  && chmod 0755 /usr/local/bin/patch-hermes-workspace-gemini /usr/local/bin/openclaw-hwp-text /usr/local/bin/openclaw-document-tools \
+  && chmod 0755 /usr/local/bin/openclaw-hwp-text /usr/local/bin/openclaw-document-tools \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/read-hwp \
   && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp-read \
-  && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp2txt
+  && ln -sf /usr/local/bin/openclaw-hwp-text /usr/local/bin/hwp2txt \
+  && printf 'family=hermes\nbase_image=%s\n' "$BASE_IMAGE" \
+    > /usr/local/share/agent-runtime-wrapper.manifest
 
 COPY images/hermes-workspace/openclaw-hermes-entrypoint.sh /usr/local/bin/openclaw-hermes-entrypoint
 COPY images/hermes-workspace/openclaw-nas-group-init.sh /etc/cont-init.d/10-openclaw-nas-group
@@ -93,13 +56,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
 ENTRYPOINT ["/init", "/opt/hermes/docker/main-wrapper.sh"]
 CMD ["gateway", "run"]
 
-LABEL org.opencontainers.image.title="OpenClaw Hermes Workspace NAS Agent"
-LABEL org.opencontainers.image.description="Single-container Hermes Agent + Hermes Workspace image with shared NAS document tools"
+LABEL org.opencontainers.image.title="JiTech Hermes-family runtime wrapper"
+LABEL org.opencontainers.image.description="Hermes-family runtime image wrapped with shared NAS document tools"
 LABEL org.opencontainers.image.family="hermes"
 LABEL org.opencontainers.image.base.name="${BASE_IMAGE}"
-LABEL org.opencontainers.image.hermes.source="${HERMES_AGENT_SOURCE_REPO}"
-LABEL org.opencontainers.image.hermes.revision="${HERMES_AGENT_SOURCE_REF}"
-LABEL org.opencontainers.image.hermes.agent.source="${HERMES_AGENT_SOURCE_REPO}"
-LABEL org.opencontainers.image.hermes.agent.revision="${HERMES_AGENT_SOURCE_REF}"
-LABEL org.opencontainers.image.hermes.workspace.source="${HERMES_WORKSPACE_SOURCE_REPO}"
-LABEL org.opencontainers.image.hermes.workspace.revision="${HERMES_WORKSPACE_SOURCE_REF}"

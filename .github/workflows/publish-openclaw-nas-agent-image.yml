@@ -1,4 +1,4 @@
-name: Publish OpenClaw Family Runtime Image
+name: Publish OpenClaw Family Runtime Wrapper
 
 on:
   workflow_dispatch:
@@ -6,21 +6,10 @@ on:
       image_tag:
         description: Public GHCR tag to publish
         required: true
-        default: openclaw-source-20260605-r10
+        default: openclaw-wrapper-20260605-r1
       base_image:
-        description: Frozen runtime image digest to wrap, for example ghcr.io/epicevent/openclaw-nas-agent@sha256:...
+        description: Already-built OpenClaw-family runtime image digest to wrap
         required: true
-      openclaw_source_repo:
-        description: OpenClaw source repository to build Control UI from
-        required: true
-        default: https://github.com/Epicevent/openclaw-jitech.git
-      openclaw_source_ref:
-        description: Exact OpenClaw source commit SHA to build
-        required: true
-      expected_login_title:
-        description: Optional visible login title expected in the built Control UI
-        required: false
-        default: ""
       runtime_user:
         description: User inside the runtime image
         required: true
@@ -35,10 +24,10 @@ env:
 
 jobs:
   publish:
-    name: Build and push ${{ inputs.image_tag }}
+    name: Wrap and push ${{ inputs.image_tag }}
     runs-on: ubuntu-24.04-arm
     steps:
-      - name: Checkout baseline repo
+      - name: Checkout operations repo
         uses: actions/checkout@v4
 
       - name: Validate inputs
@@ -47,10 +36,6 @@ jobs:
           set -euo pipefail
           [[ "${{ inputs.image_tag }}" =~ ^openclaw-[A-Za-z0-9._-]+$ ]]
           [[ "${{ inputs.base_image }}" =~ ^[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}$ ]]
-          [[ "${{ inputs.base_image }}" != "ghcr.io/openclaw/openclaw:latest" ]]
-          [[ "${{ inputs.openclaw_source_repo }}" =~ ^https://github.com/[-A-Za-z0-9_.]+/[-A-Za-z0-9_.]+[.]git$ ]]
-          [[ "${{ inputs.openclaw_source_repo }}" != "https://github.com/openclaw/openclaw.git" ]]
-          [[ "${{ inputs.openclaw_source_ref }}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${{ inputs.runtime_user }}" =~ ^[A-Za-z_][A-Za-z0-9_-]*$ ]]
 
       - name: Log in to GHCR
@@ -59,7 +44,7 @@ jobs:
           set -euo pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Build OpenClaw family runtime image
+      - name: Build OpenClaw family runtime wrapper
         shell: bash
         run: |
           set -euo pipefail
@@ -67,24 +52,18 @@ jobs:
           docker build \
             --build-arg BASE_IMAGE="${{ inputs.base_image }}" \
             --build-arg RUNTIME_USER="${{ inputs.runtime_user }}" \
-            --build-arg OPENCLAW_SOURCE_REPO="${{ inputs.openclaw_source_repo }}" \
-            --build-arg OPENCLAW_SOURCE_REF="${{ inputs.openclaw_source_ref }}" \
             --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.family=openclaw" \
             --label "org.opencontainers.image.base.name=${{ inputs.base_image }}" \
-            --label "org.opencontainers.image.openclaw.source=${{ inputs.openclaw_source_repo }}" \
-            --label "org.opencontainers.image.openclaw.revision=${{ inputs.openclaw_source_ref }}" \
-            --label "org.opencontainers.image.title=JiTech OpenClaw-family runtime ${{ inputs.image_tag }}" \
-            --label "org.opencontainers.image.description=OpenClaw-family runtime built from managed source with NAS document tools" \
+            --label "org.opencontainers.image.title=JiTech OpenClaw-family runtime wrapper ${{ inputs.image_tag }}" \
+            --label "org.opencontainers.image.description=OpenClaw-family runtime image wrapped with NAS document tools" \
             -t "$image_ref" \
             -f images/openclaw-nas-agent/Dockerfile .
 
-      - name: Verify image source and optional Control UI branding
+      - name: Verify wrapped runtime
         shell: bash
         env:
-          EXPECTED_LOGIN_TITLE: ${{ inputs.expected_login_title }}
-          OPENCLAW_SOURCE_REPO: ${{ inputs.openclaw_source_repo }}
-          OPENCLAW_SOURCE_REF: ${{ inputs.openclaw_source_ref }}
           BASE_IMAGE: ${{ inputs.base_image }}
         run: |
           set -euo pipefail
@@ -93,21 +72,11 @@ jobs:
           cleanup() { docker rm -f "$cid" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           tmp="$(mktemp -d)"
-          docker cp "$cid:/usr/local/share/openclaw-nas-agent-source.manifest" "$tmp/source.manifest"
-          grep -Fx "family=openclaw" "$tmp/source.manifest"
-          grep -Fx "source_repo=$OPENCLAW_SOURCE_REPO" "$tmp/source.manifest"
-          grep -Fx "source_ref=$OPENCLAW_SOURCE_REF" "$tmp/source.manifest"
-          grep -Fx "base_image=$BASE_IMAGE" "$tmp/source.manifest"
-          docker cp "$cid:/app/dist/control-ui" "$tmp/control-ui"
-          test -f "$tmp/control-ui/index.html"
-          test -d "$tmp/control-ui/assets"
-          if [[ -n "$EXPECTED_LOGIN_TITLE" ]]; then
-            js_file="$(find "$tmp/control-ui/assets" -maxdepth 1 -type f -name 'index-*.js' | head -n 1)"
-            test -n "$js_file"
-            grep -F "$EXPECTED_LOGIN_TITLE" "$js_file"
-            ! grep -F '<div class="login-gate__title">OpenClaw</div>' "$js_file"
-            ! grep -F 'alt="OpenClaw"' "$js_file"
-          fi
+          docker cp "$cid:/usr/local/share/agent-runtime-wrapper.manifest" "$tmp/wrapper.manifest"
+          grep -Fx "family=openclaw" "$tmp/wrapper.manifest"
+          grep -Fx "base_image=$BASE_IMAGE" "$tmp/wrapper.manifest"
+          docker cp "$cid:/app/dist/control-ui/index.html" "$tmp/index.html"
+          test -s "$tmp/index.html"
 
       - name: Check final image for baked secrets
         shell: bash

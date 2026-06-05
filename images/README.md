@@ -16,17 +16,16 @@ host .env files
 The host package installs and rolls out images through `svcops-control.sh`. It
 does not build images during normal server operation.
 
-OpenClaw UI/runtime customization is developed in the custom OpenClaw source
-repository, then this directory builds an image from that exact source commit.
-Hermes images have two source refs: Hermes Agent for backend/runtime behavior
-and Hermes Workspace for the browser UI. Do not maintain normal UI
-customization as minified asset rewrites here.
+OpenClaw/Hermes customization source is developed in product repositories.
+This directory does not checkout those repositories and does not build product
+source. It wraps already-built runtime image digests with shared NAS/HWP
+document tools.
 
 Directory layout:
 
 ```text
-images/openclaw-nas-agent/   OpenClaw-family image recipe
-images/hermes-workspace/     Hermes Agent base + Workspace source image recipe
+images/openclaw-nas-agent/   OpenClaw-family runtime wrapper
+images/hermes-workspace/     Hermes-family runtime wrapper
 images/shared/               document tooling shared by official images
 ```
 
