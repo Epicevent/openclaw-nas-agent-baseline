@@ -1,8 +1,17 @@
-# svcops Account
+# svcops 계정
 
-`svcops` is the restricted day-to-day operations account. It is not a full
-sudo/root account. Root actions are only allowed through
-`/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh`.
+`svcops`는 일상 운영용 제한 계정이다. full sudo/root 계정이 아니다. 기존
+baseline 작업은 `/opt/openclaw-nas-agent-baseline/scripts/svcops-control.sh`
+wrapper를 통해서만 실행한다.
+
+새 설치와 새 운영 기준은 `agent-runtime-ops`다. `svcops`에서 새 기준 상태를 볼
+때는 먼저 `opsctl`을 사용한다.
+
+```bash
+opsctl profile list
+opsctl status oc1
+opsctl plan oc1
+```
 
 ## Responsibility
 

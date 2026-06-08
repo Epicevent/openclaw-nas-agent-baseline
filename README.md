@@ -1,4 +1,21 @@
-# AI Agent Slot Operations
+# OpenClaw NAS Agent Baseline
+
+## 현재 기준
+
+새 설치와 새 운영 기준은 `Epicevent/agent-runtime-ops`다.
+
+관리자는 먼저 아래 명령으로 새 운영 도구를 설치하거나 갱신한다.
+
+```bash
+sudo -v && curl -fsSL https://raw.githubusercontent.com/Epicevent/agent-runtime-ops/main/go | sudo bash
+```
+
+이 저장소는 기존 서버 호환을 위한 운영 패키지다. 기존
+`svcops-control.sh`, NAS helper, health monitor, 기존 slot 운영을 유지하기 위해
+남긴다.
+
+새 runtime profile, 새 compose 적용 방식, 새 rollout 체계는 이 저장소에서 만들지
+않는다.
 
 이 저장소는 제품 소스 저장소가 아니라 서버 운영 패키지다.
 

@@ -33,7 +33,6 @@ That state can drift or break. The repair scripts handle the recoverable layer:
 - `~/.openclaw/exec-approvals.json`
 - `~/.openclaw/agents`
 - `~/.openclaw/plugin-skills`
-- `~/.openclaw/workspace/AGENTS.md`
 - `~/.openclaw/workspace/TOOLS.md`
 - `~/.openclaw/workspace/RECOVERY.md`
 - `~/.openclaw/workspace/.clawhub`

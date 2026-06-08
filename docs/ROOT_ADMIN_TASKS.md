@@ -3,6 +3,21 @@
 이 문서는 full sudo/root 권한이 필요한 작업만 모은다. 평소 운영은 `svcops`
 계정에서 wrapper로 수행한다.
 
+## 새 운영 도구 우선 설치
+
+실행 주체: **root 관리자**
+
+새 설치와 새 운영 기준은 `agent-runtime-ops`다. 기존 baseline은 서버 호환용
+운영 패키지다.
+
+먼저 새 운영 도구를 설치하거나 갱신한다.
+
+```bash
+sudo -v && curl -fsSL https://raw.githubusercontent.com/Epicevent/agent-runtime-ops/main/go | sudo bash
+sudo bash /opt/agent-runtime-ops/install.sh --check
+sudo -u svcops opsctl profile list
+```
+
 ## 기준 계정
 
 실행 주체: **root 관리자**
@@ -32,9 +47,12 @@ sudo pkill -KILL -u "$TARGET_USER" 2>/dev/null || true
 pgrep -u "$TARGET_USER" -a || echo "no_active_customer_process"
 ```
 
-## 운영 패키지 설치
+## 기존 baseline 운영 패키지 설치
 
 실행 주체: **root 관리자**
+
+이 절차는 기존 서버 호환을 위해 남긴다. 새 runtime profile, apply/check/rollback,
+rollout 설계는 `agent-runtime-ops`에서 다룬다.
 
 `/opt/openclaw-nas-agent-baseline`은 git checkout이 아니라 `install.sh`가 만든
 설치본이다. `/opt` 안에서 `git pull`하지 않는다.
